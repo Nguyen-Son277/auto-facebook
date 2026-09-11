@@ -1,0 +1,266 @@
+// ============================================================
+// Logic THUẦN của chế độ tự động: xử lý khung giờ và chọn trụ cột.
+//
+// Tách riêng khỏi autopilot.ts (file đó có "server-only", không test được
+// ngoài Next). Ở đây không import gì nên chạy và kiểm thử trực tiếp được
+// bằng Node — quan trọng vì đây là phần dễ sai nhất của tính năng.
+// ============================================================
+
+export const MIN_POSTS_PER_DAY = 1;
+export const MAX_POSTS_PER_DAY = 10;
+export const MAX_PLAN_AHEAD_DAYS = 7;
+export const MIN_GAP_MINUTES = 30;
+
+/** Cấu hình tối thiểu để tính slot giờ. */
+export type SlotConfig = {
+  postsPerDay: number;
+  windowStart: string;
+  windowEnd: string;
+  minGapMinutes: number;
+};
+
+/** "07:30" → 450 (phút tính từ 00:00). Trả null nếu sai định dạng. */
+export function parseHm(value: string): number | null {
+  const m = /^(\d{1,2}):(\d{2})$/.exec((value ?? "").trim());
+  if (!m) return null;
+  const h = Number(m[1]);
+  const min = Number(m[2]);
+  if (h < 0 || h > 23 || min < 0 || min > 59) return null;
+  return h * 60 + min;
+}
+
+/** 450 → "07:30" */
+export function formatHm(minutes: number): string {
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+}
+
+/** Thứ trong tuần theo chuẩn Việt Nam: 1 = Thứ Hai … 7 = Chủ Nhật. */
+export function isoDayOf(date: Date): number {
+  const d = date.getDay();
+  return d === 0 ? 7 : d;
+}
+
+/** "1,2,3" → [1,2,3]; rỗng hoặc sai → cả tuần. */
+export function parseDaysOfWeek(raw: string): number[] {
+  const days = (raw ?? "")
+    .split(",")
+    .map((s) => Number(s.trim()))
+    .filter((n) => Number.isInteger(n) && n >= 1 && n <= 7);
+  return days.length > 0 ? Array.from(new Set(days)).sort((a, b) => a - b) : [1, 2, 3, 4, 5, 6, 7];
+}
+
+export function startOfDay(date: Date): Date {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0);
+}
+
+export function formatDateKey(date: Date): string {
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${p(date.getMonth() + 1)}-${p(date.getDate())}`;
+}
+
+/**
+ * Chia khung giờ thành các slot rải đều cho một ngày.
+ *
+ * Vì sao không chọn ngẫu nhiên hoàn toàn? Vì ngẫu nhiên hay dồn 3 bài vào
+ * cùng một giờ. Cách này chia khung thành `n` đoạn bằng nhau rồi lấy ngẫu
+ * nhiên trong mỗi đoạn — vừa rải đều, vừa không lặp y hệt mỗi ngày.
+ *
+ * @param notBefore bỏ slot sớm hơn mốc này (dùng cho ngày hôm nay)
+ * @param random    hàm ngẫu nhiên, tiêm vào để test tất định
+ * @param takenMs   giờ đăng (epoch ms) của các bài ĐÃ có trong ngày — slot mới
+ *                  phải tránh xa những mốc này, nếu không lần lập kế hoạch thứ
+ *                  hai sẽ xếp bài chồng lên bài của lần đầu.
+ */
+export function planTimeSlots(
+  config: SlotConfig,
+  date: Date,
+  notBefore: Date | null = null,
+  random: () => number = Math.random,
+  takenMs: number[] = []
+): Date[] {
+  const startMin = parseHm(config.windowStart) ?? 7 * 60;
+  const endMin = parseHm(config.windowEnd) ?? 21 * 60;
+  const span = endMin - startMin;
+  if (span <= 0) return [];
+
+  const gap = Math.max(config.minGapMinutes || 0, MIN_GAP_MINUTES);
+
+  // Khung giờ quá hẹp thì giảm số bài cho vừa, không xếp chồng lên nhau
+  const requested = Math.min(Math.max(config.postsPerDay || 1, 1), MAX_POSTS_PER_DAY);
+  const maxFit = Math.max(Math.floor(span / gap) + 1, 1);
+  const count = Math.min(requested, maxFit);
+  if (count <= 0) return [];
+
+  const segLen = span / count;
+  const slots: number[] = [];
+
+  for (let i = 0; i < count; i++) {
+    const segStart = startMin + i * segLen;
+    // Chừa 25% cuối đoạn để bài không sát bài kế tiếp
+    slots.push(Math.round(segStart + random() * segLen * 0.75));
+  }
+
+  // Ép khoảng cách tối thiểu: slot nào quá gần slot trước thì đẩy ra
+  slots.sort((a, b) => a - b);
+  for (let i = 1; i < slots.length; i++) {
+    if (slots[i] - slots[i - 1] < gap) slots[i] = slots[i - 1] + gap;
+  }
+
+  // Đổi giờ của bài đã có sang "số phút trong ngày" để so sánh cùng đơn vị
+  const midnight = new Date(date);
+  midnight.setHours(0, 0, 0, 0);
+  const takenMinutes = takenMs
+    .map((ms) => Math.round((ms - midnight.getTime()) / 60000))
+    .filter((m) => m >= 0 && m <= 24 * 60);
+
+  const result: Date[] = [];
+  const used = [...takenMinutes];
+
+  for (const minutes of slots) {
+    if (minutes > endMin) continue; // đẩy ra ngoài khung thì bỏ
+
+    // Bỏ slot trùng giờ với bài đã có — đây là lý do bài bị xếp sát nhau
+    // khi bộ lập kế hoạch chạy nhiều lượt cho cùng một ngày.
+    if (used.some((t) => Math.abs(t - minutes) < gap)) continue;
+
+    const d = new Date(date);
+    d.setHours(0, 0, 0, 0);
+    d.setMinutes(minutes);
+    if (notBefore && d.getTime() < notBefore.getTime()) continue;
+
+    used.push(minutes);
+    result.push(d);
+  }
+  return result;
+}
+
+export type PillarLike = {
+  id: string;
+  name: string;
+  weight: number;
+  position: number;
+  goal: string;
+  description?: string | null;
+};
+
+/**
+ * Chọn trụ cột cho slot tiếp theo — "weighted round-robin làm mượt".
+ *
+ * Mỗi trụ cột có tỉ trọng (%). Thuật toán chọn trụ cột có tỉ lệ
+ * `số lần đã dùng / tỉ trọng` nhỏ nhất. Cách này tự cân bằng: trụ cột tỉ
+ * trọng cao được chọn nhiều hơn, nhưng không bao giờ bị chọn liên tiếp
+ * trong khi trụ cột khác chưa xuất hiện.
+ */
+export function pickPillar(pillars: PillarLike[], recentNames: string[]): PillarLike | null {
+  if (pillars.length === 0) return null;
+  if (pillars.length === 1) return pillars[0];
+
+  const usage = new Map<string, number>();
+  for (const name of recentNames) {
+    usage.set(name, (usage.get(name) ?? 0) + 1);
+  }
+
+  const scoreOf = (p: PillarLike) => (usage.get(p.name) ?? 0) / Math.max(p.weight, 1);
+
+  let best = pillars[0];
+  for (const p of pillars) {
+    if (scoreOf(p) < scoreOf(best)) best = p;
+  }
+
+  // Tránh lặp lại y hệt bài vừa đăng nếu còn lựa chọn khác
+  if (recentNames[0] === best.name) {
+    const alternative = pillars
+      .filter((p) => p.name !== best.name)
+      .sort((a, b) => scoreOf(a) - scoreOf(b))[0];
+    if (alternative) return alternative;
+  }
+
+  return best;
+}
+
+/** Giới hạn số bài/ngày người dùng nhập. */
+export function clampPostsPerDay(value: number): number {
+  if (!Number.isFinite(value)) return 2;
+  return Math.min(Math.max(Math.round(value), MIN_POSTS_PER_DAY), MAX_POSTS_PER_DAY);
+}
+
+/** Giới hạn số ngày lên kế hoạch trước. */
+export function clampPlanAheadDays(value: number): number {
+  if (!Number.isFinite(value)) return 2;
+  return Math.min(Math.max(Math.round(value), 1), MAX_PLAN_AHEAD_DAYS);
+}
+
+// ============================================================
+// XEN KẼ ẢNH / VIDEO
+//
+// Facebook KHÔNG cho đăng chung ảnh và video trong cùng một bài, nên
+// "xen kẽ" ở đây nghĩa là luân phiên GIỮA CÁC BÀI.
+//
+// Vì sao không dùng random thuần?
+//   Random thuần với tỉ lệ 25% hoàn toàn có thể ra 3 video liên tiếp rồi
+//   suốt tuần không có video nào. Người dùng đặt "25% video" là muốn thấy
+//   đều đặn khoảng 1/4 số bài là video.
+//
+// Cách làm: tính HẠN NGẠCH video cho mỗi ngày = round(số bài × tỉ lệ).
+// Trong ngày, chọn ngẫu nhiên bài nào là video nhưng không vượt hạn ngạch,
+// và khi số bài còn lại vừa đủ lấp hạn ngạch thì buộc phải là video.
+// Nhờ vậy tỉ lệ đúng theo ngày mà thứ tự vẫn tự nhiên.
+// ============================================================
+
+export const MEDIA_MIX_VALUES = ["IMAGE_ONLY", "VIDEO_ONLY", "MIXED"] as const;
+export type MediaMix = (typeof MEDIA_MIX_VALUES)[number];
+export type MediaKind = "IMAGE" | "VIDEO";
+
+/** Kẹp tỉ lệ video về khoảng hợp lệ. */
+export function clampVideoPercent(value: number): number {
+  if (!Number.isFinite(value)) return 25;
+  return Math.min(Math.max(Math.round(value), 0), 100);
+}
+
+/**
+ * Số bài video nên có trong một ngày.
+ *
+ * Làm tròn thường, nhưng nếu người dùng đặt tỉ lệ > 0 thì đảm bảo ít nhất
+ * 1 video — đặt 10% mà ngày nào cũng 0 video thì thà tắt hẳn còn hơn.
+ */
+export function videoQuotaForDay(postsPerDay: number, videoPercent: number): number {
+  const pct = clampVideoPercent(videoPercent);
+  if (pct <= 0) return 0;
+  if (pct >= 100) return postsPerDay;
+  const raw = Math.round((postsPerDay * pct) / 100);
+  return Math.min(Math.max(raw, 1), postsPerDay);
+}
+
+/**
+ * Quyết định bài thứ `index` trong ngày dùng ảnh hay video.
+ *
+ * @param index          vị trí bài trong ngày, bắt đầu từ 0
+ * @param postsPerDay    tổng số bài của ngày đó
+ * @param videosUsed     số video đã dùng trong ngày (tính cả bài đã tạo trước)
+ */
+export function decideMediaKind(
+  mix: string,
+  index: number,
+  postsPerDay: number,
+  videoPercent: number,
+  videosUsed: number,
+  random: () => number = Math.random
+): MediaKind {
+  if (mix === "VIDEO_ONLY") return "VIDEO";
+  if (mix !== "MIXED") return "IMAGE";
+
+  const quota = videoQuotaForDay(postsPerDay, videoPercent);
+  const remainingVideos = quota - videosUsed;
+
+  if (remainingVideos <= 0) return "IMAGE";
+
+  const remainingPosts = postsPerDay - index;
+  // Số bài còn lại vừa đủ lấp hạn ngạch → buộc phải là video
+  if (remainingVideos >= remainingPosts) return "VIDEO";
+
+  // Còn dư chỗ: rút thăm theo tỉ lệ video còn thiếu trên số bài còn lại.
+  // Cách này giữ đúng tỉ lệ tổng thể mà thứ tự vẫn ngẫu nhiên.
+  return random() < remainingVideos / remainingPosts ? "VIDEO" : "IMAGE";
+}

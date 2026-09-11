@@ -1,0 +1,298 @@
+// Prisma schema — Facebook Marketing Automation App
+// Lưu ý: SQLite không hỗ trợ enum nên các trạng thái dùng String.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model AppSetting {
+  key       String   @id // ví dụ: "ai.baseUrl", "facebook.appId"
+  value     String // đã mã hóa AES-256-GCM trước khi lưu
+  group     String // "AI" | "PEXELS" | "FACEBOOK"
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String?
+  password  String // bcrypt hash
+  role      String   @default("ADMIN")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  pages      FacebookPage[]
+  posts      Post[]
+  media      Media[]
+  brands     BrandProfile[]
+  pillars    ContentPillar[]
+  docs       KnowledgeDoc[]
+  autopilots AutoPilot[]
+}
+
+model FacebookPage {
+  id             String    @id @default(cuid())
+  userId         String
+  fbPageId       String    @unique // ID Page trên Facebook
+  name           String
+  category       String?
+  avatarUrl      String?
+  accessToken    String // Page Access Token (long-lived)
+  tokenExpiresAt DateTime? // ngày hết hạn token (nếu biết)
+  isActive       Boolean   @default(true)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  user  User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  posts Post[]
+
+  brand     BrandProfile?
+  pillars   ContentPillar[]
+  docs      KnowledgeDoc[]
+  autopilot AutoPilot?
+  usedMedia UsedMedia[]
+}
+
+model Post {
+  id           String    @id @default(cuid())
+  userId       String
+  pageId       String?
+  content      String // nội dung caption
+  /// Ý chính của bài (câu đầu tiên) — AI trả về riêng để hiển thị và kiểm tra
+  /// chất lượng. Null với bài cũ hoặc khi model không trả về trường này.
+  hook         String?
+  hashtags     String? // hashtag cách nhau bởi dấu cách
+  linkUrl      String? // link đính kèm (nếu có)
+  status       String    @default("DRAFT") // DRAFT | PENDING_REVIEW | SCHEDULED | PUBLISHING | PUBLISHED | FAILED
+  errorMessage String? // lỗi khi đăng (nếu có)
+  fbPostId     String? // ID bài đăng trên Facebook sau khi đăng thành công
+  scheduledAt  DateTime? // thời điểm hẹn đăng (Schedule tích hợp trong Post)
+  publishedAt  DateTime? // thời điểm đăng thực tế
+
+  // ---- Nguồn gốc bài đăng ----
+  origin     String  @default("MANUAL") // MANUAL (người dùng soạn) | AUTOPILOT (hệ thống tự tạo)
+  pillarName String? // trụ cột nội dung đã dùng (để xoay vòng và hiển thị)
+  topic      String? // chủ đề AI đã viết (với bài tự động)
+
+  // ---- Trạng thái worker tự động đăng (Tuần 6) ----
+  attempts      Int       @default(0) // số lần đã thử đăng
+  lastAttemptAt DateTime? // lần thử gần nhất
+  nextAttemptAt DateTime? // thời điểm thử lại sau lỗi (backoff)
+  lockedAt      DateTime? // worker đang giữ bài này (chống 2 worker đăng trùng)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user  User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  page  FacebookPage? @relation(fields: [pageId], references: [id], onDelete: SetNull)
+  media Media[]
+
+  // Truy vấn bài đến hạn của worker: lọc theo status + scheduledAt
+  @@index([status, scheduledAt])
+  @@index([status, nextAttemptAt])
+  // Đếm bài đã lên kế hoạch theo Page + ngày (bộ lập kế hoạch tự động)
+  @@index([pageId, origin, scheduledAt])
+}
+
+model Media {
+  id              String   @id @default(cuid())
+  postId          String? // null = ảnh trong thư viện, chưa gắn vào bài nào
+  userId          String? // chủ sở hữu (ảnh thư viện lưu theo user)
+  type            String // IMAGE | VIDEO
+  source          String   @default("PEXELS") // PEXELS | URL | UPLOAD
+  remoteUrl       String // URL file gốc (Pexels hoặc nơi lưu trữ)
+  previewUrl      String? // URL ảnh xem trước
+  width           Int?
+  height          Int?
+  duration        Int? // giây (chỉ video)
+  position        Int      @default(0) // thứ tự hiển thị trong bài
+  // ---- Thông tin nguồn (Pexels) để ghi công tác giả ----
+  providerId      String? // ID ảnh/video trên Pexels
+  photographer    String?
+  photographerUrl String?
+  sourcePageUrl   String?
+  alt             String?
+  // ---- File upload từ máy người dùng (video) ----
+  storageKey      String? // tên file trong thư mục uploads/<userId>/
+  mimeType        String?
+  sizeBytes       Int?
+  createdAt       DateTime @default(now())
+
+  post Post? @relation(fields: [postId], references: [id], onDelete: Cascade)
+  user User? @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([postId])
+}
+
+// ============================================================
+// HỒ SƠ THƯƠNG HIỆU — "tài liệu cơ bản về trang Facebook"
+//
+// Đây là nơi người dùng mô tả doanh nghiệp MỘT LẦN. Mọi nội dung AI
+// viết ra (thủ công lẫn tự động) đều dựa trên hồ sơ này, nhờ đó bài
+// đăng đúng ngành hàng, đúng khách hàng, đúng giọng điệu thương hiệu
+// thay vì chung chung.
+// ============================================================
+
+model BrandProfile {
+  id           String   @id @default(cuid())
+  userId       String
+  pageId       String   @unique // mỗi Page có đúng một hồ sơ
+  // ---- Thông tin cơ bản về doanh nghiệp ----
+  brandName    String? // tên thương hiệu (mặc định lấy tên Page)
+  tagline      String? // slogan / câu định vị
+  description  String? // giới thiệu doanh nghiệp vài câu
+  industry     String? // ngành hàng, ví dụ "Nội thất - rèm cửa"
+  products     String? // sản phẩm/dịch vụ chính, mỗi dòng một mục
+  usp          String? // điểm khác biệt so với đối thủ
+  priceRange   String? // khoảng giá để AI không bịa giá
+  audience     String? // khách hàng mục tiêu
+  // ---- Liên hệ (AI được phép dùng đúng những gì nhập ở đây) ----
+  address      String?
+  phone        String?
+  website      String?
+  // ---- Giọng điệu & quy tắc viết ----
+  tone         String   @default("friendly") // friendly|professional|exciting|inspiring|humorous
+  avoidTopics  String? // điều TUYỆT ĐỐI không nhắc tới
+  signatureCta String? // câu kêu gọi hành động quen thuộc
+  baseHashtags String? // hashtag luôn dùng cho Page này
+  samplePosts  String? // vài bài viết mẫu để AI bắt chước văn phong
+  notes        String? // ghi chú thêm cho AI
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  user User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  page FacebookPage @relation(fields: [pageId], references: [id], onDelete: Cascade)
+}
+
+/// Trụ cột nội dung: các "loại bài" cần xoay vòng để Page không nhàm chán.
+/// weight là tỉ trọng % — bộ lập kế hoạch dùng để chọn loại bài cho mỗi slot.
+model ContentPillar {
+  id          String   @id @default(cuid())
+  userId      String
+  pageId      String
+  name        String // ví dụ "Giới thiệu sản phẩm"
+  description String? // hướng dẫn cách viết loại bài này
+  goal        String   @default("engagement") // engagement|sales|awareness|education
+  weight      Int      @default(25) // tỉ trọng tương đối
+  enabled     Boolean  @default(true)
+  position    Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  page FacebookPage @relation(fields: [pageId], references: [id], onDelete: Cascade)
+
+  @@index([pageId, enabled])
+}
+
+/// Kho tài liệu: bảng giá, câu hỏi thường gặp, chính sách, câu chuyện
+/// thương hiệu... AI đọc những tài liệu này để viết đúng sự thật.
+model KnowledgeDoc {
+  id        String   @id @default(cuid())
+  userId    String
+  pageId    String
+  title     String
+  kind      String   @default("OTHER") // PRODUCT|PRICE|FAQ|POLICY|STORY|OTHER
+  content   String
+  enabled   Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  page FacebookPage @relation(fields: [pageId], references: [id], onDelete: Cascade)
+
+  @@index([pageId, enabled])
+}
+
+// ============================================================
+// CHẾ ĐỘ TỰ ĐỘNG — người dùng chỉ đặt thông số, hệ thống chạy liên tục.
+//
+// Bộ lập kế hoạch (src/lib/autopilot.ts) đọc bảng này, tự tạo đủ số bài
+// cho vài ngày tới với giờ đăng nằm trong khung người dùng chọn, rồi để
+// scheduler hiện có đăng chúng.
+// ============================================================
+
+model AutoPilot {
+  id      String  @id @default(cuid())
+  userId  String
+  pageId  String  @unique // mỗi Page một cấu hình
+  /// false = không tự tạo bài nào (vẫn giữ cấu hình để bật lại)
+  enabled Boolean @default(false)
+  /// AUTO = tạo bài rồi tự đăng khi tới giờ
+  /// REVIEW = tạo bài ở trạng thái chờ duyệt, người dùng duyệt mới đăng
+  mode    String  @default("REVIEW")
+
+  // ---- Người dùng chỉ cần chọn mấy thông số này ----
+  postsPerDay   Int    @default(2) // mỗi ngày đăng mấy bài
+  windowStart   String @default("07:00") // khung giờ đăng: từ lúc nào...
+  windowEnd     String @default("21:00") // ...đến lúc nào
+  daysOfWeek    String @default("1,2,3,4,5,6,7") // 1=Thứ Hai … 7=Chủ Nhật
+  minGapMinutes Int    @default(120) // khoảng cách tối thiểu giữa 2 bài
+
+  // ---- Tự tìm ảnh/video ----
+  autoMedia     Boolean @default(true)
+  /// Giữ lại để tương thích với cấu hình cũ; mediaMix mới có quyền quyết định.
+  mediaKind     String  @default("IMAGE") // IMAGE | VIDEO
+  photosPerPost Int     @default(2)
+  /// IMAGE_ONLY = mọi bài dùng ảnh
+  /// VIDEO_ONLY = mọi bài dùng video
+  /// MIXED      = luân phiên theo tỉ lệ videoPercent
+  ///
+  /// Facebook KHÔNG cho đăng chung ảnh và video trong cùng một bài, nên
+  /// "xen kẽ" ở đây nghĩa là luân phiên GIỮA CÁC BÀI.
+  mediaMix      String  @default("IMAGE_ONLY")
+  /// Phần trăm số bài dùng video khi mediaMix = MIXED (0–100).
+  videoPercent  Int     @default(25)
+
+  // ---- Nội dung ----
+  length        String  @default("medium") // short|medium|long
+  toneOverride  String? // để trống = dùng giọng điệu của hồ sơ thương hiệu
+  useHashtags   Boolean @default(true)
+  planAheadDays Int     @default(2) // lên kế hoạch trước mấy ngày
+
+  // ---- Sổ theo dõi để không lên kế hoạch trùng / không spam khi AI lỗi ----
+  lastPlannedAt DateTime?
+  lastPlanError String?
+  lastPlanCount Int       @default(0) // số bài tạo ra ở lần lập kế hoạch gần nhất
+  totalPlanned  Int       @default(0) // tổng số bài đã tạo từ trước tới nay
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  page FacebookPage @relation(fields: [pageId], references: [id], onDelete: Cascade)
+}
+
+// ============================================================
+// CHỐNG TRÙNG ẢNH GIỮA CÁC BÀI
+//
+// Pexels trả kết quả theo thứ tự phổ biến, nên cùng một từ khóa thường
+// ra cùng vài tấm đầu. Nếu không ghi lại, Page sẽ đăng đi đăng lại vài
+// tấm ảnh giống nhau. Bảng này ghi mọi ảnh/video đã dùng cho từng Page
+// để bộ chọn media loại chúng ra.
+//
+// Chỉ lưu providerId (ID trên Pexels), không lưu file — rất nhẹ.
+// ============================================================
+
+model UsedMedia {
+  id         String   @id @default(cuid())
+  pageId     String
+  /// ID ảnh/video trên Pexels
+  providerId String
+  type       String // IMAGE | VIDEO
+  usedAt     DateTime @default(now())
+
+  page FacebookPage @relation(fields: [pageId], references: [id], onDelete: Cascade)
+
+  // Mỗi Page chỉ ghi một dòng cho mỗi ảnh
+  @@unique([pageId, providerId])
+  // Truy vấn "ảnh đã dùng trong 60 ngày gần đây"
+  @@index([pageId, usedAt])
+}

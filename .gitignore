@@ -39,3 +39,22 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+/src/generated/prisma
+
+# project
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+/uploads/
+.tmp-e2e/
+.npm-cache/
+.config/
+
+# DB test riêng + bản sao lưu (không commit dữ liệu)
+/backups/
+/test.db
+/test.db-journal
+/test.db-wal
+/test.db-shm

@@ -1,25 +1,53 @@
 {
-  "name": "scaffold-tmp",
+  "name": "marketing-facebook",
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
     "build": "next build",
+    "db:backup": "node scripts/backup-db.mjs",
+    "dev": "next dev",
+    "dev:test": "DATABASE_URL=\"file:./test.db\" FB_GRAPH_BASE_URL=\"http://127.0.0.1:4021\" PEXELS_BASE_URL=\"http://127.0.0.1:4030\" AI_BASE_URL=\"http://127.0.0.1:4010/v1\" next dev",
+    "lint": "eslint",
+    "mock:ai": "node scripts/mock-ai-server.mjs",
+    "mock:fb": "node scripts/mock-fb-server.mjs",
+    "mock:pexels": "node scripts/mock-pexels-server.mjs",
     "start": "next start",
-    "lint": "eslint"
+    "test:db:prepare": "node scripts/prepare-test-db.mjs",
+    "test:e2e": "node scripts/e2e-settings.mjs",
+    "test:e2e:composer": "node scripts/e2e-composer.mjs",
+    "test:e2e:media": "node scripts/e2e-media.mjs",
+    "test:e2e:scheduler": "node scripts/e2e-scheduler-inapp.mjs",
+    "test:e2e:week5": "node scripts/e2e-week5.mjs",
+    "test:e2e:week6": "node scripts/e2e-week6.mjs",
+    "worker": "node scripts/worker.mjs",
+    "test:plan": "node --experimental-strip-types --no-warnings scripts/test-autopilot-plan.mjs",
+    "test:readability": "node --experimental-strip-types --no-warnings scripts/test-readability.mjs",
+    "test:e2e:optimize": "node scripts/e2e-autopilot-optimize.mjs",
+    "test:e2e:autopilot": "node scripts/e2e-autopilot.mjs",
+    "test:e2e:autopilot:cycle": "node scripts/e2e-autopilot-fullcycle.mjs"
   },
   "dependencies": {
+    "@prisma/adapter-better-sqlite3": "^7.10.0",
+    "@prisma/client": "^7.10.0",
+    "better-sqlite3": "^13.0.3",
+    "dotenv": "^17.4.2",
+    "jose": "^6.2.12",
     "next": "16.3.4",
     "react": "19.2.8",
-    "react-dom": "19.2.8"
+    "react-dom": "19.2.8",
+    "server-only": "^0.0.1"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
+    "@types/bcryptjs": "^2.4.6",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "bcryptjs": "^3.0.3",
     "eslint": "^9",
     "eslint-config-next": "16.3.4",
+    "playwright": "^1.63.0",
+    "prisma": "^7.10.0",
     "tailwindcss": "^4",
     "typescript": "^5"
   }
