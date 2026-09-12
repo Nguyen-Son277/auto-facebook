@@ -409,12 +409,17 @@ tất cả). Trang Cài đặt đã xoá khối Facebook Graph API (chuyển san
 
 **Hoàn thành khi:** không đăng trùng khi worker chạy song song hoặc tiến trình bị khởi động lại.
 
-### Giai đoạn 7: Quản trị và báo cáo
+### Giai đoạn 7: Quản trị và báo cáo (một phần ✅)
 
-- Thêm audit log.
-- Báo cáo theo workspace, Brand, Page và connection.
-- Theo dõi token sắp hết hạn, lỗi quyền và tỷ lệ đăng thành công.
-- Thêm lời mời thành viên và RBAC đầy đủ.
+- ✅ **Quản trị tài khoản**: đăng ký mở → chờ admin duyệt tại `/admin`;
+  duyệt kèm mật khẩu tạm + buộc đổi mật khẩu lần đăng nhập đầu; từ chối/khoá
+  giữ dữ liệu (mở lại được); reset mật khẩu; đổi role ADMIN/USER; tạo tài
+  khoản trực tiếp; xóa vĩnh viễn có xác nhận 2 bước. Admin hệ thống seed bằng
+  `npm run db:seed-admin`. Test: `npm run test:admin` (21 check).
+- Thêm audit log. (còn lại)
+- Báo cáo theo workspace, Brand, Page và connection. (còn lại)
+- Theo dõi token sắp hết hạn, lỗi quyền và tỷ lệ đăng thành công. (còn lại)
+- Thêm lời mời thành viên và RBAC đầy đủ. (còn lại)
 
 ## 11. Chiến lược kiểm thử
 

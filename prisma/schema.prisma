@@ -23,7 +23,13 @@ model User {
   email     String   @unique
   name      String?
   password  String // bcrypt hash
-  role      String   @default("ADMIN")
+  role      String   @default("ADMIN") // ADMIN | USER
+  /// Quản trị tài khoản: null = kế thừa (không ràng buộc) | PENDING | APPROVED | REJECTED.
+  /// Role ADMIN bỏ qua kiểm tra này.
+  status             String?
+  /// Bật khi admin cấp mật khẩu tạm — buộc đổi mật khẩu ngay lần đăng nhập đầu.
+  mustChangePassword Boolean  @default(false)
+  passwordChangedAt  DateTime?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

@@ -16,8 +16,19 @@ const NAV_ITEMS = [
   { href: "/settings", label: "Cài đặt", icon: "⚙️" },
 ];
 
-export default function SidebarNav({ orientation }: { orientation: "vertical" | "horizontal" }) {
+const ADMIN_ITEMS = [
+  { href: "/admin", label: "Quản trị", icon: "🛡️" },
+];
+
+export default function SidebarNav({
+  orientation,
+  role = "USER",
+}: {
+  orientation: "vertical" | "horizontal";
+  role?: string;
+}) {
   const pathname = usePathname();
+  const items = role === "ADMIN" ? [...NAV_ITEMS, ...ADMIN_ITEMS] : NAV_ITEMS;
 
   const isActive = (href: string) =>
     pathname === href || pathname.startsWith(`${href}/`);
@@ -30,7 +41,7 @@ export default function SidebarNav({ orientation }: { orientation: "vertical" | 
           : "flex flex-row gap-1 overflow-x-auto px-3"
       }
     >
-      {NAV_ITEMS.map((item) => (
+      {items.map((item) => (
         <Link
           key={item.href}
           href={item.href}

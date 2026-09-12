@@ -10,6 +10,8 @@ export type CurrentUser = {
   email: string;
   name: string | null;
   role: string;
+  status: string | null;
+  mustChangePassword: boolean;
 };
 
 /**
@@ -23,8 +25,15 @@ export const getCurrentUser = cache(
 
     const user = await prisma.user.findUnique({
       where: { id: session.userId },
-      select: { id: true, email: true, name: true, role: true },
+      select: {
+        id: true, email: true, name: true, role: true,
+        status: true, mustChangePassword: true,
+      },
     });
+    if (!user) return null;
+    // Quản trị tài khoản: ADMIN bỏ qua; user thường phải đã được duyệt.
+    // PENDING / REJECTED → coi như chưa đăng nhập (login sẽ báo lý do cụ thể).
+    if (user.role !== "ADMIN" && user.status !== "APPROVED") return null;
     return user;
   }
 );
@@ -39,6 +48,18 @@ export async function requireCurrentUser(): Promise<CurrentUser> {
     redirect("/login");
   }
   return user;
+}
+
+/**
+ * Trang private phải gọi ngay sau requireCurrentUser: nếu admin vừa cấp
+ * mật khẩu tạm (mustChangePassword) → ép sang trang đổi mật khẩu trước.
+ * ADMIN cũng không miễn trừ — mật khẩu tạm ai cũng phải đổi.
+ */
+export async function requireNoPendingPasswordChange(): Promise<void> {
+  const user = await getCurrentUser();
+  if (user?.mustChangePassword) {
+    redirect("/change-password");
+  }
 }
 
 // ============================================================

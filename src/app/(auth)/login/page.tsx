@@ -75,9 +75,10 @@ export default function LoginPage() {
 
       <p className="mt-6 text-center text-sm text-gray-500">
         Chưa có tài khoản?{" "}
-        <Link href="/setup" className="font-medium text-blue-600 hover:underline">
-          Thiết lập ban đầu
-        </Link>
+        <Link href="/register" className="font-medium text-blue-600 hover:underline">
+          Đăng ký
+        </Link>{" "}
+        — quản trị viên sẽ duyệt trước khi bạn vào được.
       </p>
     </div>
   );

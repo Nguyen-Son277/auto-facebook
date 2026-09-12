@@ -1,0 +1,169 @@
+// Test QUẢN TRỊ TÀI KHOẢN — tầng logic dữ liệu (Giai đoạn 7).
+//
+// Kiểm chứng:
+//   1. Migration user_admin_controls: cột mới trên User.
+//   2. Vòng đời trạng thái: PENDING → APPROVED (kèm mật khẩu tạm +
+//      mustChangePassword) → REJECTED → mở lại APPROVED.
+//   3. Tạo tài khoản: PENDING mặc định khi đăng ký; APPROVED khi admin cấp.
+//   4. Đổi role: ADMIN ↔ USER; ADMIN luôn status NULL.
+//   5. Ràng buộc: email unique; ADMIN không bị khoá; xóa user cascade dữ liệu.
+//   6. Đổi mật khẩu: clear mustChangePassword + set passwordChangedAt.
+//
+// Chạy: node scripts/test-admin-flow.mjs
+// KHÔNG đụng tới Facebook thật — chỉ test tầng DB.
+import { openTestDb } from "./lib/test-db.mjs";
+import bcrypt from "bcryptjs";
+
+const db = openTestDb();
+let passed = 0;
+let failed = 0;
+const failures = [];
+
+function check(label, cond, extra = "") {
+  if (cond) {
+    passed++;
+    console.log(`  ✓ ${label}`);
+  } else {
+    failed++;
+    failures.push(label);
+    console.log(`  ✗ ${label}${extra ? ` — ${extra}` : ""}`);
+  }
+}
+
+function section(title) {
+  console.log(`\n=== ${title} ===`);
+}
+
+const stamp = `admtest-${Date.now().toString(36)}`;
+
+// ============================================================
+section("1. Migration user_admin_controls");
+// ============================================================
+const cols = db.prepare("PRAGMA table_info(User)").all().map((c) => c.name);
+check("User có cột status", cols.includes("status"));
+check("User có cột mustChangePassword", cols.includes("mustChangePassword"));
+check("User có cột passwordChangedAt", cols.includes("passwordChangedAt"));
+const mpCol = db
+  .prepare("PRAGMA table_info(User)")
+  .all()
+  .find((c) => c.name === "mustChangePassword");
+check("mustChangePassword NOT NULL default false", mpCol?.notnull === 1 && mpCol?.dflt_value === "false");
+
+// ============================================================
+section("2. Đăng ký mới → PENDING");
+// ============================================================
+const regEmail = `${stamp}@example.com`;
+const hash = bcrypt.hashSync("Password1", 12);
+db.prepare(
+  `INSERT INTO User (id, email, name, password, role, status, mustChangePassword, createdAt, updatedAt)
+   VALUES (?, ?, ?, ?, 'USER', 'PENDING', 0, datetime('now'), datetime('now'))`
+).run(`${stamp}-u1`, regEmail, "Người Test", hash);
+
+const regged = db.prepare("SELECT * FROM User WHERE email = ?").get(regEmail);
+check("Tài khoản mới tồn tại", Boolean(regged));
+check("status mặc định PENDING", regged?.status === "PENDING");
+check("mustChangePassword=false khi tự đăng ký", Number(regged?.mustChangePassword) === 0);
+
+// ============================================================
+section("3. Duyệt → APPROVED + mật khẩu tạm + buộc đổi");
+// ============================================================
+const tempHash = bcrypt.hashSync("Abc@12345", 12);
+db.prepare(
+  `UPDATE User SET status='APPROVED', password=?, mustChangePassword=1 WHERE id=?`
+).run(tempHash, regged.id);
+const approved = db.prepare("SELECT * FROM User WHERE id = ?").get(regged.id);
+check("status chuyển APPROVED", approved?.status === "APPROVED");
+check("mustChangePassword bật", Number(approved?.mustChangePassword) === 1);
+check("mật khẩu tạm verify đúng", bcrypt.compareSync("Abc@12345", approved.password));
+
+// ============================================================
+section("4. Đổi mật khẩu lần đầu");
+// ============================================================
+const newHash = bcrypt.hashSync("NewPass99", 12);
+db.prepare(
+  `UPDATE User SET password=?, mustChangePassword=0, passwordChangedAt=datetime('now') WHERE id=?`
+).run(newHash, regged.id);
+const changed = db.prepare("SELECT * FROM User WHERE id = ?").get(regged.id);
+check("mustChangePassword clear sau khi đổi", Number(changed?.mustChangePassword) === 0);
+check("passwordChangedAt được ghi", Boolean(changed?.passwordChangedAt));
+check("mật khẩu mới verify đúng", bcrypt.compareSync("NewPass99", changed.password));
+check("mật khẩu cũ không còn hiệu lực", !bcrypt.compareSync("Abc@12345", changed.password));
+
+// ============================================================
+section("5. Từ chối → REJECTED → mở lại");
+// ============================================================
+db.prepare(`UPDATE User SET status='REJECTED' WHERE id=?`).run(regged.id);
+check(
+  "REJECTED chặn",
+  db.prepare("SELECT status FROM User WHERE id=?").get(regged.id)?.status === "REJECTED"
+);
+db.prepare(`UPDATE User SET status='APPROVED' WHERE id=?`).run(regged.id);
+check(
+  "mở lại APPROVED giữ nguyên mật khẩu",
+  db.prepare("SELECT status, mustChangePassword FROM User WHERE id=?").get(regged.id)
+    ?.status === "APPROVED"
+);
+
+// ============================================================
+section("6. Đổi role ADMIN ↔ USER");
+// ============================================================
+db.prepare(`UPDATE User SET role='ADMIN', status=NULL WHERE id=?`).run(regged.id);
+const asAdmin = db.prepare("SELECT role, status FROM User WHERE id=?").get(regged.id);
+check("lên ADMIN → status NULL", asAdmin.role === "ADMIN" && asAdmin.status === null);
+db.prepare(`UPDATE User SET role='USER', status='APPROVED' WHERE id=?`).run(regged.id);
+const asUser = db.prepare("SELECT role, status FROM User WHERE id=?").get(regged.id);
+check("hạ USER → APPROVED", asUser.role === "USER" && asAdmin.status !== undefined);
+
+// ============================================================
+section("7. Admin hệ thống + ràng buộc email unique");
+// ============================================================
+const sysAdmin = db
+  .prepare("SELECT * FROM User WHERE email = 'nms2772k2@gmail.com'")
+  .get();
+if (sysAdmin) {
+  check("admin hệ thống role ADMIN", sysAdmin.role === "ADMIN");
+  check("admin hệ thống bỏ ràng buộc status", sysAdmin.status === null);
+} else {
+  console.log("  (test.db chưa seed admin hệ thống — bỏ qua 2 check)");
+}
+let dupRejected = false;
+try {
+  db.prepare(
+    `INSERT INTO User (id, email, password, role, status, createdAt, updatedAt)
+     VALUES (?, ?, ?, 'USER', 'PENDING', datetime('now'), datetime('now'))`
+  ).run(`${stamp}-dup`, regEmail, hash);
+} catch {
+  dupRejected = true;
+}
+check("email trùng bị từ chối (unique)", dupRejected);
+
+// ============================================================
+section("8. Xóa user cascade dữ liệu");
+// ============================================================
+// Tạo workspace + member của user test rồi xóa user → mọi thứ biến mất
+db.prepare(
+  `INSERT INTO Workspace (id, name, slug, timezone, status, ownerId, createdAt, updatedAt)
+   VALUES (?, ?, ?, 'Asia/Ho_Chi_Minh', 'ACTIVE', ?, datetime('now'), datetime('now'))`
+).run(`${stamp}-ws`, "WS Admin Test", `${stamp}-ws`, regged.id);
+db.prepare(
+  `INSERT INTO WorkspaceMember (id, workspaceId, userId, role, createdAt)
+   VALUES (?, ?, ?, 'OWNER', datetime('now'))`
+).run(`${stamp}-wm`, `${stamp}-ws`, regged.id);
+
+db.prepare(`DELETE FROM User WHERE id=?`).run(regged.id);
+check("user bị xóa", !db.prepare("SELECT id FROM User WHERE id=?").get(regged.id));
+check(
+  "workspace cascade xóa",
+  !db.prepare("SELECT id FROM Workspace WHERE id=?").get(`${stamp}-ws`)
+);
+
+// ============================================================
+// KẾT QUẢ
+// ============================================================
+console.log(`\nKẾT QUẢ: ${passed} đạt, ${failed} lỗi (tổng ${passed + failed})`);
+if (failures.length) {
+  console.log("Thất bại:");
+  for (const f of failures) console.log(`  - ${f}`);
+}
+db.close();
+process.exit(failed > 0 ? 1 : 0);

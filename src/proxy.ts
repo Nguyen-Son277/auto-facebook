@@ -3,7 +3,7 @@ import { NextResponse, type NextRequest } from "next/server";
 const SESSION_COOKIE_NAME = process.env.SESSION_COOKIE_NAME ?? "session";
 
 // Trang public: không yêu cầu đăng nhập
-const PUBLIC_PATHS = ["/login", "/setup"];
+const PUBLIC_PATHS = ["/login", "/setup", "/register"];
 
 /**
  * API tự xử lý xác thực riêng nên proxy không được chuyển hướng:
@@ -36,7 +36,10 @@ export function proxy(request: NextRequest) {
     return NextResponse.redirect(loginUrl);
   }
 
-  if (hasSessionCookie && (pathname === "/login" || pathname === "/setup")) {
+  if (
+    hasSessionCookie &&
+    (pathname === "/login" || pathname === "/setup" || pathname === "/register")
+  ) {
     return NextResponse.redirect(new URL("/dashboard", request.url));
   }
 

@@ -1,4 +1,4 @@
-import { requireCurrentUser } from "@/lib/dal";
+import { requireCurrentUser, requireNoPendingPasswordChange } from "@/lib/dal";
 import { logout } from "@/app/actions/auth";
 import SidebarNav from "@/components/sidebar-nav";
 
@@ -8,6 +8,8 @@ export default async function DashboardLayout({
   children: React.ReactNode;
 }) {
   const user = await requireCurrentUser();
+  // Mật khẩu tạm do admin cấp → phải đổi trước khi dùng bất kỳ trang nào
+  await requireNoPendingPasswordChange();
 
   return (
     <div className="flex min-h-screen bg-gray-50">
@@ -24,7 +26,7 @@ export default async function DashboardLayout({
         </div>
 
         <div className="flex-1 py-2">
-          <SidebarNav orientation="vertical" />
+          <SidebarNav orientation="vertical" role={user.role} />
         </div>
 
         <div className="border-t border-gray-200 p-4">
@@ -62,7 +64,7 @@ export default async function DashboardLayout({
               </button>
             </form>
           </div>
-          <SidebarNav orientation="horizontal" />
+          <SidebarNav orientation="horizontal" role={user.role} />
         </header>
 
         <main className="flex-1 p-4 md:p-8">{children}</main>

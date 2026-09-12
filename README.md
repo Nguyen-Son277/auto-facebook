@@ -45,6 +45,29 @@ npm run dev
 
 Mở http://localhost:3000 — lần đầu sẽ được chuyển tới **/setup** để tạo tài khoản admin.
 
+## Quản trị tài khoản (hệ thống riêng tư)
+
+App chỉ mở cho người dùng được admin cấp quyền:
+
+- **Admin hệ thống**: tạo sẵn bằng `npm run db:seed-admin`
+  (mặc định `nms2772k2@gmail.com` / `Admin@123` — **lần đăng nhập đầu bắt buộc đổi mật khẩu**).
+- **Đăng ký**: người vào `/register` gửi đăng ký → tài khoản ở trạng thái **Chờ duyệt**,
+  chưa đăng nhập được.
+- **Duyệt**: admin vào **🛡️ Quản trị** (`/admin`) → bấm **Duyệt**, đặt **mật khẩu tạm**
+  (gợi ý `Abc@12345`) → gửi cho người dùng. Họ **bắt buộc đổi mật khẩu** ở lần đăng nhập đầu.
+- **Từ chối/Khoá**: chặn đăng nhập, giữ nguyên dữ liệu — mở lại được bất cứ lúc nào.
+- **Reset mật khẩu**: cấp mật khẩu tạm mới khi người dùng quên.
+- **Xoá hẳn**: phá hủy toàn bộ dữ liệu của user (confirm 2 bước) — cân nhắc dùng Khoá thay thế.
+- **Tạo tài khoản trực tiếp**: admin cấp tài khoản cho người khác mà không cần họ đăng ký.
+- Khi **duyệt** hoặc **reset mật khẩu**, admin đặt mật khẩu tạm (không dùng lại mật khẩu
+  người đăng ký tự chọn) → người dùng buộc đổi ngay lần đăng nhập đầu. Khi chỉ **mở lại**
+  tài khoản bị khoá, mật khẩu cũ được giữ nguyên — không buộc đổi.
+
+| Lệnh | Mục đích |
+|---|---|
+| `npm run db:seed-admin` | Tạo admin hệ thống + chuẩn hóa trạng thái user cũ |
+| `npm run test:admin` | Test luồng quản trị (21 check, chạy trên test.db) |
+
 ## Các lệnh hữu ích
 
 | Lệnh | Mục đích |
@@ -60,11 +83,11 @@ Mở http://localhost:3000 — lần đầu sẽ được chuyển tới **/setu
 ```
 src/
 ├── app/
-│   ├── (auth)/            # /login, /setup — trang public
-│   ├── (dashboard)/       # Trang private (dashboard, composer, brand, autopilot, media, history, calendar, facebook-apps, pages, settings)
+│   ├── (auth)/            # /login, /register, /setup, /change-password
+│   ├── (dashboard)/       # Trang private (dashboard, composer, brand, autopilot, media, history, calendar, facebook-apps, pages, settings, admin)
 │   ├── api/uploads/       # Route Handler nhận/phát/xóa file video upload
 │   ├── api/cron/tick/     # Endpoint cho worker/cron chạy một vòng scheduler
-│   ├── actions/           # Server Actions: auth, settings, pages, composer, media, publish, history, schedule, brand, autopilot
+│   ├── actions/           # Server Actions: auth, admin, settings, pages, composer, media, publish, history, schedule, brand, autopilot
 │   └── proxy.ts           # Guard redirect (Next 16 — thay cho middleware.ts)
 ├── components/            # UI dùng chung (composer-studio, media-browser, brand-editor, autopilot-dashboard...)
 ├── lib/
