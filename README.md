@@ -629,12 +629,33 @@ npm run db:seed-admin  # tạo admin đầu tiên từ ADMIN_EMAIL + ADMIN_PASSW
 
 ## 4. Vercel
 
-1. Import repo GitHub vào Vercel, framework **Next.js**, Node **22.x**, region **sin1**.
+1. Import repo GitHub vào Vercel, framework **Next.js**, Node **22.x**.
 2. Dán toàn bộ biến ở mục 2 cho **Production** (và Preview).
 3. Deploy. `postinstall` tự chạy `prisma generate` (bắt buộc vì `src/generated/prisma`
    không được commit).
-4. Không cần `vercel.json`; không bật migrate tự động trong build để tránh preview
-   deploy ghi vào DB thật.
+4. Không bật migrate tự động trong build để tránh preview deploy ghi vào DB thật.
+
+### ⚠️ Bắt buộc: ghim region về Singapore (`sin1`)
+
+Mặc định Vercel chạy function ở **Washington, D.C. (`iad1`)**, trong khi Supabase ở
+Singapore. Mỗi truy vấn DB khi đó phải vòng **Mỹ ↔ Singapore** (~230ms), làm trang
+nặng mất **1,8–3,5 giây**. Repo đã có sẵn `vercel.json`:
+
+```json
+{ "$schema": "https://openapi.vercel.sh/vercel.json", "regions": ["sin1"] }
+```
+
+Hoặc đặt trong Dashboard: **Settings → Functions → Function Regions → Singapore**.
+(Hobby chỉ được 1 region.)
+
+**Cách kiểm tra đã đúng chưa** — xem header `x-vercel-id`:
+
+```bash
+curl -s -o /dev/null -D - -H "Cookie: session=..." https://<domain>/dashboard | grep x-vercel-id
+```
+
+- `sin1::iad1::…` → **SAI**, function đang chạy ở Mỹ.
+- `sin1::sin1::…` → **ĐÚNG**, function chạy cạnh DB.
 
 ### Vì sao `SCHEDULER_IN_PROCESS=0`?
 
