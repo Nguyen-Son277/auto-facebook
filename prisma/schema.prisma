@@ -45,6 +45,11 @@ model User {
   workspaces       Workspace[] // workspace user sở hữu (owner)
   workspaceMembers WorkspaceMember[]
   facebookCreated  FacebookConnection[]
+
+  // ---- Thông báo & cấu hình & tài liệu ----
+  notifications Notification[]
+  userSettings  UserSetting[]
+  docsWritten   Doc[]
 }
 
 // ============================================================
@@ -456,4 +461,76 @@ model UsedMedia {
   @@unique([pageId, providerId])
   // Truy vấn "ảnh đã dùng trong 60 ngày gần đây"
   @@index([pageId, usedAt])
+}
+
+// ============================================================
+// THÔNG BÁO CHO NGƯỜI DÙNG
+//
+// Ba nguồn: ACTIVITY (sự kiện bài viết của chính user: đăng thành
+// công/thất bại, AutoPilot tạo bài chờ duyệt), ADMIN (admin gửi:
+// duyệt/từ chối/reset mật khẩu/broadcast/bài viết mới), SYSTEM
+// (hệ thống: chưa cấu hình AI/Pexels key...).
+//
+// Chỉ đánh dấu đã đọc, không xoá — lịch sử thông tin giữ nguyên.
+// ============================================================
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String // người nhận
+  type      String // ACTIVITY | ADMIN | SYSTEM
+  title     String
+  body      String?
+  link      String? // URL nội bộ để bấm tới (/history, /change-password...)
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, read, createdAt])
+}
+
+// ============================================================
+// CẤU HÌNH THEO TỪNG USER
+//
+// Key AI (OpenAI-compatible) và Pexels là tài sản riêng của từng
+// người dùng — không dùng chung, không fallback env. Value được
+// mã hóa AES-256-GCM như AppSetting.
+// ============================================================
+
+model UserSetting {
+  id        String   @id @default(cuid())
+  userId    String
+  key       String // "ai.baseUrl" | "ai.apiKey" | "ai.model" | "pexels.apiKey"
+  value     String // đã mã hóa
+  group     String // "AI" | "PEXELS"
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, key])
+}
+
+// ============================================================
+// TÀI LIỆU HƯỚNG DẪN / BẢNG TIN ADMIN
+//
+// Markdown thuần (renderer tự viết, escape mọi HTML). Admin tạo/sửa
+// tại /admin; user đọc tại /docs. Chỉ Doc published hiện cho user.
+// ============================================================
+
+model Doc {
+  id            String   @id @default(cuid())
+  title         String
+  slug          String   @unique
+  bodyMarkdown  String
+  published     Boolean  @default(false)
+  /// Gửi thông báo cho mọi user khi publish?
+  notifyOnPublish Boolean @default(false)
+  authorId      String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  author User @relation(fields: [authorId], references: [id], onDelete: Cascade)
+
+  @@index([published, updatedAt])
 }

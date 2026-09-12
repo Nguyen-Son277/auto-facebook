@@ -1,6 +1,8 @@
 import { requireCurrentUser, requireNoPendingPasswordChange } from "@/lib/dal";
+import { countUnread } from "@/lib/notify";
 import { logout } from "@/app/actions/auth";
 import SidebarNav from "@/components/sidebar-nav";
+import NotificationBell from "@/components/notification-bell";
 
 export default async function DashboardLayout({
   children,
@@ -10,6 +12,9 @@ export default async function DashboardLayout({
   const user = await requireCurrentUser();
   // Mật khẩu tạm do admin cấp → phải đổi trước khi dùng bất kỳ trang nào
   await requireNoPendingPasswordChange();
+
+  // Số chưa đọc render sẵn từ server — chuông chỉ việc poll để cập nhật
+  const unread = await countUnread(user.id);
 
   return (
     <div className="flex min-h-screen bg-gray-50">
@@ -34,14 +39,19 @@ export default async function DashboardLayout({
             {user.name ?? user.email}
           </p>
           <p className="truncate text-xs text-gray-500">{user.email}</p>
-          <form action={logout} className="mt-3">
-            <button
-              type="submit"
-              className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-700 transition hover:bg-gray-50"
-            >
-              Đăng xuất
-            </button>
-          </form>
+          <div className="mt-3 flex items-center gap-2">
+            <div className="flex-1">
+              <form action={logout}>
+                <button
+                  type="submit"
+                  className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-700 transition hover:bg-gray-50"
+                >
+                  Đăng xuất
+                </button>
+              </form>
+            </div>
+            <NotificationBell initialUnread={unread} />
+          </div>
         </div>
       </aside>
 
@@ -55,14 +65,17 @@ export default async function DashboardLayout({
               </span>
               <p className="text-sm font-bold text-gray-900">FB Marketing Auto</p>
             </div>
-            <form action={logout}>
-              <button
-                type="submit"
-                className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-700"
-              >
-                Thoát
-              </button>
-            </form>
+            <div className="flex items-center gap-2">
+              <NotificationBell initialUnread={unread} testIdSuffix="-mobile" />
+              <form action={logout}>
+                <button
+                  type="submit"
+                  className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-700"
+                >
+                  Thoát
+                </button>
+              </form>
+            </div>
           </div>
           <SidebarNav orientation="horizontal" role={user.role} />
         </header>

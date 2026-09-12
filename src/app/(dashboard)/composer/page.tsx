@@ -2,7 +2,7 @@ import { requireCurrentUser } from "@/lib/dal";
 import { prisma } from "@/lib/prisma";
 import PageHeader from "@/components/page-header";
 import ComposerStudio from "@/components/composer-studio";
-import { getAiConfig, getPexelsConfig } from "@/lib/settings";
+import { getAiConfigForUser, getPexelsKeyForUser } from "@/lib/settings";
 import { pruneOrphanUploads } from "@/lib/uploads";
 
 export default async function ComposerPage() {
@@ -41,8 +41,8 @@ export default async function ComposerPage() {
         take: 10,
         include: { page: { select: { name: true } } },
       }),
-      getAiConfig(),
-      getPexelsConfig(),
+      getAiConfigForUser(user.id),
+      getPexelsKeyForUser(user.id).then((apiKey) => ({ apiKey })),
       prisma.media.findMany({
         where: { userId: user.id, postId: null, providerId: { not: null } },
         select: { providerId: true },

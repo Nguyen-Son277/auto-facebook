@@ -2,14 +2,14 @@ import { requireCurrentUser } from "@/lib/dal";
 import { prisma } from "@/lib/prisma";
 import PageHeader from "@/components/page-header";
 import MediaLibrary from "@/components/media-library";
-import { getPexelsConfig } from "@/lib/settings";
+import { getPexelsKeyForUser } from "@/lib/settings";
 import { curatedMedia, getPexelsQuota } from "@/lib/pexels";
 
 export default async function MediaPage() {
   const user = await requireCurrentUser();
 
   const [pexels, saved] = await Promise.all([
-    getPexelsConfig(),
+    getPexelsKeyForUser(user.id).then((apiKey) => ({ apiKey })),
     prisma.media.findMany({
       where: { userId: user.id, postId: null },
       orderBy: { createdAt: "desc" },
@@ -30,11 +30,11 @@ export default async function MediaPage() {
     }),
   ]);
 
-  const quota = getPexelsQuota();
+  const quota = getPexelsQuota(user.id);
 
   // Tải sẵn ảnh phổ biến ở server để trang có nội dung ngay khi mở
   // (tránh gọi Pexels trong useEffect ở client).
-  const initial = pexels.apiKey ? await curatedMedia("IMAGE", 12) : null;
+  const initial = pexels.apiKey ? await curatedMedia(user.id, "IMAGE", 12) : null;
   const initialResult = initial
     ? {
         ok: initial.ok,

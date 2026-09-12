@@ -1,6 +1,6 @@
 import "server-only";
 
-import { getPexelsConfig } from "./settings";
+import { getPexelsKeyForUser } from "./settings";
 import type {
   MediaType,
   PexelsMediaItem,
@@ -21,7 +21,9 @@ export type { PexelsMediaItem, PexelsPhoto, PexelsVideo } from "./pexels-types";
 const PEXELS_BASE = process.env.PEXELS_BASE_URL ?? "https://api.pexels.com";
 
 /** Số request đã gọi trong cửa sổ 1 giờ gần nhất (dùng khi chưa có header thật). */
-const requestLog: number[] = [];
+// Hạn mức Pexels tính theo API KEY nên mọi trạng thái đều gắn với userId —
+// user này hết key của user khác không bị vạ lây.
+const requestLogs = new Map<string, number[]>();
 const RATE_LIMIT_PER_HOUR = 200;
 
 /**
@@ -31,13 +33,13 @@ const RATE_LIMIT_PER_HOUR = 200;
  * không biết các request đã gọi trước đó. Pexels trả về x-ratelimit-remaining
  * trong MỌI response nên đây mới là con số đúng.
  */
-let liveQuota: { limit: number; remaining: number; resetAt: number; at: number } | null = null;
+const liveQuotas = new Map<string, { limit: number; remaining: number; resetAt: number; at: number }>();
 
 /**
  * Khi bị 429, Pexels cho biết lúc nào quota reset. Ghi lại để các lần gọi sau
  * FAIL NGAY mà không tốn thêm request — gọi tiếp lúc này chỉ càng bị chặn lâu.
  */
-let blockedUntil = 0;
+const blockedUntil = new Map<string, number>();
 
 /** Dưới ngưỡng này thì bộ tự động ngừng tìm ảnh, chừa quota cho người dùng. */
 export const PEXELS_SAFETY_FLOOR = 20;
@@ -46,6 +48,7 @@ export const PEXELS_SAFETY_FLOOR = 20;
 const MAX_BLOCK_MS = 60 * 60 * 1000;
 
 const CACHE_TTL_MS = 60 * 60 * 1000; // 60 phút — tiết kiệm quota cho tìm kiếm thủ công
+// Cache theo user: mỗi người một key, kết quả không được lẫn lộn.
 const cache = new Map<string, { at: number; value: PexelsSearchResult }>();
 
 /** Pexels cho tối đa 80 kết quả/trang; 24 là đủ đa dạng mà không nặng. */
@@ -76,30 +79,35 @@ export type PexelsQuota = {
   blocked: boolean;
 };
 
-export function getPexelsQuota(): PexelsQuota {
+export function getPexelsQuota(userId: string): PexelsQuota {
+  const log = requestLogs.get(userId) ?? [];
   const cutoff = Date.now() - 60 * 60 * 1000;
-  while (requestLog.length > 0 && requestLog[0] < cutoff) requestLog.shift();
+  while (log.length > 0 && log[0] < cutoff) log.shift();
+  requestLogs.set(userId, log);
+
+  const live = liveQuotas.get(userId) ?? null;
+  const blocked = (blockedUntil.get(userId) ?? 0) > Date.now();
 
   // Header thật đáng tin hơn hẳn số đếm nội bộ.
   // Lưu ý: Pexels trả -1 cho key không giới hạn hoặc khi qua CDN cache.
-  if (liveQuota && liveQuota.limit > 0 && liveQuota.remaining >= 0) {
+  if (live && live.limit > 0 && live.remaining >= 0) {
     return {
-      used: Math.max(liveQuota.limit - liveQuota.remaining, 0),
-      limit: liveQuota.limit,
-      remaining: liveQuota.remaining,
+      used: Math.max(live.limit - live.remaining, 0),
+      limit: live.limit,
+      remaining: live.remaining,
       live: true,
-      resetAt: liveQuota.resetAt || null,
-      blocked: Date.now() < blockedUntil,
+      resetAt: live.resetAt || null,
+      blocked,
     };
   }
 
   return {
-    used: requestLog.length,
+    used: log.length,
     limit: RATE_LIMIT_PER_HOUR,
-    remaining: Math.max(RATE_LIMIT_PER_HOUR - requestLog.length, 0),
+    remaining: Math.max(RATE_LIMIT_PER_HOUR - log.length, 0),
     live: false,
     resetAt: null,
-    blocked: Date.now() < blockedUntil,
+    blocked,
   };
 }
 
@@ -109,15 +117,17 @@ export function getPexelsQuota(): PexelsQuota {
  * Gọi khi người dùng lưu API Key mới: key mới có hạn mức riêng nên không
  * có lý do gì bắt họ chờ hết cửa sổ của key cũ.
  */
-export function resetPexelsRateLimit(): void {
-  blockedUntil = 0;
-  liveQuota = null;
-  requestLog.length = 0;
+export function resetPexelsRateLimit(userId: string): void {
+  blockedUntil.delete(userId);
+  liveQuotas.delete(userId);
+  requestLogs.delete(userId);
+  // Kết quả cache của key cũ cũng vô nghĩa với key mới
+  for (const k of [...cache.keys()]) if (k.startsWith(userId + "|")) cache.delete(k);
 }
 
 /** Còn đủ quota để bộ tự động tìm ảnh không? */
-export function hasPexelsBudget(): boolean {
-  const q = getPexelsQuota();
+export function hasPexelsBudget(userId: string): boolean {
+  const q = getPexelsQuota(userId);
   if (q.blocked) return false;
   return q.remaining > PEXELS_SAFETY_FLOOR;
 }
@@ -128,7 +138,7 @@ export function hasPexelsBudget(): boolean {
  * Pexels trả -1 khi key không giới hạn hoặc khi response đến từ CDN cache;
  * lúc đó bỏ qua để không hiểu nhầm là "hết quota".
  */
-function readQuotaHeaders(res: Response): void {
+function readQuotaHeaders(userId: string, res: Response): void {
   const limit = Number(res.headers.get("x-ratelimit-limit") ?? "");
   const remaining = Number(res.headers.get("x-ratelimit-remaining") ?? "");
   const reset = Number(res.headers.get("x-ratelimit-reset") ?? "");
@@ -136,31 +146,33 @@ function readQuotaHeaders(res: Response): void {
   if (!Number.isFinite(limit) || limit <= 0) return;
   if (!Number.isFinite(remaining) || remaining < 0) return;
 
-  liveQuota = {
+  liveQuotas.set(userId, {
     limit,
     remaining,
     // Pexels trả epoch giây
     resetAt: Number.isFinite(reset) && reset > 0 ? reset * 1000 : 0,
     at: Date.now(),
-  };
+  });
 }
 
 async function pexelsFetch(
+  userId: string,
   path: string,
   params: Record<string, string | number | undefined>
 ): Promise<{ ok: boolean; data?: unknown; error?: string }> {
-  const { apiKey } = await getPexelsConfig();
+  const apiKey = await getPexelsKeyForUser(userId);
   if (!apiKey) {
     return {
       ok: false,
-      error: "Chưa cấu hình Pexels API Key — vào trang Cài đặt để nhập key.",
+      error: "Bạn chưa tự cấu hình Pexels API Key — vào trang Cài đặt để nhập key của riêng bạn.",
     };
   }
 
   // Đang bị chặn vì 429 → fail ngay, KHÔNG gửi request.
   // Gọi tiếp lúc này vừa vô ích vừa có thể kéo dài thời gian bị chặn.
-  if (Date.now() < blockedUntil) {
-    const waitMin = Math.ceil((blockedUntil - Date.now()) / 60000);
+  const blocked = blockedUntil.get(userId) ?? 0;
+  if (Date.now() < blocked) {
+    const waitMin = Math.ceil((blocked - Date.now()) / 60000);
     return {
       ok: false,
       error: `Đã hết lượt tìm ảnh Pexels trong giờ này. Thử lại sau khoảng ${waitMin} phút.`,
@@ -172,7 +184,12 @@ async function pexelsFetch(
     if (v !== undefined && v !== "") url.searchParams.set(k, String(v));
   }
 
-  requestLog.push(Date.now());
+  let log = requestLogs.get(userId);
+  if (!log) {
+    log = [];
+    requestLogs.set(userId, log);
+  }
+  log.push(Date.now());
 
   try {
     const res = await fetch(url.toString(), {
@@ -181,7 +198,7 @@ async function pexelsFetch(
     });
 
     // Ghi lại quota thật từ header (có trong cả response lỗi lẫn thành công)
-    readQuotaHeaders(res);
+    readQuotaHeaders(userId, res);
 
     if (!res.ok) {
       const body = await res.text();
@@ -190,11 +207,12 @@ async function pexelsFetch(
         // Tôn trọng mốc reset Pexels báo về, nhưng KHÔNG tin quá 1 giờ:
         // hạn mức của Pexels là cửa sổ 1 giờ, một mốc xa hơn thế gần như
         // chắc chắn là header sai và sẽ khóa tính năng tìm ảnh vô cớ.
-        const reset = liveQuota?.resetAt ?? 0;
+        const reset = liveQuotas.get(userId)?.resetAt ?? 0;
         const cap = Date.now() + MAX_BLOCK_MS;
-        blockedUntil =
+        const until =
           reset > Date.now() ? Math.min(reset, cap) : Date.now() + 15 * 60 * 1000;
-        const waitMin = Math.ceil((blockedUntil - Date.now()) / 60000);
+        blockedUntil.set(userId, until);
+        const waitMin = Math.ceil((until - Date.now()) / 60000);
         return {
           ok: false,
           error: `Đã vượt giới hạn tìm ảnh của Pexels. Tạm ngưng ${waitMin} phút rồi tự động chạy lại.`,
@@ -210,7 +228,7 @@ async function pexelsFetch(
     }
 
     // Gọi thành công → bỏ cờ chặn nếu còn sót
-    blockedUntil = 0;
+    blockedUntil.delete(userId);
     return { ok: true, data: await res.json() };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -304,6 +322,8 @@ function mapVideo(v: RawVideo): PexelsVideo | null {
 }
 
 export type SearchMediaInput = {
+  /** Tìm bằng key Pexels của user nào. */
+  userId: string;
   query: string;
   type?: MediaType;
   page?: number;
@@ -376,7 +396,7 @@ export async function searchMedia(input: SearchMediaInput): Promise<PexelsSearch
     };
   }
 
-  const cacheKey = [type, query.toLowerCase(), page, perPage, input.orientation ?? ""].join("|");
+  const cacheKey = [input.userId, type, query.toLowerCase(), page, perPage, input.orientation ?? ""].join("|");
   if (!input.noCache) {
     const hit = cache.get(cacheKey);
     if (hit && Date.now() - hit.at < CACHE_TTL_MS) {
@@ -385,7 +405,7 @@ export async function searchMedia(input: SearchMediaInput): Promise<PexelsSearch
   }
 
   const path = type === "VIDEO" ? "/videos/search" : "/v1/search";
-  const res = await pexelsFetch(path, {
+  const res = await pexelsFetch(input.userId, path, {
     query,
     page,
     per_page: perPage,
@@ -441,17 +461,18 @@ export async function searchMedia(input: SearchMediaInput): Promise<PexelsSearch
 
 /** Ảnh/video phổ biến (dùng khi chưa nhập từ khóa). */
 export async function curatedMedia(
+  userId: string,
   type: MediaType = "IMAGE",
   perPage = 12
 ): Promise<PexelsSearchResult> {
-  const cacheKey = `curated|${type}|${perPage}`;
+  const cacheKey = `${userId}|curated|${type}|${perPage}`;
   const hit = cache.get(cacheKey);
   if (hit && Date.now() - hit.at < CACHE_TTL_MS) {
     return { ...hit.value, cached: true };
   }
 
   const path = type === "VIDEO" ? "/videos/popular" : "/v1/curated";
-  const res = await pexelsFetch(path, { per_page: perPage });
+  const res = await pexelsFetch(userId, path, { per_page: perPage });
   if (!res.ok || !res.data) {
     return {
       ok: false,

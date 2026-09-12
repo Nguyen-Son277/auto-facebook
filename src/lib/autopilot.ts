@@ -2,6 +2,8 @@ import "server-only";
 
 import { prisma } from "./prisma";
 import { generatePostVariants, suggestMediaKeywords } from "./ai";
+import { notify, notifyOncePer } from "./notify";
+import { userHasAiConfig, userHasPexelsKey } from "./settings";
 import {
   getPexelsQuota,
   hasPexelsBudget,
@@ -191,6 +193,7 @@ async function rememberUsedMedia(pageId: string, media: AttachedMedia[]): Promis
  * 3. ẢNH XẤU — lọc bỏ ảnh hẹp dưới 1200px và ưu tiên ảnh ngang cho tấm đầu.
  */
 export async function pickMediaForContent(
+  userId: string,
   content: string,
   config: Pick<AutoPilotConfig, "mediaKind" | "photosPerPost"> & {
     /** Có pageId thì mới chống trùng được (mỗi Page một lịch sử riêng). */
@@ -207,8 +210,8 @@ export async function pickMediaForContent(
   const wanted = kind === "VIDEO" ? 1 : Math.min(Math.max(config.photosPerPost, 1), 4);
 
   // Hết quota → dừng sớm, KHÔNG gọi AI xin từ khóa (đỡ tốn tiền AI vô ích)
-  if (!hasPexelsBudget()) {
-    const q = getPexelsQuota();
+  if (!hasPexelsBudget(userId)) {
+    const q = getPexelsQuota(userId);
     return {
       media: [],
       calls: 0,
@@ -218,7 +221,7 @@ export async function pickMediaForContent(
     };
   }
 
-  const kw = await suggestMediaKeywords(content, KEYWORD_COUNT, {
+  const kw = await suggestMediaKeywords(userId, content, KEYWORD_COUNT, {
     industry: config.industry,
     products: config.products,
   });
@@ -242,6 +245,7 @@ export async function pickMediaForContent(
 
       calls++;
       const probe = await searchMedia({
+        userId,
         query: keyword.query,
         type: kind,
         perPage: MAX_PER_PAGE,
@@ -255,7 +259,7 @@ export async function pickMediaForContent(
       if (!probe.ok) {
         if (probe.error) errors.push(probe.error);
         // Bị chặn quota thì dừng hẳn, thử tiếp chỉ tốn công
-        if (!hasPexelsBudget()) break;
+        if (!hasPexelsBudget(userId)) break;
         continue;
       }
 
@@ -368,6 +372,7 @@ async function createPlannedPost(input: {
   const topic = `Bài thuộc loại "${pillar.name}". Hãy tự chọn MỘT chủ đề cụ thể, thiết thực và hấp dẫn cho thương hiệu này.`;
 
   const res = await generatePostVariants({
+    userId: config.userId,
     topic,
     tone: TONES.some((t) => t.value === tone) ? tone : "friendly",
     goal: (GOALS.some((g) => g.value === pillar.goal) ? pillar.goal : "engagement") as Goal,
@@ -415,7 +420,7 @@ async function createPlannedPost(input: {
   let media: AttachedMedia[] = [];
   let mediaWarning: string | undefined;
   if (config.autoMedia) {
-    const picked = await pickMediaForContent(variant.content, {
+    const picked = await pickMediaForContent(config.userId, variant.content, {
       mediaKind: config.mediaKind,
       photosPerPost: config.photosPerPost,
       pageId: input.pageId,
@@ -432,6 +437,16 @@ async function createPlannedPost(input: {
   }
 
   const status = config.mode === "AUTO" ? "SCHEDULED" : "PENDING_REVIEW";
+  if (status === "PENDING_REVIEW") {
+    // Người dùng phải biết có bài đang chờ mình duyệt — nếu không bài
+    // nằm im tới ngày đăng mà không ai hay.
+    await notify(config.userId, {
+      type: "ACTIVITY",
+      title: "🕓 AutoPilot có bài mới chờ bạn duyệt",
+      body: `${variant.content.slice(0, 120)}… — hẹn lúc ${input.scheduledAt.toLocaleString("vi-VN")}`,
+      link: "/autopilot",
+    });
+  }
 
   // Lấy workspace/brand của Page để Post luôn thuộc đúng tenant
   const pageRow = await prisma.facebookPage.findUnique({
@@ -709,6 +724,30 @@ export async function runAutopilotPlanner(
   for (const { config, page } of withPage) {
     if (!page || !page.isActive) continue;
     if (budget.remaining <= 0) break;
+
+    // Chủ Page chưa tự nhập key → không thể soạn bài. Báo MỘT lần/6 giờ
+    // để họ vào Cài đặt, thay vì im lặng bỏ qua mãi mãi.
+    const [hasAi, hasPexels] = await Promise.all([
+      userHasAiConfig(config.userId),
+      config.autoMedia ? userHasPexelsKey(config.userId) : Promise.resolve(true),
+    ]);
+    if (!hasAi) {
+      await notifyOncePer(config.userId, {
+        type: "SYSTEM",
+        title: "⚙️ AutoPilot không chạy được vì bạn chưa cấu hình AI",
+        body: `Page "${page.name}" đang bật tự động đăng nhưng tài khoản của bạn chưa có AI Provider (Base URL + API Key + model). Vào Cài đặt để nhập key của riêng bạn.`,
+        link: "/settings",
+      });
+      continue;
+    }
+    if (!hasPexels) {
+      await notifyOncePer(config.userId, {
+        type: "SYSTEM",
+        title: "⚙️ AutoPilot cần Pexels API Key cho bài có ảnh",
+        body: `Page "${page.name}" bật tự tìm ảnh nhưng bạn chưa nhập Pexels API Key. Bài vẫn đăng được nhưng sẽ không có ảnh.`,
+        link: "/settings",
+      });
+    }
 
     // Vừa lỗi gần đây → chờ, tránh gọi AI liên tục khi provider đang hỏng
     if (

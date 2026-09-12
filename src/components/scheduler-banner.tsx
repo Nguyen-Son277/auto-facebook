@@ -32,7 +32,14 @@ function sourceLabel(source: SchedulerStatus["source"]): string {
   }
 }
 
-export default function SchedulerBanner({ status }: { status: SchedulerStatus }) {
+export default function SchedulerBanner({
+  status,
+  canManage = false,
+}: {
+  status: SchedulerStatus;
+  /** Chỉ ADMIN được nhìn thấy và bấm công tắc. */
+  canManage?: boolean;
+}) {
   const neverRan = !status.lastRunAt;
   const minutes = status.minutesSinceLastRun;
 
@@ -75,8 +82,9 @@ export default function SchedulerBanner({ status }: { status: SchedulerStatus })
             <p className="mt-0.5 text-xs text-gray-600">
               {!status.enabled ? (
                 <>
-                  Bài hẹn giờ sẽ nằm chờ và <strong>không</strong> được đăng cho tới khi bạn bật
-                  lại.
+                  {canManage
+                    ? <>Bài hẹn giờ sẽ nằm chờ và <strong>không</strong> được đăng cho tới khi bạn bật lại.</>
+                    : <>Quản trị viên đang tạm ngưng đăng tự động — bài hẹn giờ sẽ nằm chờ và được đăng ngay khi bật lại.</>}
                 </>
               ) : active ? (
                 <>
@@ -97,7 +105,7 @@ export default function SchedulerBanner({ status }: { status: SchedulerStatus })
         </div>
 
         <div className="flex flex-col items-start gap-2">
-          <SchedulerToggle enabled={status.enabled} />
+          {canManage && <SchedulerToggle enabled={status.enabled} />}
           <Link href="/calendar" className="text-xs font-medium text-blue-600 hover:underline">
             📅 Xem lịch đăng →
           </Link>

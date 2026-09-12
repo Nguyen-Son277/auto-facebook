@@ -3,7 +3,6 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import SchedulerToggle from "@/components/scheduler-toggle";
 import {
   cancelScheduleAction,
   deleteScheduledPostAction,
@@ -231,7 +230,6 @@ export default function CalendarBoard({
               </span>
             )}
           </div>
-          <SchedulerToggle enabled={scheduler.enabled} size="sm" />
         </div>
 
         {!hasActivePage && (

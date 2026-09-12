@@ -2,6 +2,7 @@
 
 import { useActionState, useState } from "react";
 import {
+  clearUserSettingAction,
   saveAiSettings,
   savePexelsSettings,
   type ActionState,
@@ -41,6 +42,31 @@ const btnPrimary =
   "rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60";
 const btnGhost =
   "rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60";
+
+/** Nút xóa toàn bộ key của một nhóm (form độc lập — không được lồng form). */
+function ClearSettingsButton({
+  group,
+  label,
+}: {
+  group: "AI" | "PEXELS";
+  label: string;
+}) {
+  const [state, action, pending] = useActionState(clearUserSettingAction, null);
+  return (
+    <form action={action} className="mt-3 flex items-center gap-3">
+      <input type="hidden" name="group" value={group} />
+      <button
+        type="submit"
+        disabled={pending}
+        className="text-xs font-medium text-gray-400 underline-offset-2 transition hover:text-red-600 hover:underline disabled:opacity-60"
+      >
+        🗑 {label}
+      </button>
+      {state?.ok && <span className="text-xs text-emerald-600">✓ {state.message}</span>}
+      {state?.error && <span className="text-xs text-red-600">✗ {state.error}</span>}
+    </form>
+  );
+}
 
 // ============================================================
 // AI Provider
@@ -86,13 +112,17 @@ export function AiSettingsForm({
               AI Provider ([OI]-compatible)
             </h2>
             <p className="text-xs text-gray-500">
-              Chỉ cần Base URL + API Key — danh sách model tự tải từ provider
+              Key của riêng bạn — chỉ cần Base URL + API Key, danh sách model tự tải từ provider
             </p>
           </div>
         </div>
-        {masked["ai.apiKey"] && (
+        {masked["ai.apiKey"] ? (
           <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-medium text-emerald-700">
             Đã cấu hình
+          </span>
+        ) : (
+          <span className="rounded-full bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-500">
+            Chưa cấu hình
           </span>
         )}
       </div>
@@ -198,6 +228,7 @@ export function AiSettingsForm({
           </button>
         </div>
       </form>
+      <ClearSettingsButton group="AI" label="Xóa cấu hình AI đã lưu" />
     </div>
   );
 }
@@ -224,9 +255,13 @@ export function PexelsSettingsForm({ masked }: { masked: MaskedSettings }) {
             </p>
           </div>
         </div>
-        {masked["pexels.apiKey"] && (
+        {masked["pexels.apiKey"] ? (
           <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-medium text-emerald-700">
             Đã cấu hình
+          </span>
+        ) : (
+          <span className="rounded-full bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-500">
+            Chưa cấu hình
           </span>
         )}
       </div>
@@ -264,6 +299,7 @@ export function PexelsSettingsForm({ masked }: { masked: MaskedSettings }) {
           </button>
         </div>
       </form>
+      <ClearSettingsButton group="PEXELS" label="Xóa Pexels API Key đã lưu" />
     </div>
   );
 }

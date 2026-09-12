@@ -68,7 +68,7 @@ export default async function AutopilotPage({
       }),
     ]);
 
-    const quota = getPexelsQuota();
+    const quota = getPexelsQuota(user.id);
     const config = overview.config;
 
     return (

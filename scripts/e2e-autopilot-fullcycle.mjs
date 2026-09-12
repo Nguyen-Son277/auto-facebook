@@ -10,7 +10,7 @@
 
 import { openTestDb, requireSmokeUser } from "./lib/test-db.mjs";
 import { ensureWorkspace, ensureBrand, seedPage } from "./lib/test-fixtures.mjs";
-import { seedMockSettings } from "./lib/seed-settings.mjs";
+import { seedMockSettingsForUser } from "./lib/seed-settings.mjs";
 
 const FB_MOCK = process.env.FB_MOCK_URL ?? "http://127.0.0.1:4021";
 const BASE = process.env.BASE_URL ?? "http://localhost:3000";
@@ -59,7 +59,7 @@ reset();
 
 // Bộ test khác có thể đã xóa sạch AppSetting — nạp lại cấu hình mock để
 // kết quả không phụ thuộc thứ tự chạy các bộ test.
-seedMockSettings(db);
+seedMockSettingsForUser(db, user.id);
 
 const now = new Date().toISOString();
 const wsId = ensureWorkspace(db, user.id);

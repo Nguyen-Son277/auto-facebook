@@ -95,7 +95,7 @@ export default async function DashboardPage() {
         </Link>
       </div>
 
-      <SchedulerBanner status={scheduler} />
+      <SchedulerBanner status={scheduler} canManage={user.role === "ADMIN"} />
 
       {/* Bài đăng gần đây */}
       <div className="mt-8 rounded-2xl border border-gray-200 bg-white">

@@ -63,11 +63,10 @@ export const SETTING_KEYS = {
   },
 } as const;
 
+// AI/Pexels là tài sản RIÊNG của từng người dùng — lưu trong UserSetting,
+// KHÔNG fallback env và KHÔNG đọc AppSetting toàn cục. Env chỉ còn dùng
+// cho hạ tầng (DATABASE_URL, SESSION_SECRET...) và Facebook legacy.
 const KEY_TO_ENV: Record<string, string> = {
-  "ai.baseUrl": "AI_BASE_URL",
-  "ai.apiKey": "AI_API_KEY",
-  "ai.model": "AI_MODEL",
-  "pexels.apiKey": "PEXELS_API_KEY",
   "facebook.appId": "FACEBOOK_APP_ID",
   "facebook.appSecret": "FACEBOOK_APP_SECRET",
   "facebook.graphVersion": "FACEBOOK_GRAPH_VERSION",
@@ -150,21 +149,121 @@ export async function getSettingsMeta(keys: string[]): Promise<SettingsMap> {
   return { values, masked, savedKeys };
 }
 
-// ---------- Config helpers dùng bởi các service ----------
+// ---------- Cấu hình theo TỪNG USER (AI / Pexels) ----------
+//
+// Key của ai nào người dùng nấy tự nhập, dùng cho riêng họ.
+// Không có fallback env — tài khoản mới bắt đầu từ trang trắng.
 
-export async function getAiConfig() {
+/** Nhóm của các key user-level (AppSetting vẫn giữ Facebook legacy). */
+const USER_SETTING_GROUP: Record<string, string> = {
+  "ai.baseUrl": "AI",
+  "ai.apiKey": "AI",
+  "ai.model": "AI",
+  "pexels.apiKey": "PEXELS",
+};
+
+/** Ghi 1 key của user (mã hóa như AppSetting). Giá trị rỗng = xóa key. */
+export async function setUserSetting(
+  userId: string,
+  key: string,
+  value: string
+): Promise<void> {
+  if (!value) {
+    await prisma.userSetting.deleteMany({ where: { userId, key } });
+    return;
+  }
+  await prisma.userSetting.upsert({
+    where: { userId_key: { userId, key } },
+    update: { value: encryptValue(value) },
+    create: {
+      userId,
+      key,
+      value: encryptValue(value),
+      group: USER_SETTING_GROUP[key] ?? "MISC",
+    },
+  });
+}
+
+/** Đọc 1 key của user (giải mã); chưa có → null. */
+export async function getUserSetting(
+  userId: string,
+  key: string
+): Promise<string | null> {
+  const row = await prisma.userSetting.findUnique({
+    where: { userId_key: { userId, key } },
+  });
+  return row ? decryptValue(row.value) : null;
+}
+
+/** Meta để render form của user: key bí mật mask, key thường trả thật. */
+export async function getUserSettingsMeta(
+  userId: string,
+  keys: string[]
+): Promise<SettingsMap> {
+  const values: Record<string, string | null> = {};
+  const masked: Record<string, string> = {};
+  const savedKeys = new Set<string>();
+
+  for (const key of keys) {
+    const val = await getUserSetting(userId, key);
+    values[key] = val;
+    if (val) {
+      masked[key] = SECRET_KEYS.has(key) ? maskSecret(val) : val;
+      savedKeys.add(key);
+    } else {
+      masked[key] = "";
+    }
+  }
+  return { values, masked, savedKeys };
+}
+
+/** Cấu hình AI RIÊNG của user — chatCompletion/generatePostVariants cần userId. */
+export async function getAiConfigForUser(userId: string) {
   const [baseUrl, apiKey, model] = await Promise.all([
-    getSetting("ai.baseUrl"),
-    getSetting("ai.apiKey"),
-    getSetting("ai.model"),
+    getUserSetting(userId, SETTING_KEYS.AI.baseUrl),
+    getUserSetting(userId, SETTING_KEYS.AI.apiKey),
+    getUserSetting(userId, SETTING_KEYS.AI.model),
   ]);
   return { baseUrl, apiKey, model };
 }
 
-export async function getPexelsConfig() {
-  return { apiKey: await getSetting("pexels.apiKey") };
+/** Pexels API key RIÊNG của user. */
+export async function getPexelsKeyForUser(userId: string): Promise<string | null> {
+  return getUserSetting(userId, SETTING_KEYS.PEXELS.apiKey);
 }
 
+/**
+ * User nào đã tự nhập key Pexels (để thông báo hệ thống biết ai còn trống).
+ * Trả về danh sách userId CHƯA có key trong các user đưa vào.
+ */
+export async function usersMissingPexelsKey(userIds: string[]): Promise<string[]> {
+  if (userIds.length === 0) return [];
+  const rows = await prisma.userSetting.findMany({
+    where: { userId: { in: userIds }, key: SETTING_KEYS.PEXELS.apiKey },
+    select: { userId: true },
+  });
+  const has = new Set(rows.map((r) => r.userId));
+  return userIds.filter((id) => !has.has(id));
+}
+
+/** User có đầy đủ bộ AI để tự động soạn bài? */
+export async function userHasAiConfig(userId: string): Promise<boolean> {
+  const { baseUrl, apiKey, model } = await getAiConfigForUser(userId);
+  return Boolean(baseUrl && apiKey && model);
+}
+
+/** User có key Pexels? */
+export async function userHasPexelsKey(userId: string): Promise<boolean> {
+  return Boolean(await getPexelsKeyForUser(userId));
+}
+
+// ---------- Cấu hình Facebook toàn cục (legacy) ----------
+
+/**
+ * Bộ Facebook app mặc định cũ. Tính năng đa-app thật sự nằm ở
+ * /facebook-apps (theo workspace); các hàm này chỉ còn phục vụ
+ * luồng cũ chưa di dời hết.
+ */
 export async function getFacebookConfig() {
   const [appId, appSecret, graphVersion, userToken, userTokenExpiresAt] =
     await Promise.all([

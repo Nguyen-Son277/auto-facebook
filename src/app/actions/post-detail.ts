@@ -210,7 +210,7 @@ export async function regeneratePostMedia(postId: string): Promise<PostEditState
   // Dùng đúng cấu hình tự động của Page để ảnh mới nhất quán với các bài khác
   const config = await prisma.autoPilot.findUnique({ where: { pageId: post.pageId } });
 
-  const picked = await pickMediaForContent(post.content, {
+  const picked = await pickMediaForContent(user.id, post.content, {
     mediaKind: config?.mediaKind ?? "IMAGE",
     photosPerPost: config?.photosPerPost ?? 2,
     pageId: post.pageId,
@@ -284,6 +284,7 @@ export async function regeneratePostContent(postId: string): Promise<PostEditSta
   const tone = (config?.toneOverride ?? "") as Tone;
 
   const res = await generatePostVariants({
+    userId: user.id,
     topic: pillar
       ? `Bài thuộc loại "${pillar.name}". Viết lại theo một góc tiếp cận KHÁC hẳn bài cũ.`
       : "Viết lại bài đăng này theo một góc tiếp cận khác, hấp dẫn hơn.",

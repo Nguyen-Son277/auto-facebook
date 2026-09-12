@@ -160,7 +160,13 @@ try {
     statusText.trim()
   );
   check(
-    "Nút điều khiển có mặt trên Lịch đăng",
+    "Lịch đăng không còn nút điều khiển (về quyền admin, nút nằm ở banner Tổng quan)",
+    (await page.locator('[data-testid="scheduler-toggle"]').count()) === 0
+  );
+  // Công tắc cấp hệ thống giờ chỉ hiển thị cho ADMIN ở banner dashboard
+  await page.goto(`${BASE}/dashboard`, { waitUntil: "networkidle" });
+  check(
+    "Banner Tổng quan có nút điều khiển cho ADMIN",
     (await page.locator('[data-testid="scheduler-toggle"]').count()) === 1
   );
   check(
@@ -320,23 +326,29 @@ try {
   );
   check("Bật lại sau khi kiểm tra cron", true);
 
-  // ================= 8. Trang Cài đặt =================
-  section("Trang Cài đặt");
+  // ================= 8. Quyền điều khiển: Settings trắng, trang Admin có =================
+  section("Công tắc tự động đăng thuộc về Admin (không còn ở Cài đặt)");
   await page.goto(`${BASE}/settings`, { waitUntil: "networkidle" });
   check(
-    "Cài đặt có mục Tự động đăng bài",
-    (await page.getByText(/Tự động đăng bài theo lịch/).count()) > 0
+    "Cài đặt KHÔNG còn nút bật/tắt tự động đăng",
+    (await page.locator('[data-testid="scheduler-toggle"]').count()) === 0
   );
   check(
-    "Cài đặt hiện trạng thái đang chạy",
-    /Đang chạy/i.test(await page.locator('[data-testid="settings-scheduler-state"]').innerText())
-  );
-  check(
-    "Cài đặt có nút điều khiển",
-    (await page.locator('[data-testid="scheduler-toggle"]').count()) === 1
+    "Cài đặt KHÔNG còn mục Tự động đăng bài",
+    (await page.getByText(/Tự động đăng bài theo lịch/).count()) === 0
   );
 
-  // Tắt từ trang Cài đặt cũng phải có hiệu lực
+  await page.goto(`${BASE}/admin`, { waitUntil: "networkidle" });
+  check(
+    "Trang Quản trị có nút điều khiển cho ADMIN",
+    (await page.locator('[data-testid="scheduler-toggle"]').count()) === 1
+  );
+  check(
+    "Quản trị hiện trạng thái đang chạy",
+    /Đang chạy/i.test(await page.locator('[data-testid="settings-scheduler-state"]').innerText())
+  );
+
+  // Tắt từ trang Quản trị cũng phải có hiệu lực
   await page.locator('[data-testid="scheduler-toggle"]').click();
   await page.locator('[data-testid="scheduler-toggle-notice"]').waitFor({ timeout: 30000 });
   await page.waitForFunction(
@@ -347,7 +359,7 @@ try {
     { timeout: 20000 }
   );
   check(
-    "Tắt từ trang Cài đặt có hiệu lực",
+    "Tắt từ trang Quản trị có hiệu lực",
     db.prepare('SELECT value FROM "AppSetting" WHERE key = ?').get("scheduler.enabled")?.value !==
       undefined
   );
@@ -362,7 +374,7 @@ try {
     undefined,
     { timeout: 20000 }
   );
-  check("Bật lại được từ trang Cài đặt", true);
+  check("Bật lại được từ trang Quản trị", true);
   await page.screenshot({ path: "/tmp/w6b-3-settings.png", fullPage: true });
 } catch (err) {
   failures++;

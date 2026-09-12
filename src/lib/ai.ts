@@ -1,6 +1,6 @@
 import "server-only";
 
-import { getAiConfig } from "./settings";
+import { getAiConfigForUser } from "./settings";
 import {
   buildKeywordMessages,
   buildPostMessages,
@@ -43,13 +43,13 @@ export type ChatResult = {
 
 /** Lỗi cấu hình dùng chung để thông báo cho người dùng biết cần vào Cài đặt. */
 export const AI_NOT_CONFIGURED =
-  "Chưa cấu hình AI Provider — vào trang Cài đặt để nhập Base URL + API Key và chọn model.";
+  "Bạn chưa tự cấu hình AI Provider — vào trang Cài đặt để nhập Base URL + API Key và chọn model (key của riêng bạn, không dùng chung).";
 
-export async function fetchAiModels(input?: {
-  baseUrl?: string | null;
-  apiKey?: string | null;
-}): Promise<AiModelsResult> {
-  const saved = await getAiConfig();
+export async function fetchAiModels(
+  userId: string,
+  input?: { baseUrl?: string | null; apiKey?: string | null }
+): Promise<AiModelsResult> {
+  const saved = await getAiConfigForUser(userId);
   const baseUrl = (input?.baseUrl?.trim() || saved.baseUrl || "").replace(/\/+$/, "");
   const apiKey = input?.apiKey?.trim() || saved.apiKey || "";
 
@@ -155,11 +155,13 @@ function readContent(raw: unknown): string {
  * thử lại một lần mà không gửi chúng.
  */
 export async function chatCompletion(input: {
+  /** Chat dùng key AI của user nào — bắt buộc, không có key toàn cục. */
+  userId: string;
   messages: ChatMessage[];
   temperature?: number;
   maxTokens?: number;
 }): Promise<ChatResult> {
-  const { baseUrl, apiKey, model } = await getAiConfig();
+  const { baseUrl, apiKey, model } = await getAiConfigForUser(input.userId);
   const url = (baseUrl ?? "").replace(/\/+$/, "");
 
   if (!url || !apiKey) {
@@ -281,6 +283,7 @@ export async function generatePostVariants(
   }
 
   const res = await chatCompletion({
+    userId: input.userId,
     messages: buildPostMessages(input),
     temperature: 0.8,
   });
@@ -316,6 +319,7 @@ export type SuggestKeywordsResult = {
 };
 
 export async function suggestMediaKeywords(
+  userId: string,
   content: string,
   count = 6,
   context: KeywordContext = {}
@@ -330,6 +334,7 @@ export async function suggestMediaKeywords(
   }
 
   const res = await chatCompletion({
+    userId,
     messages: buildKeywordMessages(text, count, context),
     temperature: 0.4,
   });

@@ -27,7 +27,8 @@
     "test:e2e:autopilot:cycle": "node scripts/e2e-autopilot-fullcycle.mjs",
     "test:multi-workspace": "node scripts/test-multi-workspace.mjs",
     "db:seed-admin": "node scripts/seed-admin.mjs",
-    "test:admin": "node scripts/test-admin-flow.mjs"
+    "test:admin": "node scripts/test-admin-flow.mjs",
+    "db:migrate-settings": "node scripts/migrate-settings-to-users.mjs"
   },
   "dependencies": {
     "@prisma/adapter-better-sqlite3": "^7.10.0",

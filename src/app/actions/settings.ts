@@ -4,10 +4,10 @@ import { revalidatePath } from "next/cache";
 import { requireCurrentUser } from "@/lib/dal";
 import { resetPexelsRateLimit } from "@/lib/pexels";
 import {
-  getAiConfig,
+  getAiConfigForUser,
   getFacebookConfig,
-  getPexelsConfig,
-  setSetting,
+  getPexelsKeyForUser,
+  setUserSetting,
   SETTING_KEYS,
 } from "@/lib/settings";
 import { fetchAiModels } from "@/lib/ai";
@@ -39,7 +39,7 @@ export async function saveAiSettings(
   _prev: ActionState,
   formData: FormData
 ): Promise<ActionState> {
-  await requireCurrentUser();
+  const user = await requireCurrentUser();
 
   const intent = intentOf(formData);
   const baseUrl = str(formData, "baseUrl");
@@ -52,7 +52,7 @@ export async function saveAiSettings(
 
   // ---- intent="load": chỉ tải danh sách model, không lưu gì ----
   if (intent === "load") {
-    const fetched = await fetchAiModels({ baseUrl, apiKey });
+    const fetched = await fetchAiModels(user.id, { baseUrl, apiKey });
     if (!fetched.ok) return { ok: false, error: fetched.error, models: [] };
     return {
       ok: true,
@@ -63,18 +63,18 @@ export async function saveAiSettings(
 
   if (!baseUrl) return { error: "Base URL là bắt buộc." };
 
-  await setSetting(SETTING_KEYS.AI.baseUrl, baseUrl.replace(/\/+$/, ""));
-  if (model) await setSetting(SETTING_KEYS.AI.model, model);
+  await setUserSetting(user.id, SETTING_KEYS.AI.baseUrl, baseUrl.replace(/\/+$/, ""));
+  if (model) await setUserSetting(user.id, SETTING_KEYS.AI.model, model);
   // Bỏ trống API key = giữ nguyên key đã lưu
-  if (apiKey) await setSetting(SETTING_KEYS.AI.apiKey, apiKey);
+  if (apiKey) await setUserSetting(user.id, SETTING_KEYS.AI.apiKey, apiKey);
 
   revalidatePath("/settings");
 
   // Tự tải danh sách model ngay sau khi lưu (không cần người dùng gõ model)
-  const fetched = await fetchAiModels({});
+  const fetched = await fetchAiModels(user.id);
 
   if (intent === "test") {
-    const tested = await testAiConnection();
+    const tested = await testAiConnection(user.id);
     return {
       ...tested,
       models: fetched.models,
@@ -90,8 +90,8 @@ export async function saveAiSettings(
   };
 }
 
-async function testAiConnection(): Promise<ActionState> {
-  const { baseUrl, apiKey, model } = await getAiConfig();
+async function testAiConnection(userId: string): Promise<ActionState> {
+  const { baseUrl, apiKey, model } = await getAiConfigForUser(userId);
   if (!baseUrl || !apiKey) {
     return { ok: false, error: "Thiếu Base URL hoặc API Key." };
   }
@@ -181,17 +181,17 @@ export async function savePexelsSettings(
   _prev: ActionState,
   formData: FormData
 ): Promise<ActionState> {
-  await requireCurrentUser();
+  const user = await requireCurrentUser();
 
   const apiKey = str(formData, "apiKey");
   if (apiKey) {
-    await setSetting(SETTING_KEYS.PEXELS.apiKey, apiKey);
+    await setUserSetting(user.id, SETTING_KEYS.PEXELS.apiKey, apiKey);
     // Key mới có hạn mức riêng — bỏ trạng thái tạm ngưng của key cũ,
     // nếu không người dùng đổi key xong vẫn bị chặn tới hết giờ.
-    resetPexelsRateLimit();
+    resetPexelsRateLimit(user.id);
   }
 
-  const { apiKey: saved } = await getPexelsConfig();
+  const saved = await getPexelsKeyForUser(user.id);
   if (!saved) return { error: "Vui lòng nhập Pexels API Key." };
 
   revalidatePath("/settings");
@@ -227,21 +227,51 @@ export async function savePexelsSettings(
 }
 
 // ============================================================
+// Xóa key đã lưu (user lấy lại key khác / thôi dùng dịch vụ)
+// ============================================================
+
+export async function clearUserSettingAction(
+  _prev: ActionState,
+  formData: FormData
+): Promise<ActionState> {
+  const user = await requireCurrentUser();
+
+  const group = str(formData, "group"); // "AI" | "PEXELS"
+  const keys =
+    group === "AI"
+      ? Object.values(SETTING_KEYS.AI)
+      : group === "PEXELS"
+        ? Object.values(SETTING_KEYS.PEXELS)
+        : [];
+  if (keys.length === 0) return { error: "Nhóm cài đặt không hợp lệ." };
+
+  for (const key of keys) await setUserSetting(user.id, key, "");
+  if (group === "PEXELS") resetPexelsRateLimit(user.id);
+
+  revalidatePath("/settings");
+  return {
+    ok: true,
+    message:
+      group === "AI"
+        ? "Đã xóa cấu hình AI của bạn — tính năng soạn bài bằng AI tạm ngưng tới khi nhập lại."
+        : "Đã xóa Pexels API Key của bạn.",
+  };
+}
 
 // ============================================================
 // Trạng thái tổng hợp
 // ============================================================
 
 export async function getIntegrationStatus() {
-  await requireCurrentUser();
-  const [ai, pexels, fb] = await Promise.all([
-    getAiConfig(),
-    getPexelsConfig(),
+  const user = await requireCurrentUser();
+  const [ai, pexelsKey, fb] = await Promise.all([
+    getAiConfigForUser(user.id),
+    getPexelsKeyForUser(user.id),
     getFacebookConfig(),
   ]);
   return {
     ai: Boolean(ai.baseUrl && ai.apiKey && ai.model),
-    pexels: Boolean(pexels.apiKey),
+    pexels: Boolean(pexelsKey),
     facebook: Boolean(fb.appId && fb.appSecret),
   };
 }

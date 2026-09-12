@@ -5,6 +5,7 @@ import { SignJWT } from "jose";
 import { readFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { openTestDb } from "./lib/test-db.mjs";
+import { seedMockSettingsForUser } from "./lib/seed-settings.mjs";
 
 // Đọc SESSION_SECRET từ .env
 const env = readFileSync(".env", "utf8");
@@ -36,6 +37,10 @@ db.prepare(
   new Date().toISOString(),
   new Date().toISOString()
 );
+
+// Key AI/Pexels là tài sản RIÊNG từng user (UserSetting, không còn env fallback)
+// → user smoke phải được nạp cấu hình mock, nếu các E2E sẽ chạy thiếu key.
+seedMockSettingsForUser(db, id);
 
 const token = await new SignJWT({ userId: id, email, name: "Smoke Test" })
   .setProtectedHeader({ alg: "HS256" })

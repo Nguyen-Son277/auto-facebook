@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { requireCurrentUser } from "@/lib/dal";
 import { prisma } from "@/lib/prisma";
 import { buildMessage, deliverToFacebook } from "@/lib/deliver";
+import { notify } from "@/lib/notify";
 import type { GraphContext } from "@/lib/facebook";
 import {
   parseAttachments,
@@ -149,6 +150,13 @@ export async function createAndPublishPost(
         publishedAt: new Date(),
         errorMessage: null,
       },
+    });
+
+    await notify(userId, {
+      type: "ACTIVITY",
+      title: "✅ Đã đăng bài lên " + page.name,
+      body: input.content.slice(0, 160),
+      link: "/history",
     });
 
     revalidatePath("/composer");
@@ -304,6 +312,13 @@ export async function retryPost(
         publishedAt: new Date(),
         errorMessage: null,
       },
+    });
+
+    await notify(userId, {
+      type: "ACTIVITY",
+      title: "✅ Đăng lại thành công",
+      body: post.content.slice(0, 160),
+      link: "/history",
     });
 
     revalidatePath("/history");

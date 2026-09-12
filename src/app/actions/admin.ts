@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { ensureWorkspaceForUser, getCurrentUser, type CurrentUser } from "@/lib/dal";
+import { notify, notifyAllUsers } from "@/lib/notify";
 import { validatePasswordStrength } from "@/lib/password";
 
 // ============================================================
@@ -73,6 +74,12 @@ export async function approveUser(
     },
   });
   await ensureWorkspaceForUser(target.id);
+  await notify(target.id, {
+    type: "ADMIN",
+    title: "🛡️ Tài khoản của bạn đã được duyệt",
+    body: "Quản trị viên đã kích hoạt tài khoản. Đăng nhập bằng mật khẩu tạm được cấp — hệ thống sẽ yêu cầu đổi mật khẩu ngay lần đầu.",
+    link: "/login",
+  });
 
   revalidateAdmin();
   return {
@@ -103,6 +110,18 @@ async function setTargetStatus(
   }
 
   await prisma.user.update({ where: { id: target.id }, data: { status } });
+  await notify(target.id, {
+    type: "ADMIN",
+    title:
+      status === "APPROVED"
+        ? "🛡️ Tài khoản của bạn đã được mở lại"
+        : "🔒 Tài khoản của bạn đã bị khoá",
+    body:
+      status === "APPROVED"
+        ? "Quản trị viên đã cho phép bạn sử dụng hệ thống trở lại — mật khẩu vẫn giữ nguyên."
+        : "Quản trị viên đã thu hồi quyền sử dụng hệ thống của tài khoản này. Liên hệ quản trị nếu cho rằng đây là nhầm lẫn.",
+    link: "/login",
+  });
   revalidateAdmin();
   return { ok: true, message: okMessage(target.email) };
 }
@@ -153,6 +172,12 @@ export async function resetUserPassword(
   await prisma.user.update({
     where: { id: target.id },
     data: { password: passwordHash, mustChangePassword: true },
+  });
+  await notify(target.id, {
+    type: "ADMIN",
+    title: "🔑 Quản trị viên đã đặt lại mật khẩu của bạn",
+    body: "Lần đăng nhập kế tiếp bạn sẽ buộc phải đổi sang mật khẩu mới. Hãy liên hệ quản trị nếu bạn không yêu cầu việc này.",
+    link: "/change-password",
   });
 
   revalidateAdmin();
@@ -233,6 +258,12 @@ export async function createManagedUser(
     },
   });
   await ensureWorkspaceForUser(created.id);
+  await notify(created.id, {
+    type: "ADMIN",
+    title: "🛡️ Quản trị viên đã tạo tài khoản cho bạn",
+    body: "Đăng nhập bằng mật khẩu tạm được cấp — hệ thống sẽ yêu cầu đổi mật khẩu ngay lần đầu.",
+    link: "/login",
+  });
 
   revalidateAdmin();
   return { ok: true, message: `Đã tạo tài khoản ${email} — gửi mật khẩu tạm cho họ.` };

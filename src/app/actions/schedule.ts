@@ -26,13 +26,17 @@ function revalidateScheduleViews() {
 }
 
 /**
- * Bật/tắt tự động đăng bài theo lịch.
+ * Bật/tắt tự động đăng bài theo lịch — CHỈ ADMIN.
  *
- * Vòng lặp chạy trong tiến trình server web (xem src/instrumentation.ts), nên
- * người dùng không phải mở terminal chạy worker nữa — chỉ cần bật ở đây.
+ * Đây là công tắc CẤP HỆ THỐNG (mọi user chung một vòng lặp) nên quyền điều
+ * khiển thuộc quản trị viên. User thường không thấy nút nào và cũng không
+ * gọi được action này — kể cả khi cố gửi thẳng từ client.
  */
 export async function toggleSchedulerAction(enabled: boolean): Promise<ScheduleState> {
-  await requireCurrentUser();
+  const user = await requireCurrentUser();
+  if (user.role !== "ADMIN") {
+    return { ok: false, error: "Chỉ quản trị viên mới được bật/tắt tự động đăng." };
+  }
 
   await setSchedulerEnabled(Boolean(enabled));
 
@@ -49,11 +53,14 @@ export async function toggleSchedulerAction(enabled: boolean): Promise<ScheduleS
 }
 
 /**
- * Chạy scheduler ngay một vòng (nút "Chạy ngay" trên web).
+ * Chạy scheduler ngay một vòng (nút "Chạy ngay") — CHỈ ADMIN.
  * Hữu ích để kiểm tra cấu hình mà không phải chờ tới nhịp kế tiếp.
  */
 export async function runSchedulerNowAction(): Promise<ScheduleState> {
-  await requireCurrentUser();
+  const user = await requireCurrentUser();
+  if (user.role !== "ADMIN") {
+    return { ok: false, error: "Chỉ quản trị viên mới được chạy scheduler thủ công." };
+  }
 
   if (!(await isSchedulerEnabled())) {
     return {

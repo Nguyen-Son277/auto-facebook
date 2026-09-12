@@ -94,6 +94,8 @@ export type BrandContext = {
 };
 
 export type GenerateInput = {
+  /** Chat dùng key AI của user nào — key là tài sản riêng từng người dùng. */
+  userId: string;
   topic: string;
   tone: Tone;
   goal: Goal;

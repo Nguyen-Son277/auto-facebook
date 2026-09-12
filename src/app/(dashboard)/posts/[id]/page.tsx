@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireCurrentUser } from "@/lib/dal";
 import { prisma } from "@/lib/prisma";
-import { getPexelsConfig } from "@/lib/settings";
+import { getPexelsKeyForUser } from "@/lib/settings";
 import PostEditor from "@/components/post-editor";
 
 // ============================================================
@@ -32,7 +32,7 @@ export default async function PostDetailPage({
   // Không tiết lộ bài của người khác có tồn tại hay không
   if (!post) notFound();
 
-  const { apiKey } = await getPexelsConfig();
+  const apiKey = await getPexelsKeyForUser(user.id);
 
   return (
     <div>

@@ -5,7 +5,7 @@ import { requireCurrentUser } from "@/lib/dal";
 import { prisma } from "@/lib/prisma";
 import { suggestMediaKeywords } from "@/lib/ai";
 import { curatedMedia, getPexelsQuota, searchMedia } from "@/lib/pexels";
-import { getPexelsConfig } from "@/lib/settings";
+import { getPexelsKeyForUser } from "@/lib/settings";
 import type {
   KeywordState,
   LibraryState,
@@ -24,15 +24,15 @@ export async function searchPexelsMedia(
   _prev: MediaSearchState,
   formData: FormData
 ): Promise<MediaSearchState> {
-  await requireCurrentUser();
+  const user = await requireCurrentUser();
 
   const query = str(formData, "query");
   const mediaType: MediaType = str(formData, "mediaType") === "VIDEO" ? "VIDEO" : "IMAGE";
   const page = Math.max(Number(str(formData, "page")) || 1, 1);
 
   const res = query
-    ? await searchMedia({ query, type: mediaType, page, perPage: 12 })
-    : await curatedMedia(mediaType, 12);
+    ? await searchMedia({ userId: user.id, query, type: mediaType, page, perPage: 12 })
+    : await curatedMedia(user.id, mediaType, 12);
 
   if (!res.ok) return { ok: false, error: res.error, mediaType, keyword: query };
 
@@ -54,12 +54,12 @@ export async function suggestKeywords(
   _prev: KeywordState,
   formData: FormData
 ): Promise<KeywordState> {
-  await requireCurrentUser();
+  const user = await requireCurrentUser();
 
   const content = str(formData, "content");
   // Context thương hiệu (từ composer) — giúp AI gợi ý từ khóa bám ngành hàng
   // thay vì từ khóa chung chung. Form cũ không gửi → context rỗng như trước.
-  const res = await suggestMediaKeywords(content, 6, {
+  const res = await suggestMediaKeywords(user.id, content, 6, {
     industry: str(formData, "industry"),
     products: str(formData, "products"),
   });
@@ -152,11 +152,11 @@ export type PexelsStatus = {
 /** Trạng thái tích hợp Pexels để hiển thị ở đầu trang. */
 export async function getPexelsStatus(): Promise<PexelsStatus> {
   const user = await requireCurrentUser();
-  const { apiKey } = await getPexelsConfig();
+  const apiKey = await getPexelsKeyForUser(user.id);
   const libraryCount = await prisma.media.count({
     where: { userId: user.id, postId: null },
   });
-  const quota = getPexelsQuota();
+  const quota = getPexelsQuota(user.id);
   return {
     configured: Boolean(apiKey),
     quotaUsed: quota.used,

@@ -68,6 +68,7 @@ export async function generateContent(
     : undefined;
 
   const res = await generatePostVariants({
+    userId: user.id,
     topic,
     tone: pick<Tone>(str(formData, "tone"), TONES, "friendly"),
     goal: pick<Goal>(str(formData, "goal"), GOALS, "engagement"),

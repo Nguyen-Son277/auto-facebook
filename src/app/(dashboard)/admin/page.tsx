@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { requireCurrentUser } from "@/lib/dal";
 import { prisma } from "@/lib/prisma";
 import AdminClient from "@/components/admin-client";
+import AdminSchedulerCard from "@/components/admin-scheduler-card";
 
 export const metadata: Metadata = {
   title: "Quản trị tài khoản | FB Marketing Auto",
@@ -40,14 +41,17 @@ export default async function AdminPage() {
   }
 
   return (
-    <AdminClient
-      meEmail={me.email}
-      users={users.map((u) => ({
-        ...u,
-        createdAt: u.createdAt.toISOString(),
-        passwordChangedAt: u.passwordChangedAt?.toISOString() ?? null,
-        workspaces: wsByUser.get(u.id) ?? [],
-      }))}
-    />
+    <div className="space-y-5">
+      <AdminSchedulerCard userId={me.id} />
+      <AdminClient
+        meEmail={me.email}
+        users={users.map((u) => ({
+          ...u,
+          createdAt: u.createdAt.toISOString(),
+          passwordChangedAt: u.passwordChangedAt?.toISOString() ?? null,
+          workspaces: wsByUser.get(u.id) ?? [],
+        }))}
+      />
+    </div>
   );
 }

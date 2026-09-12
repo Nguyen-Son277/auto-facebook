@@ -1,6 +1,7 @@
 import "server-only";
 
 import { prisma } from "@/lib/prisma";
+import { notify } from "./notify";
 import { buildMessage, deliverToFacebook } from "@/lib/deliver";
 import type { GraphContext } from "@/lib/facebook";
 import { getSetting, setSetting } from "@/lib/settings";
@@ -271,6 +272,14 @@ export async function runSchedulerTick(
 
       result.published += 1;
       result.details.push({ postId: post.id, content: preview, outcome: "PUBLISHED" });
+
+      // Báo chủ bài biết bài đã lên sóng (kể cả bài do AutoPilot tạo)
+      await notify(post.userId, {
+        type: "ACTIVITY",
+        title: "✅ Bài đã đăng thành công",
+        body: `“${preview}” đã lên trang ${post.page?.name ?? "Facebook"}.`,
+        link: "/history",
+      });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       const canRetry = attemptNumber < MAX_ATTEMPTS && !isPermanentError(message);
@@ -315,6 +324,15 @@ export async function runSchedulerTick(
           content: preview,
           outcome: "FAILED",
           message,
+        });
+
+        // Bài chết hẳn là sự kiện user PHẢI biết — nếu không họ tưởng
+        // bài đã đăng từ lâu.
+        await notify(post.userId, {
+          type: "ACTIVITY",
+          title: "⚠️ Bài đăng thất bại",
+          body: `“${preview}” — ${message.slice(0, 300)}`,
+          link: "/history",
         });
       }
     }
