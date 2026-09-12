@@ -8,14 +8,21 @@ const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
 /**
  * Tạo Prisma Client nối PostgreSQL (Supabase) qua driver adapter `pg`.
  *
- * - DATABASE_URL nên là connection string ĐÃ QUA POOLER (Supavisor, cổng
- *   6543, kèm `?pgbouncer=true`) khi chạy trên Vercel/serverless. Pooler giữ
- *   số kết nối thật tới Postgres ở mức thấp dù có nhiều lambda instance.
- * - `max` nhỏ (5) vì mỗi lambda/instance chỉ nên giữ vài kết nối; Supabase
- *   Free có giới hạn kết nối thấp.
- * - Prisma CLI (migrate/introspect) dùng DIRECT_URL trong prisma.config.ts,
- *   KHÔNG dùng biến này — pooler không hợp với prepared statement của CLI.
+ * ⚠️ DATABASE_URL PHẢI là TRANSACTION POOLER (Supavisor cổng **6543**, kèm
+ * `?pgbouncer=true`), KHÔNG phải session pooler (5432).
+ *
+ * Vì sao: session pooler giữ riêng 1 kết nối Postgres cho mỗi client và chỉ
+ * cho tối đa 15 client. Trên Vercel mỗi lambda instance mở pool riêng, nên chỉ
+ * vài instance là cạn và mọi truy vấn đổ lỗi:
+ *   `(EMAXCONNSESSION) max clients reached in session mode - pool_size: 15`
+ * Transaction pooler dùng chung 15 kết nối Postgres cho rất nhiều client.
+ *
+ * - `max` nhỏ vì mỗi lambda chỉ nên giữ vài kết nối; đổi bằng PRISMA_POOL_MAX.
+ * - Prisma CLI (migrate/introspect) dùng DIRECT_URL trong prisma.config.ts —
+ *   migrate cần session mode nên vẫn trỏ cổng 5432.
  */
+const POOL_MAX = Number(process.env.PRISMA_POOL_MAX ?? 3);
+
 function createPrismaClient(): PrismaClient {
   const connectionString = process.env.DATABASE_URL;
   if (!connectionString) {
@@ -26,7 +33,7 @@ function createPrismaClient(): PrismaClient {
 
   const adapter = new PrismaPg({
     connectionString,
-    max: 5,
+    max: POOL_MAX,
     idleTimeoutMillis: 10_000,
     connectionTimeoutMillis: 10_000,
   });

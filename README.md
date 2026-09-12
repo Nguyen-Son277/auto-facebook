@@ -574,13 +574,27 @@ Chạy nó trước mỗi lần migration hoặc dọn dữ liệu.
 ## 1. Supabase
 
 1. Tạo project (region **Southeast Asia (Singapore)** cho gần Việt Nam).
-2. Vào **Project Settings → Database → Connection string**. Lấy **Session pooler**
-   (cổng `5432`) — **không** dùng host `db.<ref>.supabase.co` vì host đó chỉ có IPv6,
-   nhiều máy và Vercel không kết nối được.
+2. Vào **Project Settings → Database → Connection string**. Lấy **hai** chuỗi
+   (đều là pooler IPv4 — **không** dùng host `db.<ref>.supabase.co` vì host đó chỉ
+   có IPv6, máy bạn và Vercel đều không kết nối được):
 
    ```
+   # Transaction pooler — cổng 6543 → dùng cho DATABASE_URL (app chạy)
+   postgresql://postgres.<project-ref>:<PASSWORD>@aws-0-ap-southeast-1.pooler.supabase.com:6543/postgres?pgbouncer=true
+
+   # Session pooler — cổng 5432 → dùng cho DIRECT_URL (chỉ Prisma CLI migrate)
    postgresql://postgres.<project-ref>:<PASSWORD>@aws-0-ap-southeast-1.pooler.supabase.com:5432/postgres
    ```
+
+   ⚠️ **Đừng dùng session pooler (5432) cho `DATABASE_URL`.** Nó giữ riêng một kết
+   nối Postgres cho mỗi client và chỉ cho **15 client**; trên Vercel mỗi lambda
+   instance mở pool riêng nên chỉ vài instance là cạn, mọi truy vấn đổ lỗi:
+
+   ```
+   (EMAXCONNSESSION) max clients reached in session mode - pool_size: 15
+   ```
+
+   Transaction pooler dùng chung 15 kết nối Postgres cho rất nhiều client.
 
    Mật khẩu chứa ký tự đặc biệt phải mã hoá URL (`@` → `%40`).
 3. **Project Settings → API**: lấy `Project URL` và `service_role` key (khoá bí mật,
@@ -592,8 +606,8 @@ Chạy nó trước mỗi lần migration hoặc dọn dữ liệu.
 
 | Biến | Ghi chú |
 |---|---|
-| `DATABASE_URL` | Session pooler (5432) — runtime của app |
-| `DIRECT_URL` | Session pooler (5432) — Prisma CLI (migrate) |
+| `DATABASE_URL` | **Transaction** pooler (6543) + `?pgbouncer=true` — runtime của app |
+| `DIRECT_URL` | **Session** pooler (5432) — chỉ Prisma CLI (migrate) dùng |
 | `SESSION_SECRET` | `openssl rand -base64 32` (≥16 ký tự) |
 | `SESSION_COOKIE_NAME` | `session` |
 | `SUPABASE_URL` | `https://<ref>.supabase.co` |
