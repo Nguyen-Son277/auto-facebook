@@ -1,5 +1,7 @@
 "use client";
 
+import { formatDate } from "@/lib/format-date";
+
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -45,7 +47,7 @@ function timeAgo(iso: string): string {
   if (h < 24) return `${h} giờ trước`;
   const d = Math.floor(h / 24);
   if (d < 30) return `${d} ngày trước`;
-  return new Date(iso).toLocaleDateString("vi-VN");
+  return formatDate(iso);
 }
 
 export default function NotificationsClient({

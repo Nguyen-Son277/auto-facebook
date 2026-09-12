@@ -1,5 +1,7 @@
 "use client";
 
+import { formatDateTime } from "@/lib/format-date";
+
 import { useState, useTransition } from "react";
 import {
   adminCreateNotification,
@@ -244,7 +246,7 @@ export default function NotificationsAdminClient({
                     <p className="mt-1 text-[11px] text-gray-400">
                       → {n.userName || n.userEmail}
                       {n.userRole === "ADMIN" && " (admin)"} ·{" "}
-                      {new Date(n.createdAt).toLocaleString("vi-VN")}
+                      {formatDateTime(n.createdAt)}
                       {n.link && ` · ${n.link}`}
                     </p>
                   </div>

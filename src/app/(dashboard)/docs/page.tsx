@@ -1,3 +1,4 @@
+import { formatDate } from "@/lib/format-date";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { requireCurrentUser } from "@/lib/dal";
@@ -67,7 +68,7 @@ export default async function DocsPage() {
               {firstLine(doc.bodyMarkdown)}
             </p>
             <p className="mt-3 text-xs text-gray-400">
-              Cập nhật {new Date(doc.updatedAt).toLocaleDateString("vi-VN")}
+              Cập nhật {formatDate(doc.updatedAt)}
             </p>
           </Link>
         ))}

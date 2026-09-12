@@ -1,5 +1,7 @@
 "use client";
 
+import { formatDate } from "@/lib/format-date";
+
 import { useState, useTransition } from "react";
 import PasswordInput from "@/components/password-input";
 import {
@@ -230,7 +232,7 @@ export default function AdminClient({
                     {u.workspaces.length ? u.workspaces.join(", ") : "—"}
                   </td>
                   <td className="px-4 py-3 text-xs text-gray-500">
-                    {new Date(u.createdAt).toLocaleDateString("vi-VN")}
+                    {formatDate(u.createdAt)}
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex flex-wrap justify-end gap-1.5">

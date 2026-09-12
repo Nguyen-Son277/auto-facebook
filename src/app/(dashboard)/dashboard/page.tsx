@@ -1,3 +1,4 @@
+import { formatDateTime } from "@/lib/format-date";
 import Link from "next/link";
 import { requireCurrentUser } from "@/lib/dal";
 import { prisma } from "@/lib/prisma";
@@ -148,7 +149,7 @@ export default async function DashboardPage() {
                     </p>
                     <p className="text-xs text-gray-500">
                       {post.page?.name ?? "Chưa chọn Page"} ·{" "}
-                      {new Date(post.createdAt).toLocaleString("vi-VN")}
+                      {formatDateTime(post.createdAt)}
                     </p>
                   </div>
                   <span

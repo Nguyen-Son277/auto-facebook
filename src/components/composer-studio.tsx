@@ -1,5 +1,7 @@
 "use client";
 
+import { formatDateTime } from "@/lib/format-date";
+
 import { useActionState, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
@@ -1195,7 +1197,7 @@ export default function ComposerStudio({
                   <p className="line-clamp-2 text-sm text-gray-900">{d.content}</p>
                   <p className="mt-1 text-xs text-gray-500">
                     {d.pageName ?? "Chưa chọn Page"} ·{" "}
-                    {new Date(d.updatedAt).toLocaleString("vi-VN")}
+                    {formatDateTime(d.updatedAt)}
                   </p>
                   <div className="mt-2 flex gap-2">
                     <button
@@ -1247,7 +1249,7 @@ export default function ComposerStudio({
                     </div>
                     <p className="mt-1 text-xs text-gray-500">
                       {post.pageName ?? "—"} ·{" "}
-                      {new Date(post.createdAt).toLocaleString("vi-VN")}
+                      {formatDateTime(post.createdAt)}
                     </p>
                     {post.permalink && (
                       <a

@@ -1,5 +1,7 @@
 "use client";
 
+import { APP_TIME_ZONE } from "@/lib/format-date";
+
 import Link from "next/link";
 import { useActionState, useState, useTransition } from "react";
 import {
@@ -92,6 +94,7 @@ function Alert({ state, testId }: { state: AutoPilotState; testId?: string }) {
 function formatWhen(iso: string): string {
   if (!iso) return "—";
   return new Date(iso).toLocaleString("vi-VN", {
+    timeZone: APP_TIME_ZONE,
     weekday: "short",
     day: "2-digit",
     month: "2-digit",

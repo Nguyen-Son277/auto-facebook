@@ -1,5 +1,7 @@
 "use client";
 
+import { APP_TIME_ZONE } from "@/lib/format-date";
+
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useActionState, useMemo, useState, useTransition } from "react";
@@ -70,6 +72,7 @@ function Alert({ state, testId }: { state: PostEditState; testId?: string }) {
 function formatWhen(iso: string | null): string {
   if (!iso) return "—";
   return new Date(iso).toLocaleString("vi-VN", {
+    timeZone: APP_TIME_ZONE,
     weekday: "short",
     day: "2-digit",
     month: "2-digit",

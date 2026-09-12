@@ -1,5 +1,7 @@
 "use server";
 
+import { formatDateTime } from "@/lib/format-date";
+
 import { revalidatePath } from "next/cache";
 import { requireCurrentUser } from "@/lib/dal";
 import { prisma } from "@/lib/prisma";
@@ -291,7 +293,7 @@ export async function approvePlannedPost(postId: string): Promise<AutoPilotState
   revalidatePath("/calendar");
   return {
     ok: true,
-    message: `Đã duyệt — bài sẽ đăng lúc ${scheduledAt.toLocaleString("vi-VN")}.`,
+    message: `Đã duyệt — bài sẽ đăng lúc ${formatDateTime(scheduledAt)}.`,
   };
 }
 

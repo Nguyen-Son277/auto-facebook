@@ -1,5 +1,7 @@
 "use client";
 
+import { formatDateTime } from "@/lib/format-date";
+
 import { useActionState } from "react";
 import { answerQuestion, type DocState } from "@/app/actions/docs";
 
@@ -57,7 +59,7 @@ function QuestionCard({
           <p className="text-xs font-medium text-emerald-700">
             ✓ Bạn đã trả lời
             <span className="ml-1 font-normal text-gray-400">
-              ({new Date(myAnswer.updatedAt).toLocaleString("vi-VN")})
+              ({formatDateTime(myAnswer.updatedAt)})
             </span>
           </p>
           <p className="mt-1 rounded-lg bg-gray-50 px-3 py-2 text-sm text-gray-700">

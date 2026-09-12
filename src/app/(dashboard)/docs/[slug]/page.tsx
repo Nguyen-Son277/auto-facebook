@@ -1,3 +1,4 @@
+import { formatDate } from "@/lib/format-date";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -50,7 +51,7 @@ export default async function DocDetailPage({
       >
         <h1 className="text-2xl font-bold text-gray-900">{doc.title}</h1>
         <p className="mt-1 text-xs text-gray-400">
-          Cập nhật {new Date(doc.updatedAt).toLocaleDateString("vi-VN")}
+          Cập nhật {formatDate(doc.updatedAt)}
         </p>
         <div
           className="prose-docs mt-5 text-sm text-gray-700"

@@ -1,5 +1,7 @@
 "use client";
 
+import { formatDateTime } from "@/lib/format-date";
+
 import { useState, useTransition } from "react";
 import Link from "next/link";
 import {
@@ -229,7 +231,7 @@ export default function DocsAdminClient({
                       <li key={a.id} className="rounded-lg bg-white px-3 py-2 text-xs text-gray-700">
                         <span className="font-medium text-gray-900">{a.userName || a.userEmail}</span>
                         <span className="ml-1 text-gray-400">
-                          ({new Date(a.updatedAt).toLocaleString("vi-VN")})
+                          ({formatDateTime(a.updatedAt)})
                         </span>
                         : {a.body}
                       </li>
