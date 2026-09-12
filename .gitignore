@@ -58,3 +58,11 @@ next-env.d.ts
 /test.db-journal
 /test.db-wal
 /test.db-shm
+
+#skill Agent
+.agents/
+.claude/
+.hermes/
+.windsurf/
+
+IDEA.md
