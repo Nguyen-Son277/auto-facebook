@@ -3,6 +3,7 @@
 import { useActionState } from "react";
 import Link from "next/link";
 import { register } from "@/app/actions/auth";
+import PasswordInput from "@/components/password-input";
 
 export default function RegisterPage() {
   const [state, formAction, pending] = useActionState(register, null);
@@ -68,43 +69,22 @@ export default function RegisterPage() {
             />
           </div>
 
-          <div>
-            <label
-              htmlFor="password"
-              className="mb-1 block text-sm font-medium text-gray-700"
-            >
-              Mật khẩu
-            </label>
-            <input
-              id="password"
-              name="password"
-              type="password"
-              autoComplete="new-password"
-              required
-              minLength={8}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-gray-900 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 focus:outline-none"
-              placeholder="Ít nhất 8 ký tự, có chữ và số"
-            />
-          </div>
+          <PasswordInput
+            id="password"
+            name="password"
+            label="Mật khẩu"
+            autoComplete="new-password"
+            minLength={8}
+            placeholder="Ít nhất 8 ký tự, có chữ và số"
+          />
 
-          <div>
-            <label
-              htmlFor="confirm"
-              className="mb-1 block text-sm font-medium text-gray-700"
-            >
-              Xác nhận mật khẩu
-            </label>
-            <input
-              id="confirm"
-              name="confirm"
-              type="password"
-              autoComplete="new-password"
-              required
-              minLength={8}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-gray-900 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 focus:outline-none"
-              placeholder="••••••••"
-            />
-          </div>
+          <PasswordInput
+            id="confirm"
+            name="confirm"
+            label="Xác nhận mật khẩu"
+            autoComplete="new-password"
+            minLength={8}
+          />
 
           {state?.error && (
             <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">

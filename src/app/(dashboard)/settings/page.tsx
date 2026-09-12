@@ -4,6 +4,7 @@ import {
   AiSettingsForm,
   PexelsSettingsForm,
 } from "@/components/settings-forms";
+import ChangePasswordForm from "@/components/change-password-form";
 import { getSettingsMeta, SETTING_KEYS } from "@/lib/settings";
 import { fetchAiModels } from "@/lib/ai";
 import { getSchedulerStatus } from "@/lib/scheduler";
@@ -95,6 +96,27 @@ export default async function SettingsPage() {
               bạn có thể đóng trang này.
             </p>
           </div>
+        </section>
+
+        {/* ================= Đổi mật khẩu ================= */}
+        <section className="rounded-2xl border border-gray-200 bg-white p-5">
+          <div className="mb-1 flex items-center gap-3">
+            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-100 text-xl">
+              🔑
+            </span>
+            <div>
+              <h2 className="font-semibold text-gray-900">Tài khoản &amp; bảo mật</h2>
+              <p className="text-xs text-gray-500">
+                Đổi mật khẩu đăng nhập — mật khẩu mới cần tối thiểu 8 ký tự, có chữ và số
+              </p>
+            </div>
+          </div>
+
+          <ChangePasswordForm
+            email={user.email}
+            forced={user.mustChangePassword}
+            inline
+          />
         </section>
       </div>
     </div>

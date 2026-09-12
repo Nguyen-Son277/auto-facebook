@@ -158,6 +158,52 @@ check(
 );
 
 // ============================================================
+section("9. User mới luôn có workspace (ensureWorkspaceForUser)");
+// ============================================================
+// Mô phỏng đúng việc dal.ensureWorkspaceForUser làm khi user chưa có
+// workspace: tạo Workspace + WorkspaceMember(OWNER). Thiếu bước này,
+// trang /pages sẽ crash "Bạn chưa thuộc workspace nào".
+const nowsId = `${stamp}-nows`;
+const noWsEmail = `${stamp}-nows@example.com`;
+db.prepare(
+  `INSERT INTO User (id, email, name, password, role, status, mustChangePassword, createdAt, updatedAt)
+   VALUES (?, ?, ?, ?, 'USER', 'APPROVED', 0, datetime('now'), datetime('now'))`
+).run(nowsId, noWsEmail, "Chưa Có WS", hash);
+
+check(
+  "user mới tạo chưa có workspace",
+  db.prepare("SELECT COUNT(*) c FROM WorkspaceMember WHERE userId = ?").get(nowsId).c === 0
+);
+
+// name rỗng/ có → lấy name; slug bỏ dấu như createWorkspaceForUser
+const namePart = noWsEmail.split("@")[0];
+const slugBase = namePart
+  .toLowerCase()
+  .normalize("NFD")
+  .replace(/[̀-ͯ]/g, "")
+  .replace(/[^a-z0-9]+/g, "-")
+  .replace(/^-+|-+$/g, "");
+db.prepare(
+  `INSERT INTO Workspace (id, name, slug, timezone, status, ownerId, createdAt, updatedAt)
+   VALUES (?, ?, ?, 'Asia/Ho_Chi_Minh', 'ACTIVE', ?, datetime('now'), datetime('now'))`
+).run(`${stamp}-ws2`, "Chưa Có WS", slugBase, nowsId);
+db.prepare(
+  `INSERT INTO WorkspaceMember (id, workspaceId, userId, role, createdAt)
+   VALUES (?, ?, ?, 'OWNER', datetime('now'))`
+).run(`${stamp}-wm2`, `${stamp}-ws2`, nowsId);
+
+const gotWs = db.prepare(
+  `SELECT w.id FROM WorkspaceMember m JOIN Workspace w ON w.id = m.workspaceId
+   WHERE m.userId = ? ORDER BY m.createdAt ASC LIMIT 1`
+).get(nowsId);
+check("sau ensure có workspace mặc định (getDefaultWorkspaceId hết null)", Boolean(gotWs));
+const slugDup = db.prepare("SELECT COUNT(*) c FROM Workspace WHERE slug = ?").get(slugBase).c;
+check("slug workspace unique index hoạt động", slugDup === 1);
+
+db.prepare("DELETE FROM Workspace WHERE id = ?").run(`${stamp}-ws2`);
+db.prepare("DELETE FROM User WHERE id = ?").run(nowsId);
+
+// ============================================================
 // KẾT QUẢ
 // ============================================================
 console.log(`\nKẾT QUẢ: ${passed} đạt, ${failed} lỗi (tổng ${passed + failed})`);

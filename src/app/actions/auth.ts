@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { createSession, destroySession } from "@/lib/session";
-import { requireCurrentUser } from "@/lib/dal";
+import { ensureWorkspaceForUser, requireCurrentUser } from "@/lib/dal";
 import { validatePasswordStrength } from "@/lib/password";
 
 export type LoginState = { error?: string } | null;
@@ -44,6 +44,7 @@ export async function login(
     }
   }
 
+  await ensureWorkspaceForUser(user.id);
   await createSession({ userId: user.id, email: user.email, name: user.name ?? undefined });
   redirect("/dashboard");
 }
@@ -131,7 +132,7 @@ export async function register(
   }
 
   const passwordHash = await bcrypt.hash(password, 12);
-  await prisma.user.create({
+  const created = await prisma.user.create({
     data: {
       email,
       name: name || null,
@@ -140,6 +141,8 @@ export async function register(
       status: "PENDING",
     },
   });
+  // Tạo sẵn workspace của riêng họ — duyệt xong là làm việc được ngay
+  await ensureWorkspaceForUser(created.id);
 
   return {
     ok: true,

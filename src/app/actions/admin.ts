@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
-import { getCurrentUser, type CurrentUser } from "@/lib/dal";
+import { ensureWorkspaceForUser, getCurrentUser, type CurrentUser } from "@/lib/dal";
 import { validatePasswordStrength } from "@/lib/password";
 
 // ============================================================
@@ -72,6 +72,7 @@ export async function approveUser(
       mustChangePassword: true,
     },
   });
+  await ensureWorkspaceForUser(target.id);
 
   revalidateAdmin();
   return {
@@ -221,7 +222,7 @@ export async function createManagedUser(
   if (existing) return { ok: false, error: "Email này đã tồn tại." };
 
   const passwordHash = await bcrypt.hash(tempPassword, 12);
-  await prisma.user.create({
+  const created = await prisma.user.create({
     data: {
       email,
       name: name || null,
@@ -231,6 +232,7 @@ export async function createManagedUser(
       mustChangePassword: true,
     },
   });
+  await ensureWorkspaceForUser(created.id);
 
   revalidateAdmin();
   return { ok: true, message: `Đã tạo tài khoản ${email} — gửi mật khẩu tạm cho họ.` };

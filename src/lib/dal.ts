@@ -174,6 +174,25 @@ export async function createWorkspaceForUser(
 }
 
 /**
+ * Đảm bảo user luôn có ít nhất một workspace — tài khoản mới tạo
+ * (đăng ký / admin duyệt / admin tạo trực tiếp) cần có "góc làm việc"
+ * riêng trước khi truy cập bất kỳ trang nghiệp vụ nào.
+ * Đã có → trả workspace mặc định; chưa có → tạo mới (user làm OWNER).
+ */
+export async function ensureWorkspaceForUser(userId: string): Promise<string> {
+  const existing = await getDefaultWorkspaceId(userId);
+  if (existing) return existing;
+
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { name: true, email: true },
+  });
+  const name = user?.name?.trim() || user?.email?.split("@")[0] || "Workspace";
+  const { id } = await createWorkspaceForUser(userId, name);
+  return id;
+}
+
+/**
  * Xác thực user có quyền truy cập workspace và trả về context đầy đủ.
  * Ném WorkspaceAccessError nếu user không phải thành viên.
  */
@@ -288,9 +307,7 @@ export async function resolveWorkspace(
 
   // Fallback: workspace đầu tiên của user
   const user = await requireCurrentUser();
-  const fallbackId = await getDefaultWorkspaceId(user.id);
-  if (!fallbackId) {
-    throw new WorkspaceAccessError("Bạn chưa thuộc workspace nào.");
-  }
+  // User mới chưa từng có workspace → tự tạo luôn (OWNER) thay vì crash.
+  const fallbackId = await ensureWorkspaceForUser(user.id);
   return requireWorkspaceContext(fallbackId);
 }

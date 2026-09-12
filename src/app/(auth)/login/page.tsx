@@ -3,6 +3,7 @@
 import { useActionState } from "react";
 import Link from "next/link";
 import { login } from "@/app/actions/auth";
+import PasswordInput from "@/components/password-input";
 
 export default function LoginPage() {
   const [state, formAction, pending] = useActionState(login, null);
@@ -40,23 +41,12 @@ export default function LoginPage() {
           />
         </div>
 
-        <div>
-          <label
-            htmlFor="password"
-            className="mb-1 block text-sm font-medium text-gray-700"
-          >
-            Mật khẩu
-          </label>
-          <input
-            id="password"
-            name="password"
-            type="password"
-            autoComplete="current-password"
-            required
-            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-gray-900 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 focus:outline-none"
-            placeholder="••••••••"
-          />
-        </div>
+        <PasswordInput
+          id="password"
+          name="password"
+          label="Mật khẩu"
+          autoComplete="current-password"
+        />
 
         {state?.error && (
           <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">
