@@ -5,27 +5,24 @@
 // - Upsert theo slug: có thì cập nhật nội dung, chưa có thì tạo.
 // - Mọi doc đều published để user đọc được ngay tại /docs.
 // - Cần DB đã có ít nhất 1 user ADMIN (làm authorId).
+//
+// Dùng PostgreSQL (Supabase) qua DATABASE_URL.
 // ============================================================
 
-import Database from "better-sqlite3";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
+import "dotenv/config";
+import pg from "pg";
 import { randomUUID } from "node:crypto";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const DB_PATH = path.resolve(__dirname, "..", process.env.PROD_DB ?? "dev.db");
-
-const db = new Database(DB_PATH);
-db.pragma("wal_checkpoint(TRUNCATE)");
-
-const author = db
-  .prepare("SELECT id, email FROM User WHERE role = 'ADMIN' ORDER BY createdAt ASC LIMIT 1")
-  .get();
-
-if (!author) {
-  console.error("✗ Chưa có user ADMIN nào — chạy `npm run db:seed-admin` trước.");
+const connectionString = process.env.DATABASE_URL ?? process.env.DIRECT_URL;
+if (!connectionString) {
+  console.error("✗ Thiếu DATABASE_URL — kiểm tra file .env");
   process.exit(1);
 }
+
+const client = new pg.Client({
+  connectionString,
+  ssl: { rejectUnauthorized: false },
+});
 
 const slugify = (t) =>
   t
@@ -177,13 +174,22 @@ Trong trình soạn thảo có khối **"Tìm ảnh/video nhanh trên Pexels"**:
 - Hover thumbnail rồi bấm **➕** để đính kèm. Không được trộn ảnh và video trong cùng một bài (giới hạn của Facebook).
 - Cần tìm nhiều trang / lưu vào thư viện → bấm **🖼️ Chọn ảnh/video từ Pexels**.
 
-## 4. Đăng hoặc hẹn giờ
+## 4. Tải ảnh/video từ máy lên
+
+Ngoài Pexels, bạn có thể đính kèm file trong máy:
+
+- **Tối đa 50MB mỗi file.** Video dài/nặng hơn nên nén lại trước khi tải.
+- File được đưa **thẳng lên kho lưu trữ** (Supabase Storage) chứ không chạy qua server, nên tải nhanh và không bị giới hạn dung lượng của nền tảng hosting.
+- Video tải lên xem lại được ngay trong trình soạn thảo. Khi đăng, Facebook tự tải video về từ kho — bạn không phải chờ.
+- Nếu tải lên báo lỗi định dạng, dùng file \`.mp4\` (H.264) hoặc \`.mov\`.
+
+## 5. Đăng hoặc hẹn giờ
 
 - **Đăng ngay** — bài lên Facebook tức thì (dùng Page Access Token đã đồng bộ).
 - **Hẹn giờ** — chọn ngày giờ; hệ thống tự đăng đúng giờ, kể cả khi bạn đóng trình duyệt.
 - Ô nội dung hiển thị **số ký tự** và cảnh báo khi dòng đầu vượt ~125 ký tự (ngưỡng Facebook cắt phần "Xem thêm").
 
-## 5. Mẹo cho bài chất lượng
+## 6. Mẹo cho bài chất lượng
 
 - Dòng đầu tiên là "hook" — viết thật cuốn hút vì Facebook cắt sau ~125 ký tự.
 - Kho tài liệu thương hiệu càng đầy đủ (bảng giá, FAQ, chính sách), AI càng ít phải đoán.
@@ -299,7 +305,7 @@ Hai trang theo dõi mọi bài viết: [Lịch đăng](/calendar) cho kế hoạ
 - Hiển thị bài theo ngày dạng bảng, gồm bài hẹn giờ, bài chờ duyệt (AutoPilot REVIEW), bài đang đăng.
 - Kéo thả bài để đổi ngày/giờ đăng (nếu bật).
 - Nút **⏸ Tắt tự động đăng** / **▶ Bật tự động đăng** ở đầu trang — công tắc cấp hệ thống.
-- Nút **🔄 Chạy ngay** — chạy một vòng scheduler ngay lập tức thay vì chờ nhịp 60 giây kế tiếp.
+- Nút **🔄 Chạy ngay** — chạy một vòng scheduler ngay lập tức thay vì chờ nhịp kế tiếp.
 
 ## 2. Trạng thái bài
 
@@ -323,11 +329,16 @@ Bài đăng lỗi tạm thời (mạng chập chờn, rate limit) sẽ **tự th
 - Bài FAILED có nút **Thử lại** để đăng lại ngay.
 - Bài PUBLISHED có link mở trên Facebook để kiểm tra.
 
-## 5. Vòng lặp tự động đăng
+## 5. Điều gì đăng bài thay bạn?
 
-Bài hẹn giờ được đăng bởi **vòng lặp chạy trong chính web server** (kiểm tra mỗi 60 giây) — không cần mở terminal hay cài thêm gì. Chỉ cần app đang chạy là bài được đăng đúng giờ, kể cả khi bạn đóng trình duyệt.
+Bài hẹn giờ được đăng bởi **worker chạy phía server** — bạn không cần mở trình duyệt, chỉ cần hệ thống đang chạy. Có hai cách chạy worker tuỳ nơi triển khai:
 
-Bạn có thể tắt/bật vòng lặp ở **Lịch đăng** hoặc **Cài đặt → Tự động đăng bài theo lịch**. Khi tắt, bài hẹn giờ nằm chờ và sẽ đăng ngay khi bật lại (nếu quá giờ).`,
+- **Tự chạy trong web server** (mặc định khi cài trên máy chủ riêng): vòng lặp kiểm tra bài đến hạn mỗi 60 giây.
+- **Dùng cron ngoài** (khi deploy trên Vercel): serverless không giữ được vòng lặp, nên có một dịch vụ cron gọi vào hệ thống mỗi vài phút để đăng bài đến hạn. Phần này do người triển khai cấu hình — bạn không phải làm gì.
+
+Nếu nghi ngờ worker không chạy, mở **Lịch đăng** và bấm **🔄 Chạy ngay**: bài đến hạn sẽ được xử lý ngay lập tức.
+
+Bạn có thể tắt/bật tự động đăng ở **Lịch đăng** hoặc **Cài đặt → Tự động đăng bài theo lịch**. Khi tắt, bài hẹn giờ nằm chờ và sẽ đăng ngay khi bật lại (nếu đã quá giờ).`,
   },
   {
     title: "Câu hỏi thường gặp (FAQ)",
@@ -373,7 +384,10 @@ A: Được — mọi provider tương thích OpenAI: nhập Base URL tới \`/v
 A: Xem cột lỗi ở Lịch sử. Thường gặp: token hết hạn, thiếu quyền Page, nội dung bị Facebook từ chối (link spam, từ khóa nhạy cảm). Sửa xong bấm Thử lại.
 
 **Q: Đăng video có khác gì ảnh không?**
-A: Video cần upload lên Facebook trước rồi mới tạo bài (hệ thống tự xử lý). Không đăng chung ảnh + video trong một bài.
+A: Video được tải lên kho lưu trữ rồi Facebook tự tải về khi đăng, nên bạn không phải chờ upload qua server. Giới hạn **50MB mỗi video** — file lớn hơn hãy nén lại. Không đăng chung ảnh + video trong một bài.
+
+**Q: Video tải lên bị lỗi thì kiểm tra gì?**
+A: Ba nguyên nhân thường gặp: (1) file vượt 50MB, (2) định dạng không phải \`.mp4\`/\`.mov\`, (3) mạng đứt giữa lúc tải — thử lại. Video đã tải lên nằm trong [Thư viện Media](/media) nên không phải tải lại từ đầu.
 
 **Q: Muốn đăng lại bài cũ thì sao?**
 A: Mở bài trong Lịch sử → nhân bản/sửa → xếp lịch mới. Hệ thống không tự đăng lại bài cũ.
@@ -381,7 +395,10 @@ A: Mở bài trong Lịch sử → nhân bản/sửa → xếp lịch mới. H�
 ## Hệ thống
 
 **Q: Đóng trình duyệt thì bài hẹn giờ có đăng không?**
-A: Có. Vòng lặp tự động đăng chạy trong **tiến trình server**, không phụ thuộc trình duyệt.
+A: Có. Worker đăng bài chạy ở phía server (vòng lặp trong app, hoặc cron ngoài khi deploy trên Vercel) — hoàn toàn không phụ thuộc trình duyệt của bạn.
+
+**Q: Bài đến giờ mà không thấy đăng?**
+A: Mở [Lịch đăng](/calendar) bấm **🔄 Chạy ngay** để xử lý ngay. Kiểm tra thêm: công tắc tự động đăng có đang tắt không, và Page còn token hợp lệ không (xem [Facebook Apps](/facebook-apps)).
 
 **Q: Muốn dừng mọi bài tự động?**
 A: Tắt AutoPilot (ngừng tạo bài mới) và/hoặc tắt tự động đăng theo lịch (bài đã xếp nằm chờ). Cả hai đều giữ nguyên dữ liệu.`,
@@ -393,48 +410,71 @@ const questions = [
   "Bạn muốn hệ thống bổ sung tính năng gì tiếp theo?",
 ];
 
-function main() {
-  const insertDoc = db.prepare(`
-    INSERT INTO Doc (id, title, slug, bodyMarkdown, published, notifyOnPublish, authorId, createdAt, updatedAt)
-    VALUES (?, ?, ?, ?, 1, ?, ?, datetime('now'), datetime('now'))
-  `);
-  const updateDoc = db.prepare(`
-    UPDATE Doc SET title = ?, bodyMarkdown = ?, published = 1, updatedAt = datetime('now')
-    WHERE slug = ?
-  `);
+async function main() {
+  await client.connect();
+
+  const { rows: admins } = await client.query(
+    `SELECT id, email FROM "User" WHERE role = 'ADMIN' ORDER BY "createdAt" ASC LIMIT 1`
+  );
+  const author = admins[0];
+  if (!author) {
+    console.error("✗ Chưa có user ADMIN nào — chạy `npm run db:seed-admin` trước.");
+    process.exit(1);
+  }
+  console.log(`Tác giả: ${author.email}\n`);
 
   let created = 0;
   let updated = 0;
   for (const d of docs) {
     const slug = slugify(d.title);
-    const existing = db.prepare("SELECT id FROM Doc WHERE slug = ?").get(slug);
-    if (existing) {
-      updateDoc.run(d.title, d.body, slug);
+    const { rowCount } = await client.query('SELECT 1 FROM "Doc" WHERE slug = $1', [slug]);
+    if (rowCount > 0) {
+      await client.query(
+        `UPDATE "Doc"
+            SET title = $1, "bodyMarkdown" = $2, published = true,
+                "notifyOnPublish" = $3, "updatedAt" = now()
+          WHERE slug = $4`,
+        [d.title, d.body, d.notifyOnPublish === true, slug]
+      );
       updated++;
       console.log(`= cập nhật: ${slug}`);
     } else {
-      insertDoc.run(randomUUID(), d.title, slug, d.body, d.notifyOnPublish ? 1 : 0, author.id);
+      await client.query(
+        `INSERT INTO "Doc"
+           (id, title, slug, "bodyMarkdown", published, "notifyOnPublish", "authorId", "createdAt", "updatedAt")
+         VALUES ($1, $2, $3, $4, true, $5, $6, now(), now())`,
+        [randomUUID(), d.title, slug, d.body, d.notifyOnPublish === true, author.id]
+      );
       created++;
       console.log(`+ tạo mới: ${slug}`);
     }
   }
 
-  const insertQ = db.prepare(`
-    INSERT INTO FeedbackQuestion (id, question, active, authorId, createdAt, updatedAt)
-    VALUES (?, ?, 1, ?, datetime('now'), datetime('now'))
-  `);
   let qCreated = 0;
   for (const q of questions) {
-    const dup = db.prepare("SELECT id FROM FeedbackQuestion WHERE question = ?").get(q);
-    if (!dup) {
-      insertQ.run(randomUUID(), q, author.id);
+    const { rowCount } = await client.query(
+      'SELECT 1 FROM "FeedbackQuestion" WHERE question = $1',
+      [q]
+    );
+    if (rowCount === 0) {
+      await client.query(
+        `INSERT INTO "FeedbackQuestion" (id, question, active, "authorId", "createdAt", "updatedAt")
+         VALUES ($1, $2, true, $3, now(), now())`,
+        [randomUUID(), q, author.id]
+      );
       qCreated++;
       console.log(`+ câu hỏi: ${q.slice(0, 60)}...`);
     }
   }
 
-  console.log(`\nHoàn tất: ${created} doc mới, ${updated} doc cập nhật, ${qCreated} câu hỏi mới.`);
+  console.log(
+    `\nHoàn tất: ${created} doc mới, ${updated} doc cập nhật, ${qCreated} câu hỏi mới.`
+  );
 }
 
-main();
-db.close();
+main()
+  .catch((err) => {
+    console.error("✗ Lỗi seed docs:", err.message);
+    process.exitCode = 1;
+  })
+  .finally(() => client.end());

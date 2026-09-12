@@ -7,7 +7,7 @@
 //
 // Hỗ trợ: # ## ### tiêu đề, **đậm**, *nghiêng*, `code`,
 // ``` khối code, - danh sách, 1. danh sách đánh số, [text](url),
-// --- đường kẻ ngang, đoạn văn + xuống dòng.
+// | bảng |, --- đường kẻ ngang, đoạn văn + xuống dòng.
 // Ảnh (![...]) cố tình KHÔNG hỗ trợ — docs hiện tại chỉ dùng chữ.
 // ============================================================
 
@@ -77,7 +77,8 @@ export function renderMarkdown(md: string): string {
     }
   };
 
-  for (const raw of lines) {
+  for (let i = 0; i < lines.length; i++) {
+    const raw = lines[i];
     // ----- khối code ----- 
     if (raw.trim().startsWith("```")) {
       if (inCodeBlock) {
@@ -98,6 +99,59 @@ export function renderMarkdown(md: string): string {
     if (inCodeBlock) {
       codeLines.push(raw);
       continue;
+    }
+
+    // ----- bảng | cột | cột | -----
+    // Nhận diện: dòng hiện tại là hàng tiêu đề, dòng kế tiếp là dòng phân cách
+    // (|---|---|). Sau đó gom mọi dòng còn lại cũng có dạng |...|.
+    const tblLine = raw.trim();
+    if (/^\|.*\|$/.test(tblLine) && i + 1 < lines.length) {
+      const sep = lines[i + 1].trim();
+      if (/^\|[\s:|-]+\|$/.test(sep) && sep.includes("-")) {
+        closePara();
+        closeList();
+        const splitRow = (row: string) =>
+          row
+            .trim()
+            .replace(/^\|/, "")
+            .replace(/\|$/, "")
+            .split("|")
+            .map((c) => c.trim());
+
+        const head = splitRow(tblLine);
+        const rows: string[][] = [];
+        let j = i + 2;
+        while (j < lines.length && /^\|.*\|$/.test(lines[j].trim())) {
+          rows.push(splitRow(lines[j].trim()));
+          j++;
+        }
+
+        html.push(
+          '<div class="my-3 overflow-x-auto rounded-lg border border-gray-200">' +
+            '<table class="w-full border-collapse text-sm">'
+        );
+        html.push('<thead><tr class="bg-gray-50">');
+        for (const c of head) {
+          html.push(
+            `<th class="border-b border-gray-200 px-3 py-2 text-left font-semibold text-gray-900">${renderInline(
+              c
+            )}</th>`
+          );
+        }
+        html.push("</tr></thead><tbody>");
+        for (const r of rows) {
+          html.push('<tr class="border-b border-gray-100 last:border-0">');
+          for (let k = 0; k < head.length; k++) {
+            html.push(
+              `<td class="px-3 py-2 align-top text-gray-700">${renderInline(r[k] ?? "")}</td>`
+            );
+          }
+          html.push("</tr>");
+        }
+        html.push("</tbody></table></div>");
+        i = j - 1;
+        continue;
+      }
     }
 
     const line = raw.trimEnd();
