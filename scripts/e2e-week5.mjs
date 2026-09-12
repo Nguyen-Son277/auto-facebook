@@ -5,6 +5,7 @@ import { chromium } from "playwright";
 import { existsSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { openTestDb } from "./lib/test-db.mjs";
+import { ensureWorkspace } from "./lib/test-fixtures.mjs";
 
 const BASE = "http://localhost:3000";
 const MOCK_AI = "http://127.0.0.1:4010/v1";
@@ -26,6 +27,7 @@ function section(title) {
 // ---------- Fixture ----------
 const db = openTestDb();
 const smoke = db.prepare('SELECT id FROM "User" WHERE email = ?').get(SMOKE_EMAIL);
+const wsId = ensureWorkspace(db, smoke.id);
 if (!smoke) {
   console.error("✗ Chưa có user smoke — chạy `node scripts/smoke-login.mjs` trước.");
   process.exit(1);
@@ -37,9 +39,9 @@ function resetFixtures() {
   db.prepare('DELETE FROM "FacebookPage" WHERE "fbPageId" = ?').run(PAGE_FB_ID);
   db.prepare('DELETE FROM "AppSetting"').run();
   db.prepare(
-    `INSERT INTO "FacebookPage" (id, "userId", "fbPageId", name, category, "accessToken", "isActive", "createdAt", "updatedAt")
+    `INSERT INTO "FacebookPage" (id, "userId", "workspaceId", "fbPageId", name, category, "accessToken", "isActive", "createdAt", "updatedAt")
      VALUES (?, ?, ?, ?, ?, ?, 1, datetime('now'), datetime('now'))`
-  ).run("e2e-page-1", smoke.id, PAGE_FB_ID, "Mock Page Kinh Doanh", "Business", "mock-page-token-abc");
+  ).run("e2e-page-1", smoke.id, wsId, PAGE_FB_ID, "Mock Page Kinh Doanh", "Business", "mock-page-token-abc");
 }
 resetFixtures();
 rmSync(path.join(UPLOAD_ROOT, smoke.id), { recursive: true, force: true });

@@ -24,7 +24,8 @@
     "test:readability": "node --experimental-strip-types --no-warnings scripts/test-readability.mjs",
     "test:e2e:optimize": "node scripts/e2e-autopilot-optimize.mjs",
     "test:e2e:autopilot": "node scripts/e2e-autopilot.mjs",
-    "test:e2e:autopilot:cycle": "node scripts/e2e-autopilot-fullcycle.mjs"
+    "test:e2e:autopilot:cycle": "node scripts/e2e-autopilot-fullcycle.mjs",
+    "test:multi-workspace": "node scripts/test-multi-workspace.mjs"
   },
   "dependencies": {
     "@prisma/adapter-better-sqlite3": "^7.10.0",

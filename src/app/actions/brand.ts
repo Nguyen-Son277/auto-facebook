@@ -1,18 +1,16 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { requireCurrentUser } from "@/lib/dal";
+import { requireCurrentUser, resolveWorkspace } from "@/lib/dal";
 import { prisma } from "@/lib/prisma";
 import { DEFAULT_PILLARS } from "@/lib/brand";
 
 // ============================================================
-// Server action cho trang Hồ sơ thương hiệu.
+// Server action cho trang Thương hiệu (đa brand).
 //
-// Đây là "nơi chứa tài liệu cơ bản về trang Facebook": người dùng nhập một
-// lần, mọi bài AI viết (thủ công lẫn tự động) đều dựa trên đó.
-//
-// Mọi action đều kiểm tra Page thuộc về user đang đăng nhập trước khi ghi —
-// không tin tưởng pageId gửi lên từ trình duyệt.
+// Hồ sơ + trụ cột + kho tài liệu thuộc về BRAND — dùng chung cho
+// mọi Page của thương hiệu. Mọi action kiểm tra brand thuộc
+// workspace của user đang đăng nhập, không tin ID từ client.
 // ============================================================
 
 export type BrandState = {
@@ -32,17 +30,114 @@ function tooLong(value: string | null, limit: number): boolean {
   return value !== null && value.length > limit;
 }
 
-/** Xác nhận Page thuộc về user. Trả về null nếu không hợp lệ. */
-async function assertOwnedPage(userId: string, pageId: string) {
-  if (!pageId) return null;
-  return prisma.facebookPage.findFirst({
-    where: { id: pageId, userId },
-    select: { id: true, name: true },
+/** Brand + kiểm tra user là thành viên workspace sở hữu brand. */
+async function ownedBrand(userId: string, brandId: string) {
+  const brand = await prisma.brand.findUnique({
+    where: { id: brandId },
+    select: { id: true, name: true, workspaceId: true, slug: true },
   });
+  if (!brand) return null;
+  const member = await prisma.workspaceMember.findUnique({
+    where: { workspaceId_userId: { workspaceId: brand.workspaceId, userId } },
+  });
+  if (!member) return null;
+  return brand;
+}
+
+/** Sinh slug bỏ dấu tiếng Việt; thêm hậu tố nếu trùng trong workspace. */
+async function uniqueBrandSlug(workspaceId: string, name: string): Promise<string> {
+  const base =
+    name
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 40) || "brand";
+  let slug = base;
+  for (let i = 2; ; i++) {
+    const exists = await prisma.brand.findUnique({
+      where: { workspaceId_slug: { workspaceId, slug } },
+    });
+    if (!exists) return slug;
+    slug = `${base}-${i}`;
+  }
 }
 
 // ============================================================
-// Hồ sơ thương hiệu
+// CRUD THƯƠNG HIỆU
+// ============================================================
+
+/** Tạo thương hiệu mới trong workspace. */
+export async function createBrand(
+  _prev: BrandState,
+  formData: FormData
+): Promise<BrandState> {
+  await requireCurrentUser();
+  const workspaceId = str(formData, "workspaceId");
+  const name = str(formData, "name");
+  const description = nullable(formData, "description");
+
+  if (!name) return { ok: false, error: "Tên thương hiệu không được để trống." };
+  if (name.length > 100) return { ok: false, error: "Tên tối đa 100 ký tự." };
+
+  try {
+    const ctx = await resolveWorkspace(workspaceId || null);
+    const slug = await uniqueBrandSlug(ctx.workspace.id, name);
+    await prisma.brand.create({
+      data: { workspaceId: ctx.workspace.id, name, slug, description },
+    });
+    revalidatePath("/brand");
+    revalidatePath("/autopilot");
+    return { ok: true, message: `Đã tạo thương hiệu "${name}".` };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/** Sửa tên/mô tả thương hiệu. */
+export async function updateBrand(
+  _prev: BrandState,
+  formData: FormData
+): Promise<BrandState> {
+  const user = await requireCurrentUser();
+  const brandId = str(formData, "brandId");
+  const name = str(formData, "name");
+  const description = nullable(formData, "description");
+
+  if (!brandId) return { ok: false, error: "Thiếu thương hiệu." };
+  if (!name) return { ok: false, error: "Tên thương hiệu không được để trống." };
+
+  const brand = await ownedBrand(user.id, brandId);
+  if (!brand) return { ok: false, error: "Thương hiệu không tồn tại." };
+
+  await prisma.brand.update({
+    where: { id: brandId },
+    data: { name, description },
+  });
+  revalidatePath("/brand");
+  return { ok: true, message: `Đã cập nhật "${name}".` };
+}
+
+/**
+ * Xóa thương hiệu.
+ * - Page: bỏ gán (brandId -> null, Page giữ nguyên).
+ * - Post: giữ nguyên bài, mất nhãn brand (SetNull theo schema).
+ * - Hồ sơ / trụ cột / tài liệu: cascade theo Brand.
+ */
+export async function deleteBrand(brandId: string): Promise<void> {
+  const user = await requireCurrentUser();
+  const brand = await ownedBrand(user.id, brandId);
+  if (!brand) return;
+
+  await prisma.brand.delete({ where: { id: brandId } });
+  revalidatePath("/brand");
+  revalidatePath("/autopilot");
+  revalidatePath("/pages");
+}
+
+// ============================================================
+// Hồ sơ thương hiệu (1-1 với Brand)
 // ============================================================
 
 export async function saveBrandProfile(
@@ -50,10 +145,10 @@ export async function saveBrandProfile(
   formData: FormData
 ): Promise<BrandState> {
   const user = await requireCurrentUser();
-  const pageId = str(formData, "pageId");
+  const brandId = str(formData, "brandId");
 
-  const page = await assertOwnedPage(user.id, pageId);
-  if (!page) return { ok: false, error: "Page không tồn tại hoặc không thuộc về bạn." };
+  const brand = await ownedBrand(user.id, brandId);
+  if (!brand) return { ok: false, error: "Thương hiệu không tồn tại." };
 
   const data = {
     brandName: nullable(formData, "brandName"),
@@ -85,38 +180,39 @@ export async function saveBrandProfile(
   }
 
   await prisma.brandProfile.upsert({
-    where: { pageId },
-    create: { userId: user.id, pageId, ...data },
+    where: { brandId },
+    create: { userId: user.id, brandId, ...data },
     update: data,
   });
 
   revalidatePath("/brand");
   revalidatePath("/autopilot");
-  return { ok: true, message: `Đã lưu hồ sơ thương hiệu cho "${page.name}".` };
+  return { ok: true, message: `Đã lưu hồ sơ thương hiệu "${brand.name}".` };
 }
 
 // ============================================================
-// Trụ cột nội dung
+// Trụ cột nội dung (thuộc Brand — dùng chung mọi Page của brand)
 // ============================================================
 
-export async function createDefaultPillars(pageId: string): Promise<BrandState> {
+export async function createDefaultPillars(brandId: string): Promise<BrandState> {
   const user = await requireCurrentUser();
-  const page = await assertOwnedPage(user.id, pageId);
-  if (!page) return { ok: false, error: "Page không tồn tại hoặc không thuộc về bạn." };
+  const brand = await ownedBrand(user.id, brandId);
+  if (!brand) return { ok: false, error: "Thương hiệu không tồn tại." };
 
-  const existing = await prisma.contentPillar.count({ where: { pageId } });
+  const existing = await prisma.contentPillar.count({ where: { brandId } });
   if (existing > 0) {
-    return { ok: false, error: "Page này đã có trụ cột nội dung — xóa bớt trước khi tạo bộ mặc định." };
+    return { ok: false, error: "Thương hiệu đã có trụ cột nội dung — xóa bớt trước khi tạo bộ mặc định." };
   }
 
   await prisma.contentPillar.createMany({
     data: DEFAULT_PILLARS.map((p, i) => ({
       userId: user.id,
-      pageId,
+      brandId,
       name: p.name,
       description: p.description,
       goal: p.goal,
       weight: p.weight,
+      enabled: true,
       position: i,
     })),
   });
@@ -131,12 +227,12 @@ export async function savePillar(
   formData: FormData
 ): Promise<BrandState> {
   const user = await requireCurrentUser();
-  const pageId = str(formData, "pageId");
+  const brandId = str(formData, "brandId");
   const id = str(formData, "id");
   const name = str(formData, "name");
 
-  const page = await assertOwnedPage(user.id, pageId);
-  if (!page) return { ok: false, error: "Page không tồn tại hoặc không thuộc về bạn." };
+  const brand = await ownedBrand(user.id, brandId);
+  if (!brand) return { ok: false, error: "Thương hiệu không tồn tại." };
   if (!name) return { ok: false, error: "Trụ cột phải có tên." };
   if (name.length > 100) return { ok: false, error: "Tên trụ cột tối đa 100 ký tự." };
 
@@ -150,19 +246,19 @@ export async function savePillar(
   };
 
   if (id) {
-    // Chỉ sửa được trụ cột của chính Page này — chặn sửa chéo
+    // Chỉ sửa trụ cột của chính Brand này — chặn sửa chéo workspace
     const updated = await prisma.contentPillar.updateMany({
-      where: { id, pageId, userId: user.id },
+      where: { id, brandId, userId: user.id },
       data,
     });
     if (updated.count === 0) return { ok: false, error: "Không tìm thấy trụ cột cần sửa." };
   } else {
-    const count = await prisma.contentPillar.count({ where: { pageId } });
+    const count = await prisma.contentPillar.count({ where: { brandId } });
     if (count >= 12) {
-      return { ok: false, error: "Tối đa 12 trụ cột mỗi Page — nhiều hơn sẽ khó xoay vòng đều." };
+      return { ok: false, error: "Tối đa 12 trụ cột mỗi thương hiệu — nhiều hơn sẽ khó xoay vòng đều." };
     }
     await prisma.contentPillar.create({
-      data: { userId: user.id, pageId, position: count, ...data },
+      data: { userId: user.id, brandId, position: count, ...data },
     });
   }
 
@@ -186,7 +282,7 @@ export async function togglePillar(id: string, enabled: boolean): Promise<void> 
 }
 
 // ============================================================
-// Kho tài liệu
+// Kho tài liệu (thuộc Brand)
 // ============================================================
 
 export async function saveKnowledgeDoc(
@@ -194,13 +290,13 @@ export async function saveKnowledgeDoc(
   formData: FormData
 ): Promise<BrandState> {
   const user = await requireCurrentUser();
-  const pageId = str(formData, "pageId");
+  const brandId = str(formData, "brandId");
   const id = str(formData, "id");
   const title = str(formData, "title");
   const content = str(formData, "content");
 
-  const page = await assertOwnedPage(user.id, pageId);
-  if (!page) return { ok: false, error: "Page không tồn tại hoặc không thuộc về bạn." };
+  const brand = await ownedBrand(user.id, brandId);
+  if (!brand) return { ok: false, error: "Thương hiệu không tồn tại." };
   if (!title) return { ok: false, error: "Tài liệu phải có tiêu đề." };
   if (!content) return { ok: false, error: "Tài liệu không được để trống." };
   if (content.length > MAX_DOC) {
@@ -219,16 +315,16 @@ export async function saveKnowledgeDoc(
 
   if (id) {
     const updated = await prisma.knowledgeDoc.updateMany({
-      where: { id, pageId, userId: user.id },
+      where: { id, brandId, userId: user.id },
       data,
     });
     if (updated.count === 0) return { ok: false, error: "Không tìm thấy tài liệu cần sửa." };
   } else {
-    const count = await prisma.knowledgeDoc.count({ where: { pageId } });
+    const count = await prisma.knowledgeDoc.count({ where: { brandId } });
     if (count >= 50) {
-      return { ok: false, error: "Tối đa 50 tài liệu mỗi Page." };
+      return { ok: false, error: "Tối đa 50 tài liệu mỗi thương hiệu." };
     }
-    await prisma.knowledgeDoc.create({ data: { userId: user.id, pageId, ...data } });
+    await prisma.knowledgeDoc.create({ data: { userId: user.id, brandId, ...data } });
   }
 
   revalidatePath("/brand");

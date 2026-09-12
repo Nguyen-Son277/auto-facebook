@@ -34,34 +34,169 @@ model User {
   pillars    ContentPillar[]
   docs       KnowledgeDoc[]
   autopilots AutoPilot[]
+
+  // ---- Đa workspace ----
+  workspaces       Workspace[] // workspace user sở hữu (owner)
+  workspaceMembers WorkspaceMember[]
+  facebookCreated  FacebookConnection[]
+}
+
+// ============================================================
+// WORKSPACE — tenant chính của hệ thống.
+//
+// Một user có thể tạo/tham gia nhiều workspace. Mọi dữ liệu nghiệp vụ
+// (Page, Brand, Post, Media, AutoPilot, Facebook Connection) đều thuộc
+// một workspace để cách ly dữ liệu giữa các "góc làm việc".
+// ============================================================
+
+model Workspace {
+  id        String   @id @default(cuid())
+  name      String // tên hiển thị, ví dụ "Cửa hàng A"
+  slug      String   @unique // dùng trong URL /w/[slug]/...
+  timezone  String   @default("Asia/Ho_Chi_Minh")
+  /// ACTIVE | ARCHIVED
+  status    String   @default("ACTIVE")
+  ownerId   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  owner   User                 @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  members WorkspaceMember[]
+  fbApps  FacebookConnection[]
+  pages   FacebookPage[]
+  brands  Brand[]
+  posts   Post[]
+  media   Media[]
+
+  @@index([ownerId])
+}
+
+/// Thành viên workspace. OWNER có mọi quyền; các role khác dùng dần.
+model WorkspaceMember {
+  id          String   @id @default(cuid())
+  workspaceId String
+  userId      String
+  /// OWNER | ADMIN | EDITOR | VIEWER
+  role        String   @default("OWNER")
+  createdAt   DateTime @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, userId])
+  @@index([userId])
+}
+
+// ============================================================
+// FACEBOOK CONNECTION — một bộ Facebook Graph API App trong workspace.
+//
+// Một Facebook App chỉ cấp token cho một số Page giới hạn, nên mỗi
+// workspace có thể thêm NHIỀU connection (App ID + Secret + user token
+// riêng) để lấy được các nhóm Page khác nhau. Mỗi Page ghi nhớ
+// connectionId đã dùng để đồng bộ/đăng bài bằng đúng App đó.
+// ============================================================
+
+model FacebookConnection {
+  id              String    @id @default(cuid())
+  workspaceId     String
+  /// Tên gợi nhớ do người dùng đặt, ví dụ "App Shop Chính"
+  name            String
+  appId           String
+  /// Đã mã hóa AES-256-GCM (encryptValue trong lib/settings.ts)
+  appSecret       String
+  /// User Access Token long-lived — đã mã hóa AES-256-GCM
+  userAccessToken String
+  graphVersion    String    @default("v21.0")
+  /// ACTIVE | EXPIRED | ERROR | DISABLED
+  status          String    @default("ACTIVE")
+  tokenExpiresAt  DateTime?
+  lastValidatedAt DateTime?
+  lastSyncedAt    DateTime?
+  lastError       String?
+  createdById     String
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  workspace Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdBy User           @relation(fields: [createdById], references: [id], onDelete: Cascade)
+  pages     FacebookPage[]
+
+  @@unique([workspaceId, appId])
+  @@index([workspaceId, status])
+}
+
+// ============================================================
+// BRAND — thương hiệu trong workspace.
+//
+// Một workspace quản lý nhiều thương hiệu; một thương hiệu có thể có
+// nhiều Page. Hồ sơ thương hiệu (BrandProfile), trụ cột nội dung và
+// kho tài liệu gắn với Brand để dùng chung giữa các Page cùng thương hiệu.
+// ============================================================
+
+model Brand {
+  id          String   @id @default(cuid())
+  workspaceId String
+  name        String
+  slug        String
+  /// ACTIVE | ARCHIVED
+  status      String   @default("ACTIVE")
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workspace Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  pages     FacebookPage[]
+  profile   BrandProfile?
+  pillars   ContentPillar[]
+  docs      KnowledgeDoc[]
+  posts     Post[]
+
+  @@unique([workspaceId, slug])
+  @@index([workspaceId, status])
 }
 
 model FacebookPage {
   id             String    @id @default(cuid())
   userId         String
-  fbPageId       String    @unique // ID Page trên Facebook
+  /// Workspace sở hữu Page (backfill từ user đầu tiên)
+  workspaceId    String
+  /// Connection (Facebook App) đã đồng bộ Page này — dùng đúng App khi đăng
+  connectionId   String?
+  /// Thương hiệu Page thuộc về (nullable để migration dần dần)
+  brandId        String?
+  fbPageId       String // ID Page trên Facebook — unique theo workspace
   name           String
   category       String?
   avatarUrl      String?
-  accessToken    String // Page Access Token (long-lived)
+  accessToken    String // Page Access Token (long-lived, đã mã hóa khi lưu)
   tokenExpiresAt DateTime? // ngày hết hạn token (nếu biết)
   isActive       Boolean   @default(true)
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
-  user  User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  posts Post[]
+  user       User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace  Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  connection FacebookConnection? @relation(fields: [connectionId], references: [id], onDelete: SetNull)
+  brand      Brand?              @relation(fields: [brandId], references: [id], onDelete: SetNull)
+  posts      Post[]
 
-  brand     BrandProfile?
   pillars   ContentPillar[]
   docs      KnowledgeDoc[]
   autopilot AutoPilot?
   usedMedia UsedMedia[]
+
+  @@unique([workspaceId, fbPageId])
+  @@index([connectionId])
+  @@index([workspaceId, brandId])
 }
 
 model Post {
   id           String    @id @default(cuid())
   userId       String
+  /// Workspace sở hữu bài viết
+  workspaceId  String
+  /// Thương hiệu bài viết thuộc về (nullable — lọc/báo cáo theo Brand)
+  brandId      String?
   pageId       String?
   content      String // nội dung caption
   /// Ý chính của bài (câu đầu tiên) — AI trả về riêng để hiển thị và kiểm tra
@@ -89,21 +224,28 @@ model Post {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  user  User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  page  FacebookPage? @relation(fields: [pageId], references: [id], onDelete: SetNull)
-  media Media[]
+  user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  brand     Brand?        @relation(fields: [brandId], references: [id], onDelete: SetNull)
+  page      FacebookPage? @relation(fields: [pageId], references: [id], onDelete: SetNull)
+  media     Media[]
 
   // Truy vấn bài đến hạn của worker: lọc theo status + scheduledAt
   @@index([status, scheduledAt])
   @@index([status, nextAttemptAt])
   // Đếm bài đã lên kế hoạch theo Page + ngày (bộ lập kế hoạch tự động)
   @@index([pageId, origin, scheduledAt])
+  // Lọc theo workspace / brand cho đa tenant
+  @@index([workspaceId, status, scheduledAt])
+  @@index([workspaceId, brandId])
 }
 
 model Media {
   id              String   @id @default(cuid())
   postId          String? // null = ảnh trong thư viện, chưa gắn vào bài nào
   userId          String? // chủ sở hữu (ảnh thư viện lưu theo user)
+  /// Workspace sở hữu media (thư viện cách ly theo workspace)
+  workspaceId     String?
   type            String // IMAGE | VIDEO
   source          String   @default("PEXELS") // PEXELS | URL | UPLOAD
   remoteUrl       String // URL file gốc (Pexels hoặc nơi lưu trữ)
@@ -124,11 +266,13 @@ model Media {
   sizeBytes       Int?
   createdAt       DateTime @default(now())
 
-  post Post? @relation(fields: [postId], references: [id], onDelete: Cascade)
-  user User? @relation(fields: [userId], references: [id], onDelete: Cascade)
+  post      Post?      @relation(fields: [postId], references: [id], onDelete: Cascade)
+  user      User?      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([postId])
+  @@index([workspaceId])
 }
 
 // ============================================================
@@ -143,7 +287,8 @@ model Media {
 model BrandProfile {
   id           String   @id @default(cuid())
   userId       String
-  pageId       String   @unique // mỗi Page có đúng một hồ sơ
+  /// Brand sở hữu hồ sơ (mỗi Brand một hồ sơ)
+  brandId      String   @unique
   // ---- Thông tin cơ bản về doanh nghiệp ----
   brandName    String? // tên thương hiệu (mặc định lấy tên Page)
   tagline      String? // slogan / câu định vị
@@ -167,8 +312,8 @@ model BrandProfile {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  user User         @relation(fields: [userId], references: [id], onDelete: Cascade)
-  page FacebookPage @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  brand Brand @relation(fields: [brandId], references: [id], onDelete: Cascade)
 }
 
 /// Trụ cột nội dung: các "loại bài" cần xoay vòng để Page không nhàm chán.
@@ -176,7 +321,10 @@ model BrandProfile {
 model ContentPillar {
   id          String   @id @default(cuid())
   userId      String
-  pageId      String
+  /// Brand sở hữu trụ cột (dùng chung cho các Page cùng thương hiệu)
+  brandId     String
+  /// Giữ lại cho dữ liệu cũ; nội dung trụ cột giờ thuộc Brand
+  pageId      String?
   name        String // ví dụ "Giới thiệu sản phẩm"
   description String? // hướng dẫn cách viết loại bài này
   goal        String   @default("engagement") // engagement|sales|awareness|education
@@ -186,10 +334,12 @@ model ContentPillar {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  user User         @relation(fields: [userId], references: [id], onDelete: Cascade)
-  page FacebookPage @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  user  User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  brand Brand         @relation(fields: [brandId], references: [id], onDelete: Cascade)
+  page  FacebookPage? @relation(fields: [pageId], references: [id], onDelete: SetNull)
 
-  @@index([pageId, enabled])
+  @@index([pageId])
+  @@index([brandId, enabled])
 }
 
 /// Kho tài liệu: bảng giá, câu hỏi thường gặp, chính sách, câu chuyện
@@ -197,7 +347,10 @@ model ContentPillar {
 model KnowledgeDoc {
   id        String   @id @default(cuid())
   userId    String
-  pageId    String
+  /// Brand sở hữu tài liệu (dùng chung cho các Page cùng thương hiệu)
+  brandId   String
+  /// Giữ lại cho dữ liệu cũ; tài liệu giờ thuộc Brand
+  pageId    String?
   title     String
   kind      String   @default("OTHER") // PRODUCT|PRICE|FAQ|POLICY|STORY|OTHER
   content   String
@@ -205,10 +358,12 @@ model KnowledgeDoc {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  user User         @relation(fields: [userId], references: [id], onDelete: Cascade)
-  page FacebookPage @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  user  User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  brand Brand         @relation(fields: [brandId], references: [id], onDelete: Cascade)
+  page  FacebookPage? @relation(fields: [pageId], references: [id], onDelete: SetNull)
 
-  @@index([pageId, enabled])
+  @@index([pageId])
+  @@index([brandId, enabled])
 }
 
 // ============================================================

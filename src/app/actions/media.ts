@@ -57,7 +57,12 @@ export async function suggestKeywords(
   await requireCurrentUser();
 
   const content = str(formData, "content");
-  const res = await suggestMediaKeywords(content, 6);
+  // Context thương hiệu (từ composer) — giúp AI gợi ý từ khóa bám ngành hàng
+  // thay vì từ khóa chung chung. Form cũ không gửi → context rỗng như trước.
+  const res = await suggestMediaKeywords(content, 6, {
+    industry: str(formData, "industry"),
+    products: str(formData, "products"),
+  });
   if (!res.ok) return { ok: false, error: res.error };
 
   return {

@@ -3,6 +3,7 @@
 // Cần dev server với FB_GRAPH_BASE_URL trỏ về mock + mock FB.
 import { chromium } from "playwright";
 import { openTestDb } from "./lib/test-db.mjs";
+import { ensureWorkspace } from "./lib/test-fixtures.mjs";
 
 const BASE = "http://localhost:3000";
 const MOCK_AI = "http://127.0.0.1:4010/v1";
@@ -25,6 +26,7 @@ function section(title) {
 // ---------- Fixture ----------
 const db = openTestDb();
 const smoke = db.prepare('SELECT id FROM "User" WHERE email = ?').get(SMOKE_EMAIL);
+const wsId = ensureWorkspace(db, smoke.id);
 if (!smoke) {
   console.error("✗ Chưa có user smoke — chạy `node scripts/smoke-login.mjs` trước.");
   process.exit(1);
@@ -36,9 +38,9 @@ function resetFixtures() {
   db.prepare('DELETE FROM "FacebookPage" WHERE "fbPageId" = ?').run(PAGE_FB_ID);
   db.prepare('DELETE FROM "AppSetting"').run();
   db.prepare(
-    `INSERT INTO "FacebookPage" (id, "userId", "fbPageId", name, category, "accessToken", "isActive", "createdAt", "updatedAt")
+    `INSERT INTO "FacebookPage" (id, "userId", "workspaceId", "fbPageId", name, category, "accessToken", "isActive", "createdAt", "updatedAt")
      VALUES (?, ?, ?, ?, ?, ?, 1, datetime('now'), datetime('now'))`
-  ).run("e2e-page-1", smoke.id, PAGE_FB_ID, "Mock Page Kinh Doanh", "Business", "mock-page-token-abc");
+  ).run("e2e-page-1", smoke.id, wsId, PAGE_FB_ID, "Mock Page Kinh Doanh", "Business", "mock-page-token-abc");
 }
 resetFixtures();
 console.log("→ Đã reset fixture: 1 Page giả, xoá media/post/settings cũ\n");
@@ -245,9 +247,9 @@ try {
   // ================= 6. Chống 2 worker đăng trùng =================
   section("Chống đăng trùng khi 2 worker chạy song song");
   db.prepare(
-    `INSERT INTO "Post" (id, "userId", "pageId", content, status, "scheduledAt", attempts, "createdAt", "updatedAt")
+    `INSERT INTO "Post" (id, "userId", "workspaceId", "pageId", content, status, "scheduledAt", attempts, "createdAt", "updatedAt")
      VALUES (?, ?, ?, ?, 'SCHEDULED', ?, 0, datetime('now'), datetime('now'))`
-  ).run("race-post-1", smoke.id, "e2e-page-1", "Bài test Tuần 6 — chống đăng trùng", new Date(Date.now() - 60000).toISOString());
+  ).run("race-post-1", smoke.id, wsId, "e2e-page-1", "Bài test Tuần 6 — chống đăng trùng", new Date(Date.now() - 60000).toISOString());
 
   // Gọi 3 tick ĐỒNG THỜI — chỉ một được phép giành bài
   const parallel = await Promise.all([tick(), tick(), tick()]);
@@ -266,9 +268,9 @@ try {
   // ================= 7. Lỗi + retry tự động =================
   section("Retry tự động khi lỗi");
   db.prepare(
-    `INSERT INTO "Post" (id, "userId", "pageId", content, status, "scheduledAt", attempts, "createdAt", "updatedAt")
+    `INSERT INTO "Post" (id, "userId", "workspaceId", "pageId", content, status, "scheduledAt", attempts, "createdAt", "updatedAt")
      VALUES (?, ?, ?, ?, 'SCHEDULED', ?, 0, datetime('now'), datetime('now'))`
-  ).run("retry-post-1", smoke.id, "e2e-page-1", "Bài test Tuần 6 — retry", new Date(Date.now() - 60000).toISOString());
+  ).run("retry-post-1", smoke.id, wsId, "e2e-page-1", "Bài test Tuần 6 — retry", new Date(Date.now() - 60000).toISOString());
 
   // Làm token hỏng để lần đăng đầu thất bại
   db.prepare('UPDATE "FacebookPage" SET "accessToken" = ? WHERE "fbPageId" = ?').run("", PAGE_FB_ID);
@@ -316,9 +318,9 @@ try {
   // ================= 8. Hết lượt thử → FAILED vĩnh viễn =================
   section("Hết lượt thử thì dừng");
   db.prepare(
-    `INSERT INTO "Post" (id, "userId", "pageId", content, status, "scheduledAt", attempts, "createdAt", "updatedAt")
+    `INSERT INTO "Post" (id, "userId", "workspaceId", "pageId", content, status, "scheduledAt", attempts, "createdAt", "updatedAt")
      VALUES (?, ?, ?, ?, 'SCHEDULED', ?, 2, datetime('now'), datetime('now'))`
-  ).run("giveup-post-1", smoke.id, "e2e-page-1", "Bài test Tuần 6 — hết lượt thử", new Date(Date.now() - 60000).toISOString());
+  ).run("giveup-post-1", smoke.id, wsId, "e2e-page-1", "Bài test Tuần 6 — hết lượt thử", new Date(Date.now() - 60000).toISOString());
   db.prepare('UPDATE "FacebookPage" SET "accessToken" = ? WHERE "fbPageId" = ?').run("", PAGE_FB_ID);
 
   const tickGiveUp = await tick();
@@ -343,7 +345,7 @@ try {
   // ================= 8b. Gỡ bài kẹt do worker chết giữa chừng =================
   section("Gỡ bài kẹt (worker tắt đột ngột)");
   db.prepare(
-    `INSERT INTO "Post" (id, "userId", "pageId", content, status, "scheduledAt", attempts, "lockedAt", "createdAt", "updatedAt")
+    `INSERT INTO "Post" (id, "userId", "workspaceId", "pageId", content, status, "scheduledAt", attempts, "lockedAt", "createdAt", "updatedAt")
      VALUES (?, ?, ?, ?, 'PUBLISHING', ?, 1, ?, datetime('now'), datetime('now'))`
   ).run(
     "stale-post-1",
@@ -370,7 +372,7 @@ try {
 
   // Bài đang đăng bình thường (khóa mới) KHÔNG bị gỡ
   db.prepare(
-    `INSERT INTO "Post" (id, "userId", "pageId", content, status, "scheduledAt", attempts, "lockedAt", "createdAt", "updatedAt")
+    `INSERT INTO "Post" (id, "userId", "workspaceId", "pageId", content, status, "scheduledAt", attempts, "lockedAt", "createdAt", "updatedAt")
      VALUES (?, ?, ?, ?, 'PUBLISHING', ?, 1, ?, datetime('now'), datetime('now'))`
   ).run(
     "fresh-lock-1",
@@ -392,7 +394,7 @@ try {
   // ================= 8c. Page bị xóa → báo lỗi rõ, không kẹt im lặng =================
   section("Page bị xóa thì báo lỗi rõ ràng");
   db.prepare(
-    `INSERT INTO "Post" (id, "userId", "pageId", content, status, "scheduledAt", attempts, "createdAt", "updatedAt")
+    `INSERT INTO "Post" (id, "userId", "workspaceId", "pageId", content, status, "scheduledAt", attempts, "createdAt", "updatedAt")
      VALUES (?, ?, NULL, ?, 'SCHEDULED', ?, 0, datetime('now'), datetime('now'))`
   ).run(
     "orphan-post-1",
@@ -520,7 +522,7 @@ try {
   // ================= 11. Đổi lịch / hủy lịch / đăng ngay =================
   section("Đổi lịch, hủy lịch, đăng ngay");
   db.prepare(
-    `INSERT INTO "Post" (id, "userId", "pageId", content, status, "scheduledAt", attempts, "createdAt", "updatedAt")
+    `INSERT INTO "Post" (id, "userId", "workspaceId", "pageId", content, status, "scheduledAt", attempts, "createdAt", "updatedAt")
      VALUES (?, ?, ?, ?, 'SCHEDULED', ?, 0, datetime('now'), datetime('now'))`
   ).run(
     "ui-post-1",
@@ -582,7 +584,7 @@ try {
 
   // --- Đăng ngay từ calendar ---
   db.prepare(
-    `INSERT INTO "Post" (id, "userId", "pageId", content, status, "scheduledAt", attempts, "createdAt", "updatedAt")
+    `INSERT INTO "Post" (id, "userId", "workspaceId", "pageId", content, status, "scheduledAt", attempts, "createdAt", "updatedAt")
      VALUES (?, ?, ?, ?, 'SCHEDULED', ?, 0, datetime('now'), datetime('now'))`
   ).run(
     "now-post-1",

@@ -5,6 +5,7 @@ import {
   publishTextToPage,
   publishVideoToPage,
   uploadVideoToPage,
+  type GraphContext,
 } from "@/lib/facebook";
 import { resolveUploadPath, uploadSize } from "@/lib/uploads";
 
@@ -15,6 +16,10 @@ import { resolveUploadPath, uploadSize } from "@/lib/uploads";
 // - Người dùng bấm "Đăng ngay" (actions/publish.ts)
 // - Worker tự động đăng theo lịch (lib/scheduler.ts)
 // Nhờ vậy quy tắc chọn endpoint chỉ tồn tại ở một nơi.
+//
+// ĐA CONNECTION: `conn` mang graphVersion (và appId/secret khi cần)
+// của FacebookConnection đã cấp token cho Page — mỗi Page đăng bằng
+// đúng phiên bản Graph API của App tương ứng.
 // ============================================================
 
 export type DeliverPage = { fbPageId: string; accessToken: string };
@@ -44,7 +49,8 @@ export async function deliverToFacebook(
   userId: string,
   page: DeliverPage,
   message: string,
-  media: DeliverMedia[]
+  media: DeliverMedia[],
+  conn?: GraphContext | null
 ): Promise<string> {
   const video = media.find((m) => m.type === "VIDEO");
   const photos = media.filter((m) => m.type === "IMAGE").map((m) => m.remoteUrl);
@@ -63,15 +69,16 @@ export async function deliverToFacebook(
         message,
         filePath,
         video.storageKey,
-        video.mimeType ?? "video/mp4"
+        video.mimeType ?? "video/mp4",
+        conn
       );
     }
     if (/^https?:\/\//i.test(video.remoteUrl)) {
-      return publishVideoToPage(page, message, video.remoteUrl);
+      return publishVideoToPage(page, message, video.remoteUrl, conn);
     }
     throw new Error("Video không hợp lệ — hãy chọn lại video.");
   }
 
-  if (photos.length === 0) return publishTextToPage(page, message);
-  return publishMultiPhotosToPage(page, message, photos);
+  if (photos.length === 0) return publishTextToPage(page, message, conn);
+  return publishMultiPhotosToPage(page, message, photos, conn);
 }

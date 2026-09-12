@@ -1,211 +1,512 @@
-# Kế hoạch dự án: Web App Tự động viết nội dung & đăng bài Facebook bằng AI
+# Kế hoạch nâng cấp: Đa Workspace, đa thương hiệu và đa Facebook Graph API
 
-> Mục tiêu tổng quát: xây dựng một web app giúp **tự động sinh nội dung bằng AI, tìm hình/video từ Pexels, và đăng trực tiếp lên Facebook Page** (đăng ngay hoặc lên lịch), nhằm tối ưu hóa thời gian làm marketing.
+## 1. Tầm nhìn sản phẩm
 
----
+Nâng cấp ứng dụng hiện tại thành nền tảng quản lý nội dung Facebook theo cấu trúc:
 
-## 1. Mục tiêu & phạm vi
+**User → Workspace → Facebook Connection → Facebook Page → Brand → Content → Post/Schedule**
 
-| Vấn đề hiện tại | Giải pháp trong app |
-|---|---|
-| Viết caption/hashtag thủ công, mất thời gian | AI sinh bài đăng theo chủ đề, giọng điệu, độ dài, ngôn ngữ |
-| Tìm ảnh/video phù hợp tốn công | Tìm kiếm & chọn media từ Pexels API ngay trong app |
-| Đăng bài thủ công nhiều Page | Đăng 1 nút bấm / tự động theo lịch |
-| Không có chỗ quản lý nội dung tập trung | Content calendar + lịch sử đăng + thống kê |
+Một tài khoản người dùng có thể:
 
-**Phạm vi MVP:** 1 người dùng (bạn), quản lý các Page Facebook của bạn.
-**Mở rộng sau:** đa người dùng (SaaS), nhiều mạng xã hội (Zalo, TikTok...).
+- Tạo và chuyển đổi giữa nhiều workspace.
+- Quản lý nhiều thương hiệu trong mỗi workspace.
+- Cài đặt một hoặc nhiều Facebook Graph API App trong từng workspace.
+- Đồng bộ nhiều Facebook Page từ những Facebook App khác nhau.
+- Gán một hoặc nhiều Page vào từng thương hiệu.
+- Soạn nội dung, duyệt, lên lịch và đăng tự động trên nhiều Page.
+- Theo dõi token, quota, lỗi và trạng thái đăng theo từng Facebook Connection.
 
----
+Workspace là ranh giới cách ly dữ liệu, quyền truy cập và cấu hình tích hợp. Cấu hình Facebook không còn được lưu chung trong `AppSetting` toàn hệ thống.
 
-## 2. Tính năng chi tiết
+## 2. Kiến trúc nghiệp vụ mục tiêu
 
-### Giai đoạn MVP
-1. **Đăng nhập & Dashboard** — khung app, tổng quan bài đã đăng/sắp đăng.
-2. **Kết nối Facebook Page** — OAuth Facebook, lưu Page Access Token (long-lived), chọn Page cần quản lý.
-3. **AI viết nội dung**
-   - Nhập: chủ đề / từ khóa / link tham khảo, chọn giọng điệu (vui nhộn, chuyên nghiệp, bán hàng...), độ dài, ngôn ngữ (Tiếng Việt mặc định).
-   - AI sinh: caption + hashtag + CTA, có thể tạo 2–3 phương án để chọn.
-   - Chỉnh sửa trực tiếp trước khi đăng.
-4. **Media từ Pexels**
-   - Tìm ảnh theo từ khóa → grid preview → chọn 1–n ảnh đính kèm.
-   - Tìm video theo từ khóa → xem trước → chọn video (hoặc tải file về).
-   - Nút "AI gợi ý từ khóa tìm ảnh" dựa trên nội dung bài viết.
-5. **Soạn & đăng bài**
-   - Composer: text + ảnh/video + chọn Page → đăng ngay qua Graph API.
-   - Xem trước giao diện bài đăng kiểu Facebook.
-6. **Lịch sử bài đăng** — trạng thái (nháp / đã lên lịch / đã đăng / lỗi), nội dung, page, thời gian.
+### 2.1 Workspace là tenant chính
 
-### Giai đoạn nâng cao
-7. **Lên lịch đăng tự động** — chọn thời điểm, worker tự đăng (queue + cron), retry khi lỗi.
-8. **Content calendar** — xem theo tuần/tháng, kéo-thả đổi lịch.
-9. **Template & gợi ý ý tưởng** — mẫu bài theo ngành hàng, AI gợi ý kế hoạch nội dung tuần.
-10. **Thống kê tương tác** — likes/comments/shares/reach từ Graph API Insights.
-11. **Đăng nhiều Page** — biến thể nội dung nhẹ cho từng Page.
-12. **Nguồn media mở rộng** — Unsplash, Pixabay, upload ảnh/video của riêng bạn.
+Mọi dữ liệu nghiệp vụ phải thuộc về một workspace, trực tiếp hoặc thông qua quan hệ cha:
 
----
+- Facebook Connection
+- Facebook Page
+- Brand và Brand Profile
+- Content Pillar
+- Knowledge Document
+- Media
+- Post
+- AutoPilot
+- Used Media
+- Lịch đăng và lịch sử đăng
 
-## 3. Tech stack đề xuất
+Tất cả truy vấn và Server Action phải kiểm tra membership rồi giới hạn dữ liệu theo `workspaceId`. Không được tin tưởng `workspaceId` hoặc ID tài nguyên do client gửi lên nếu chưa xác minh quyền truy cập.
 
-| Thành phần | Công nghệ | Lý do |
-|---|---|---|
-| Frontend + Backend | **Next.js 14+ (App Router)** | 1 codebase, API routes làm backend, deploy dễ |
-| Database | **SQLite + Prisma** khi dev/demo → chuyển PostgreSQL khi deploy | Chạy ngay, không cần cài server DB |
-| Hàng đợi & lịch | **BullMQ + Redis** | Đăng bài địnhczas, retry an toàn |
-| AI | **OpenAI-compatible API cấu hình được** (BASE_URL + API_KEY + MODEL qua env) | Dùng được bất kỳ nhà cung cấp thứ 3 nào tương thích OpenAI |
-| Media | **Pexels API** (ảnh + video) | Miễn phí, chất lượng cao |
-| Facebook | **Facebook Graph API (Pages)** | Đăng text/ảnh/video chính thức |
-| Auth | **NextAuth.js** | Đăng nhập nhanh |
-| Deploy | VPS + Docker, hoặc Vercel + Supabase/Neon | Tùy ngân sách |
+### 2.2 Tách Facebook App khỏi Facebook Page
 
----
+Cần có hai lớp dữ liệu riêng:
 
-## 4. Kiến trúc tổng quan
+1. `FacebookConnection`: đại diện cho một bộ cấu hình Facebook Graph API trong workspace, bao gồm App ID, App Secret, token và trạng thái kết nối.
+2. `FacebookPage`: Page được đồng bộ qua một `FacebookConnection` cụ thể.
 
-```
-┌─────────────────────────── Next.js Web App ───────────────────────────┐
-│  UI: Dashboard · Composer · Media Picker · Calendar · Settings        │
-└──────────────┬────────────────────────────────────────────────────────┘
-               │ API Routes
-   ┌───────────┼───────────────┬─────────────────┬──────────────────┐
-   ▼           ▼               ▼                 ▼                  ▼
-AI Service  Media Service   FB Service       Post Store        Scheduler
-(OpenAI)    (Pexels)        (Graph API)      (PostgreSQL)      (BullMQ+Redis)
-                                                               │
-                                                        Worker đăng bài theo lịch
-                                                               ▼
-                                                        Facebook Graph API
-```
+Một workspace có nhiều Facebook Connection. Một connection có thể cung cấp nhiều Page. Khi đồng bộ hoặc đăng bài, mỗi Page luôn sử dụng connection đang liên kết với Page đó.
 
-**Luồng chính:**
-1. User nhập chủ đề → AI Service trả caption + từ khóa gợi ý.
-2. Media Service tìm ảnh/video Pexels theo từ khóa → user chọn.
-3. User bấm "Đăng ngay" hoặc "Đặt lịch" → lưu vào DB (+ queue nếu lịch).
-4. FB Service gọi Graph API `/{page-id}/photos | /videos | /feed`.
-5. Lưu kết quả & lỗi vào lịch sử, hiển thị trên dashboard.
+### 2.3 Tách Brand khỏi Workspace
 
----
+Một workspace có thể quản lý nhiều thương hiệu. Một thương hiệu có thể có nhiều Facebook Page.
 
-## 5. Điều kiện cần bên ngoài (quan trọng)
+Hồ sơ thương hiệu, giọng điệu, tài liệu và trụ cột nội dung được dùng chung giữa các Page thuộc cùng thương hiệu. Cấu hình AutoPilot vẫn có thể tùy chỉnh riêng cho từng Page.
 
-### Facebook (✅ đã có sẵn app/token)
-1. Dùng App ID/Secret + Page Access Token sẵn có — cấu hình qua `.env`.
-2. Quyền cần có trên token: `pages_show_list`, `pages_read_engagement`, `pages_manage_posts`.
-3. Lưu ý Page Access Token hết hạn (60 ngày nếu là token ngắn hạn) — app sẽ có màn hình kiểm tra/cập nhật token.
+## 3. Mô hình dữ liệu đề xuất
 
-### API keys cần chuẩn bị
-- `AI_BASE_URL`, `AI_API_KEY`, `AI_MODEL` — nhà cung cấp AI thứ 3 tương thích OpenAI (bạn đã có URL + key + model).
-- `PEXELS_API_KEY` — đăng ký miễn phí tại pexels.com/api.
-- `FACEBOOK_APP_ID`, `FACEBOOK_APP_SECRET`, `FACEBOOK_PAGE_TOKEN` — dùng app/token sẵn có.
+### 3.1 Workspace và thành viên
 
----
+Thêm các model:
 
-## 6. Lộ trình triển khai (ước tính ~6 tuần part-time)
+#### `Workspace`
 
-| Tuần | Công việc | Kết quả |
-|---|---|---|
-| 1 | Khởi tạo Next.js + DB schema (User, Page, Post, Media, Schedule) + Auth + dashboard khung | ✅ **Hoàn thành** — App chạy được, đăng nhập xong |
-| 2 | Kết nối Facebook: lưu token, list Pages, **đăng bài text + ảnh test thành công** + trang Cài đặt cấu hình AI/Pexels/Facebook trên web | ✅ **Hoàn thành** — Đồng bộ Pages + pipeline đăng bài đã chạy |
-| 3 | Module AI viết nội dung: prompt template, tùy chọn giọng điệu/độ dài, 2–3 phương án, chỉnh sửa | ✅ **Hoàn thành** — Sinh 3 phương án, chọn/sửa/lưu nháp/đăng |
-| 4 | Tích hợp Pexels: tìm ảnh + video, preview, chọn đính kèm, gợi ý từ khóa bằng AI | ✅ **Hoàn thành** — Picker + thư viện + gợi ý từ khóa AI + đăng ảnh/video |
-| 5 | Đăng video (upload file qua Graph API), lịch sử bài đăng, xử lý lỗi + retry | ✅ **Hoàn thành** — Upload video multipart + trang Lịch sử + đăng lại bài lỗi |
-| 6 | Lên lịch tự động, content calendar, polish UI | ✅ **Hoàn thành** — Hẹn giờ + worker tự đăng + retry + lịch tháng |
+- `id`
+- `name`
+- `slug`
+- `timezone`
+- `status`
+- `ownerId`
+- `createdAt`
+- `updatedAt`
 
----
+#### `WorkspaceMember`
 
-## 7. Chi phí ước tính / tháng
+- `workspaceId`
+- `userId`
+- `role`
+- Unique `(workspaceId, userId)`
 
-| Hạng mục | Chi phí |
-|---|---|
-| Pexels API | Miễn phí (200 req/giờ) |
-| Facebook Graph API | Miễn phí |
-| AI (provider thứ 3, ~150 bài/tháng) | Tùy gói bạn đăng ký, thường 0–10 USD |
-| Hosting Vercel free + Neon free | 0 USD (hoặc VPS ~5 USD) |
-| Redis (Upstash free tier) | 0 USD |
-| **Tổng** | **~0–15 USD/tháng** |
+Các role dự kiến:
 
----
+- `OWNER`
+- `ADMIN`
+- `EDITOR`
+- `VIEWER`
 
-## 8. Rủi ro & lưu ý
+Không thêm trực tiếp một `workspaceId` cố định vào `User`, vì một User cần có khả năng tham gia nhiều workspace.
 
-- **App Review của Meta** — chỉ ảnh hưởng nếu cho người ngoài dùng; cá nhân dùng chế độ Dev là đủ.
-- **Token Facebook hết hạn** (60 ngày) — cần cơ chế gia hạn/refresh tự động + cảnh báo.
-- **Rate limit Pexels** (200 req/giờ) — cache kết quả tìm kiếm trong DB.
-- **Chính sách nội dung Facebook** — bài đăng vi phạm có thể bị từ chối/ẩn; cần màn hình xem trước + cảnh báo.
-- **Video lớn** — Graph API có giới hạn dung lượng; cần upload resumable nếu file > vài trăm MB.
-- **API key bảo mật** — giữ toàn bộ key phía server (API routes), không bao giờ đưa xuống trình duyệt.
+### 3.2 Facebook Connection
 
----
+Thêm model `FacebookConnection`:
 
-## 10. Quyết định đã chốt với bạn
+- `id`
+- `workspaceId`
+- `name`
+- `appId`
+- `appSecretEncrypted`
+- `userAccessTokenEncrypted`
+- `graphApiVersion`
+- `status`: `ACTIVE`, `EXPIRED`, `ERROR`, `DISABLED`
+- `tokenExpiresAt`
+- `lastValidatedAt`
+- `lastSyncedAt`
+- `lastError`
+- `createdById`
+- `createdAt`
+- `updatedAt`
 
-- ✅ Phạm vi MVP: **đầy đủ** (AI + Pexels + đăng ngay/lên lịch).
-- ✅ AI: dùng **URL + API key + model của nhà cung cấp thứ 3** theo cấu hình (chuẩn OpenAI-compatible).
-- ✅ Database: **SQLite** (Prisma) khi phát triển.
-- ✅ Facebook: **đã có sẵn app/token** → test đăng bài thật ngay Tuần 2.
-- ✅ Cấu hình tích hợp **qua UI web** (trang Cài đặt), key mã hóa AES-256-GCM trong DB — không cần sửa `.env`.
+Ràng buộc và index:
 
----
+- Unique `(workspaceId, appId)`
+- Index `(workspaceId, status)`
 
-## 11. Thay đổi so với kế hoạch ban đầu
+Không trả App Secret hoặc access token đầy đủ về giao diện sau khi lưu.
 
-| Kế hoạch | Thực tế | Lý do |
-|---|---|---|
-| Next.js 14 | **Next.js 16.3.4** | `create-next-app` cài bản mới nhất; dùng `proxy.ts` thay `middleware.ts`, `cookies()` async |
-| Prisma + PostgreSQL | **Prisma 7 + SQLite + driver adapter** `better-sqlite3` | Prisma 7 bắt buộc driver adapter cho SQL; SQLite chạy ngay không cần server |
-| NextAuth.js | **JWT session tự viết (jose)** | Đúng pattern guide chính thức của Next 16, ít phụ thuộc, phù hợp app 1 người dùng |
-| Model `Schedule` riêng | **Tích hợp vào `Post`** (`scheduledAt` + `status`) | Đơn giản hơn, tránh bảng dư thừa; tách ra sau nếu cần lịch lặp |
-| Facebook OAuth | **User Access Token + tự đổi long-lived** | Không cần redirect URI công khai khi chạy localhost; phù hợp app cá nhân |
-| AI: nhập cả Model thủ công | **Chỉ nhập Base URL + API Key, model tự tải từ `/models`** | Bớt thao tác và tránh gõ sai tên model; vẫn cho gõ tay nếu provider không hỗ trợ `/models` |
-| Graph API: mọi thao tác dùng chung hàm GET | **`fbFetch` hỗ trợ cả GET và POST** | Phát hiện khi test E2E: đăng bài là thao tác ghi, Graph API **bắt buộc POST** — trước đó gọi GET nên bài không được đăng |
-| `Media` chỉ gắn cứng vào `Post` | **`postId` nullable + `userId` + metadata Pexels** | Cần thư viện ảnh dùng lại được; lưu `providerId`/tác giả/trang nguồn để ghi công và chống trùng |
-| Đính kèm ảnh bằng textarea URL | **Media Picker + hidden JSON input** | Người dùng không phải copy URL thủ công; vẫn hỗ trợ URL ngoài qua `source: "URL"` |
-| Upload video qua Server Action | **Route Handler riêng (`/api/uploads`)** | Server Action giới hạn body 1MB; video cần stream file lớn nên phải dùng Route Handler |
-| Đăng video chỉ bằng URL công khai | **Hỗ trợ cả `file_url` và upload `source`** | Người dùng có video riêng trên máy, không có URL công khai — dùng multipart với `fs.openAsBlob` để không nạp cả file vào RAM |
-| Hàng đợi **BullMQ + Redis** cho lịch đăng | **Hàng đợi ngay trong bảng `Post` (SQLite)** | Máy không có Redis và app tự host một người dùng. Bắt cài Redis chỉ để hẹn giờ là quá nặng, dễ hỏng khi triển khai. SQLite đã là nguồn dữ liệu duy nhất — bài đến hạn = `status=SCHEDULED` và `scheduledAt <= now`. Chống đăng trùng bằng `updateMany` CÓ ĐIỀU KIỆN (nguyên tử trong SQLite), đã kiểm chứng bằng test gọi 3 tick đồng thời |
-| Phải mở terminal chạy `npm run worker` mới đăng được bài hẹn giờ | **Vòng lặp tự động đăng chạy ngay trong tiến trình web server** (khởi động từ `src/instrumentation.ts`). Không cần terminal, không cài thêm gì — chỉ cần app đang chạy. Người dùng **bật/tắt và bấm *Chạy ngay* trên giao diện** (Lịch đăng + Cài đặt); cờ lưu trong DB nên **có hiệu lực với cả cron/worker bên ngoài**. Vẫn giữ `/api/cron/tick` và cờ `SCHEDULER_IN_PROCESS=0` cho ai muốn tự quản bằng cron |
-| Test E2E chạy trực tiếp trên `dev.db` | **Tách hẳn DB test (`test.db`) khỏi DB thật (`dev.db`)** + 3 lớp chặn: mặc định là `test.db`, từ chối nếu `TEST_DB` trỏ vào `dev.db`, từ chối nếu file DB chứa user thật. Thêm `npm run db:backup` (giữ 10 bản) và `npm run test:db:prepare`. Lý do: một lần dọn dữ liệu test chạy nhầm trên `dev.db` đã xoá mất Page thật — kiểm chứng bằng md5: 185 test chạy xong `dev.db` giống hệt từng byte |
-| AI viết bài chỉ dựa trên chủ đề người dùng gõ | **Hồ sơ thương hiệu riêng cho từng Page** (`BrandProfile` + `ContentPillar` + `KnowledgeDoc`) nạp vào prompt mỗi lần viết | Gõ lại bối cảnh doanh nghiệp cho từng bài là việc lặp vô ích, và AI hay bịa số liệu. Nay AI có "nguồn sự thật duy nhất": khoảng giá để trống thì AI **không được nói về giá**, tài liệu bảng giá/FAQ được chọn tối đa 4 mục liên quan nhất để prompt không phình to |
-| Người dùng phải tự soạn từng bài | **Chế độ tự động**: đặt số bài/ngày + khung giờ + có tự tìm ảnh không, hệ thống tự lên lịch, viết, tìm ảnh, đăng liên tục | Đúng mục tiêu ban đầu "tối ưu hoá thời gian làm việc". Giờ đăng **rải ngẫu nhiên trong từng đoạn của khung giờ** (không đăng đúng giờ cố định trông như máy), trụ cột nội dung **xoay vòng theo tỉ trọng và không lặp liên tiếp**, prompt kèm **danh sách chủ đề vừa đăng để không viết trùng** |
-| Bộ lập kế hoạch chạy chung luồng với worker đăng bài | **Chạy kiểu "bắn rồi quên", gọi TRƯỚC `runSchedulerTick` và không `await`** | Gọi AI mất vài giây tới vài chục giây cho mỗi bài. Nếu chờ, bài đang tới hạn sẽ bị đăng trễ. Bộ lập kế hoạch cũng **không bao giờ gọi Facebook** — mọi việc đăng vẫn nằm trong `scheduler.ts`, giữ một đường đăng bài duy nhất |
-| Lỗi tìm ảnh thì bỏ qua im lặng | **Vẫn tạo bài (dạng chỉ có chữ) nhưng hiện cảnh báo vàng kèm gợi ý kiểm tra Pexels API Key** | Phát hiện khi chạy E2E: seed sai key làm 0/6 bài có ảnh mà giao diện **không báo gì** — người dùng tưởng đang có ảnh trong khi bài đăng lên trắng trơn. Mất bài còn tệ hơn nên không chặn, nhưng im lặng thì không chấp nhận được |
-| Ghi trực tiếp từ worker vào DB | **Worker gọi `POST /api/cron/tick`** | Logic đăng bài chỉ tồn tại ở một nơi (`lib/scheduler.ts`) và dùng chung với web app, không bị lệch. Đổi lại worker cần web server đang chạy — vốn luôn đúng vì app phải chạy để dùng |
+### 3.3 Facebook Page
 
----
+Nâng cấp `FacebookPage`:
 
-## 9. Trạng thái hiện tại
+- Thêm `workspaceId`.
+- Thêm `connectionId`.
+- Thêm `brandId`, cho phép nullable trong giai đoạn migration.
+- Giữ `fbPageId`, tên, ảnh đại diện và Page Access Token đã mã hóa.
+- Thêm `syncStatus`, `tokenExpiresAt`, `lastSyncedAt`, `lastError`.
+- Unique `(workspaceId, fbPageId)`.
+- Index `connectionId`.
+- Index `(workspaceId, brandId)`.
 
-MVP 6 tuần đã hoàn thành, cộng thêm phần mở rộng **Hồ sơ thương hiệu + Chế độ tự động**.
+Nếu một Page được phát hiện qua hai Facebook App trong cùng workspace, không tạo bản ghi trùng. Hệ thống phải hiển thị connection hiện tại và cung cấp quy trình chuyển connection an toàn.
 
-### Đã có
+### 3.4 Brand
 
-| Phần | Trang | Trạng thái |
-|---|---|---|
-| Đăng nhập, cấu hình tích hợp | `/login`, `/settings` | ✅ |
-| Kết nối Facebook Page | `/pages` | ✅ |
-| AI viết nội dung + chọn phương án | `/composer` | ✅ |
-| Thư viện ảnh/video Pexels + upload video | `/media` | ✅ |
-| Hẹn giờ + tự động đăng (bật/tắt trên web) | `/calendar` | ✅ |
-| Lịch sử đăng + đăng lại khi lỗi | `/history` | ✅ |
-| **Hồ sơ thương hiệu + trụ cột + kho tài liệu** | `/brand` | ✅ |
-| **Chế độ tự động (đặt thông số rồi thôi)** | `/autopilot` | ✅ |
+Thêm model `Brand`:
 
-### Độ phủ test
+- `id`
+- `workspaceId`
+- `name`
+- `slug`
+- `status`
+- `description`
+- `logoUrl`
+- `primaryColor`
+- `createdAt`
+- `updatedAt`
 
-| Bộ test | Số kiểm tra |
-|---|---|
-| `test:plan` — logic chia giờ + xoay vòng trụ cột (thuần, không cần server) | 55 |
-| `test:e2e:autopilot` — hồ sơ thương hiệu + chế độ tự động | 70 |
-| `test:e2e:autopilot:cycle` — vòng đời trọn vẹn tới khi bài lên Facebook | 15 |
-| `test:e2e` + `composer` + `media` + `week5` + `week6` + `scheduler` | 185+ |
+Điều chỉnh các quan hệ:
 
-### Hướng mở rộng tiếp
+- `BrandProfile` thuộc `Brand`.
+- `ContentPillar` thuộc `Brand`.
+- `KnowledgeDoc` thuộc `Brand`.
+- `FacebookPage` có thể thuộc `Brand`.
+- `Post` lưu thêm `brandId` để hỗ trợ lọc và báo cáo.
 
-1. **Báo cáo hiệu quả** — kéo lượt tương tác từ Graph API về, biết trụ cột nào ăn khách
-   để tự điều chỉnh tỉ trọng.
-2. **Học từ bài đạt kết quả tốt** — đưa bài tương tác cao vào phần "bài viết mẫu" tự động.
-3. **Giờ vàng theo dữ liệu thật** — thay vì rải ngẫu nhiên, ưu tiên khung giờ mà Page
-   thực sự có nhiều tương tác.
-4. **Nhiều Page cùng lúc** — cấu trúc dữ liệu đã sẵn sàng (mỗi Page một hồ sơ + một cấu hình
-   tự động riêng), chỉ cần thêm màn hình tổng quan nhiều Page.
+Thiết kế này cho phép một thương hiệu dùng chung hồ sơ nội dung trên nhiều Page mà không cần sao chép dữ liệu.
+
+### 3.5 Settings
+
+Thay `AppSetting` toàn cục bằng hai phạm vi:
+
+- `SystemSetting`: cấu hình triển khai và quản trị hệ thống.
+- `WorkspaceSetting`: AI, Pexels, múi giờ, lịch mặc định và tùy chọn riêng của workspace.
+
+Facebook App ID, App Secret và token phải được lưu trong `FacebookConnection`, không tiếp tục lưu dưới dạng các key `facebook.*` trong bảng setting chung.
+
+### 3.6 Post và AutoPilot
+
+Thêm `workspaceId` và `brandId` vào `Post`. Vẫn giữ `pageId` là đích đăng cụ thể.
+
+AutoPilot nên có hai tầng:
+
+- `BrandAutomationPreset`: cấu hình mẫu dùng chung cho thương hiệu.
+- `AutoPilot`: cấu hình thực thi của từng Page, có thể kế thừa và ghi đè preset.
+
+Bổ sung các trường vận hành:
+
+- `approvalMode`
+- `maxPostsPerDay`
+- `pauseOnConsecutiveFailures`
+- `consecutiveFailures`
+- `pausedReason`
+
+## 4. Luồng người dùng
+
+### 4.1 Chọn Workspace
+
+Sau khi đăng nhập:
+
+1. Nếu chưa có workspace, đưa người dùng tới luồng tạo workspace.
+2. Nếu chỉ có một workspace, mở trực tiếp workspace đó.
+3. Nếu có nhiều workspace, mở workspace gần nhất và hiển thị workspace switcher trên sidebar.
+
+Route đề xuất:
+
+- `/w/[workspaceSlug]/dashboard`
+- `/w/[workspaceSlug]/brands`
+- `/w/[workspaceSlug]/facebook-connections`
+- `/w/[workspaceSlug]/pages`
+- `/w/[workspaceSlug]/composer`
+- `/w/[workspaceSlug]/calendar`
+- `/w/[workspaceSlug]/autopilot`
+- `/w/[workspaceSlug]/media`
+- `/w/[workspaceSlug]/history`
+- `/w/[workspaceSlug]/settings`
+
+### 4.2 Thêm Facebook Graph API vào Workspace
+
+Luồng kết nối:
+
+1. Mở trang “Facebook Apps” trong workspace.
+2. Chọn “Thêm Facebook App”.
+3. Nhập tên connection, App ID, App Secret và thông tin xác thực.
+4. Mã hóa secret trước khi lưu.
+5. Kiểm tra kết nối với Facebook Graph API.
+6. Lấy danh sách Page mà token có quyền truy cập.
+7. Cho phép người dùng chọn các Page cần nhập.
+8. Lưu Page cùng `connectionId` tương ứng.
+9. Gán Page vào Brand hiện có hoặc tạo Brand mới.
+
+Mỗi Facebook Connection cần hỗ trợ:
+
+- Kiểm tra kết nối.
+- Đồng bộ lại danh sách Page.
+- Cập nhật token.
+- Xem trạng thái và thời điểm hết hạn.
+- Tạm vô hiệu hóa.
+- Chuyển Page sang connection khác.
+- Xóa an toàn khi không còn Page phụ thuộc.
+
+### 4.3 Quản lý nhiều Page
+
+Trang Page cần hỗ trợ:
+
+- Lọc theo Brand, Facebook Connection và trạng thái.
+- Tìm kiếm theo tên hoặc Facebook Page ID.
+- Chọn nhiều Page để bật hoặc tắt AutoPilot.
+- Áp dụng preset cho nhiều Page.
+- Hiển thị connection đang cấp quyền đăng.
+- Hiển thị cảnh báo token hết hạn hoặc Page mất quyền.
+- Bulk schedule có kiểm soát.
+
+Không ưu tiên bulk publish tức thời trong phiên bản đầu. Bulk schedule an toàn hơn, dễ kiểm soát lỗi và giảm nguy cơ đăng trùng.
+
+### 4.4 Quản lý nhiều thương hiệu
+
+Mỗi Brand có:
+
+- Hồ sơ thương hiệu.
+- Ngôn ngữ và giọng điệu.
+- Trụ cột nội dung.
+- Kho tài liệu.
+- Danh sách Page.
+- Preset AutoPilot.
+- Lịch nội dung hợp nhất.
+- Báo cáo hiệu quả trong giai đoạn sau.
+
+Composer chọn Brand trước, sau đó chọn một hoặc nhiều Page thuộc Brand. Khi đăng lên nhiều Page, hệ thống tạo một bản ghi Post riêng cho từng Page để trạng thái, retry và Facebook Post ID được theo dõi độc lập.
+
+## 5. Kiến trúc dịch vụ Facebook
+
+Tách logic hiện tại thành các lớp:
+
+- `FacebookConnectionService`: tạo, cập nhật, kiểm tra và vô hiệu hóa connection.
+- `FacebookTokenService`: mã hóa, giải mã, kiểm tra hạn và cập nhật token.
+- `FacebookPageSyncService`: lấy Page từ đúng connection và upsert an toàn.
+- `FacebookPublisher`: đăng bài bằng Page token và connection tương ứng.
+- `FacebookErrorClassifier`: phân loại lỗi token, quyền, rate limit và lỗi tạm thời.
+
+Các action không được tự đọc cấu hình Facebook toàn cục. Mọi thao tác đăng bài phải bắt đầu từ Page nội bộ, sau đó truy ra `FacebookConnection` ở phía server.
+
+## 6. Scheduler và đăng bài tự động
+
+Scheduler xử lý theo từng Post:
+
+1. Lấy Post đến hạn và khóa bản ghi để tránh xử lý trùng.
+2. Kiểm tra workspace, Brand và Page còn hoạt động.
+3. Truy ra Facebook Connection của Page.
+4. Kiểm tra trạng thái connection và token.
+5. Thực hiện đăng bài.
+6. Ghi Facebook Post ID, connection đã dùng, request ID và kết quả.
+7. Retry lỗi tạm thời bằng exponential backoff.
+8. Không retry tự động với lỗi thiếu quyền hoặc token hết hạn.
+9. Tạm dừng AutoPilot của Page nếu lỗi liên tiếp vượt ngưỡng.
+
+Khi triển khai production đa tenant, chuyển sang PostgreSQL và dùng BullMQ/Redis hoặc hàng đợi tương đương. Worker phải có idempotency key để một Post không bị đăng hai lần.
+
+## 7. Bảo mật và cách ly dữ liệu
+
+- Mã hóa App Secret, user token và Page token bằng AES-256-GCM.
+- Khóa mã hóa nằm trong biến môi trường hoặc secret manager, không lưu trong database.
+- Không gửi secret đầy đủ về client sau khi lưu.
+- Redact token và secret khỏi log, thông báo lỗi và audit payload.
+- Kiểm tra membership và role trong DAL cho tất cả truy vấn workspace.
+- Không truy vấn tài nguyên chỉ bằng ID mà thiếu `workspaceId` hoặc ownership guard.
+- Thêm audit log cho thao tác kết nối Facebook, cập nhật token, đồng bộ Page, đổi Brand và đăng bài.
+- Xóa workspace theo quy trình soft delete trước, hard delete sau.
+- Cân nhắc envelope encryption khi chuyển thành SaaS.
+
+## 8. Phân quyền
+
+- `OWNER`: quản lý workspace, thành viên, tích hợp, billing và xóa workspace.
+- `ADMIN`: quản lý Brand, Page, Facebook Connection và automation.
+- `EDITOR`: tạo, sửa, duyệt và lên lịch nội dung.
+- `VIEWER`: chỉ xem dashboard, lịch và lịch sử.
+
+Phiên bản đầu có thể chỉ kích hoạt `OWNER` và `ADMIN`, nhưng schema và authorization helper nên chuẩn bị sẵn cho đủ bốn role.
+
+## 9. Migration dữ liệu hiện tại
+
+Thực hiện migration không làm mất dữ liệu:
+
+1. Sao lưu `dev.db` bằng cơ chế backup hiện có.
+2. Tạo workspace mặc định cho admin hiện tại.
+3. Tạo `WorkspaceMember` với role `OWNER`.
+4. Chuyển từng `BrandProfile` hiện có thành một Brand hoặc tạo Brand mặc định phù hợp.
+5. Tạo một `FacebookConnection` mặc định từ cấu hình Facebook hiện tại.
+6. Gán toàn bộ Facebook Page hiện có vào workspace và connection mặc định.
+7. Backfill `workspaceId` và `brandId` cho Post, Media, AutoPilot, Content Pillar và Knowledge Document.
+8. Kiểm tra bản ghi mồ côi và quan hệ sai.
+9. Chuyển các cột mới từ nullable sang bắt buộc khi backfill hoàn tất.
+10. Chỉ xóa key Facebook cũ trong `AppSetting` sau khi xác minh connection mới hoạt động.
+
+Script migration phải:
+
+- So sánh số lượng bản ghi trước và sau.
+- Có kiểm tra dữ liệu mồ côi.
+- Có phương án rollback.
+- Từ chối chạy nếu database test và database thật bị cấu hình nhầm.
+
+## 10. Kế hoạch triển khai
+
+> **TIẾN ĐỘ (cập nhật sau lần thực thi đầu):** Giai đoạn 0, 1, 2 và phần lõi
+> của 3–5 đã triển khai: schema + migration backfill (không mất dữ liệu),
+> DAL workspace, service đa connection, sync/đăng theo connection, giao diện
+> `/facebook-apps` + `/pages`, composer hiển thị brand, autopilot gán
+> workspace/brand. Kiểm thử: 25 test đa workspace + 92 test logic cũ đạt.
+
+### Giai đoạn 0: Khảo sát và đặc tả ✅
+
+- Lập bản đồ các truy vấn đang phụ thuộc trực tiếp vào `userId`.
+- Tìm mọi nơi đọc `AppSetting` và cấu hình Facebook toàn cục.
+- Xác định luồng sync, publish, retry, cron và AutoPilot hiện tại.
+- Chốt quy tắc xử lý Page trùng giữa nhiều connection.
+- Viết tài liệu quyết định kiến trúc cho Workspace và Facebook Connection.
+
+**Hoàn thành khi:** có danh sách file cần sửa, sơ đồ quan hệ, checklist migration và danh sách rủi ro.
+
+### Giai đoạn 1: Nền tảng Workspace ✅ (lõi xong — UI switcher còn đơn giản)
+
+- Thêm `Workspace` và `WorkspaceMember`.
+- Tạo workspace mặc định và backfill dữ liệu.
+- Xây DAL kiểm tra membership và role.
+- Thêm workspace switcher.
+- Chuyển dashboard sang route có workspace.
+
+**Hoàn thành khi:** một User tạo được nhiều workspace và không thể xem dữ liệu chéo workspace.
+
+### Giai đoạn 2: Nhiều Facebook Graph API trong Workspace ✅
+
+- Thêm `FacebookConnection`.
+- Di chuyển cấu hình Facebook khỏi `AppSetting`.
+- Xây CRUD và giao diện quản lý connection.
+- Kiểm tra token, trạng thái và hạn sử dụng.
+- Đồng bộ Page độc lập từ từng connection.
+- Gắn `FacebookPage.connectionId`.
+
+**Hoàn thành khi:** một workspace thêm được ít nhất hai Facebook App và đồng bộ Page độc lập từ mỗi App.
+
+### Giai đoạn 3: Đa thương hiệu ✅ (làm lại theo thực tế)
+
+- Thêm `Brand`. ✅
+- Chuyển dữ liệu Brand Profile hiện tại. ✅ (migration backfill)
+- Gán Page vào Brand. ✅ (`assignPageToBrand`, UI `/pages` + panel trong `/brand`)
+- Chuyển Content Pillar và Knowledge Document sang Brand. ✅ (`brand_content_decoupled` —
+  BrandProfile bỏ `pageId`, Pillar/Doc nullable `pageId`, mọi truy vấn theo `brandId`)
+- Thêm brand switcher, bộ lọc và dashboard theo Brand. ✅ (`/brand?brand=<id>`:
+  danh sách + tạo/sửa/xoá thương hiệu, editor 3 tab theo brand)
+
+**Hoàn thành khi:** một workspace quản lý được nhiều Brand và mỗi Brand có nhiều Page cùng dữ liệu nội dung riêng. ✅
+Trang Tự động đăng giờ là bảng quản lý nhiều cấu hình (mỗi Page một dòng, bật/tắt
+tất cả). Trang Cài đặt đã xoá khối Facebook Graph API (chuyển sang `/facebook-apps`).
+
+### Giai đoạn 4: Composer và lịch đa Page (một phần ✅)
+
+- Composer chọn Brand. ✅ (dropdown "Viết theo thương hiệu" — AI dùng hồ sơ +
+  trụ cột + kho tài liệu của brand; tự đồng bộ theo Page, ghi đè thủ công được.
+  Kèm khối "Tìm ảnh/video nhanh trên Pexels" ngay trong form: tìm/gợi ý từ khóa
+  theo nội dung + ngành hàng brand, đính kèm 1 nút bấm.)
+- Composer chọn nhiều Page. (còn lại — bulk đa Page)
+- Tạo Post riêng cho từng Page. (còn lại — kèm mục trên)
+- Thêm bulk schedule, bulk pause và bulk retry. (còn lại)
+- Thêm lịch hợp nhất theo workspace, Brand và Page. (còn lại)
+
+**Hoàn thành khi:** một chiến dịch có thể tạo nội dung cho nhiều Page trong khi kết quả từng Page vẫn được theo dõi độc lập.
+
+### Giai đoạn 5: AutoPilot đa Page
+
+- Thêm preset ở cấp Brand.
+- Cho Page kế thừa hoặc ghi đè preset.
+- Phân phối thời gian để các Page không đăng đồng loạt ngoài ý muốn.
+- Thêm giới hạn tần suất và circuit breaker khi lỗi liên tiếp.
+
+**Hoàn thành khi:** nhiều Page chạy AutoPilot độc lập và lỗi của một Page hoặc connection không làm dừng toàn workspace.
+
+### Giai đoạn 6: Hàng đợi và độ tin cậy
+
+- Chuyển production sang PostgreSQL.
+- Thêm Redis và BullMQ hoặc hàng đợi tương đương.
+- Thêm idempotency, distributed lock, retry và dead-letter handling.
+- Thêm dashboard theo dõi connection và worker.
+
+**Hoàn thành khi:** không đăng trùng khi worker chạy song song hoặc tiến trình bị khởi động lại.
+
+### Giai đoạn 7: Quản trị và báo cáo
+
+- Thêm audit log.
+- Báo cáo theo workspace, Brand, Page và connection.
+- Theo dõi token sắp hết hạn, lỗi quyền và tỷ lệ đăng thành công.
+- Thêm lời mời thành viên và RBAC đầy đủ.
+
+## 11. Chiến lược kiểm thử
+
+### Unit test
+
+- Membership và role guard.
+- Mã hóa và giải mã secret.
+- Page deduplication.
+- Chọn đúng connection cho Page.
+- Kế thừa và ghi đè preset AutoPilot.
+- Idempotency và phân loại lỗi Facebook.
+
+### Integration test
+
+- User không thể đọc hoặc sửa workspace khác.
+- Hai workspace có thể dùng cùng App ID nhưng dữ liệu vẫn cách ly.
+- Một workspace có nhiều Facebook Connection.
+- Mỗi connection chỉ đồng bộ các Page của chính nó.
+- Vô hiệu hóa một connection không ảnh hưởng connection khác.
+- Token hết hạn chỉ chặn những Page thuộc connection đó.
+
+### E2E test
+
+- Tạo workspace → tạo Brand → thêm Facebook App → sync Page → gán Brand → tạo bài → lên lịch → worker đăng.
+- Chuyển workspace không làm rò rỉ Page, Brand, Post hoặc setting.
+- Một bài đa Page tạo nhiều delivery độc lập.
+- Retry một Page không đăng lại những Page đã thành công.
+- Migration giữ nguyên dữ liệu hiện tại.
+
+Tiếp tục duy trì database test tách biệt và bổ sung fixture cho nhiều workspace, nhiều connection và tình huống Page trùng.
+
+## 12. Giao diện chính
+
+Sidebar cấp workspace:
+
+- Tổng quan
+- Thương hiệu
+- Facebook Apps
+- Facebook Pages
+- Composer
+- Lịch nội dung
+- AutoPilot
+- Thư viện Media
+- Lịch sử
+- Thành viên
+- Cài đặt
+
+Dashboard hiển thị:
+
+- Số Brand và Page đang hoạt động.
+- Trạng thái từng Facebook Connection.
+- Token sắp hết hạn.
+- Bài chờ duyệt, đã lên lịch, thành công và thất bại.
+- AutoPilot đang chạy hoặc bị tạm dừng.
+
+## 13. Rủi ro và biện pháp giảm thiểu
+
+- **Rò rỉ dữ liệu giữa workspace:** bắt buộc kiểm tra membership tại DAL và có negative authorization test.
+- **Token hoặc App Secret bị lộ:** mã hóa, che log và không trả secret về client.
+- **Page trùng giữa nhiều Facebook App:** unique theo workspace và có quy trình chuyển connection.
+- **Đăng trùng:** dùng idempotency key, lock và trạng thái xử lý.
+- **Một Facebook App lỗi làm dừng toàn hệ thống:** cô lập lỗi theo connection và Page.
+- **Migration làm mất dữ liệu:** backup, backfill nhiều bước, kiểm tra số lượng và rollback plan.
+- **AutoPilot đăng quá nhiều Page cùng lúc:** giới hạn tần suất, thêm jitter lịch và quota theo workspace hoặc connection.
+- **SQLite không phù hợp worker song song:** giữ SQLite khi phát triển nhưng chuyển PostgreSQL trước khi vận hành đa tenant thực tế.
+
+## 14. MVP đa Workspace ưu tiên
+
+Phiên bản đầu chỉ cần:
+
+1. Một User có nhiều Workspace.
+2. Một Workspace có nhiều Facebook Connection.
+3. Mỗi Facebook Connection đồng bộ được nhiều Page.
+4. Một Workspace có nhiều Brand.
+5. Page được gán vào Brand và Connection.
+6. Post, Media, AutoPilot và Calendar được cách ly theo Workspace.
+7. Scheduler chọn đúng connection theo Page.
+8. Dashboard và bộ lọc hỗ trợ nhiều Page.
+9. Migration giữ nguyên dữ liệu hiện có.
+
+Chưa cần triển khai ngay billing, analytics nâng cao, lời mời thành viên hoặc nhiều mạng xã hội. Các phần này thực hiện sau khi nền tảng tenant và Facebook Connection ổn định.
+
+## 15. Tiêu chí nghiệm thu tổng thể
+
+- Một tài khoản tạo và chuyển đổi được giữa ít nhất hai workspace.
+- Mỗi workspace thêm được nhiều Facebook Graph API App.
+- Các connection trong cùng workspace lấy được những nhóm Page khác nhau.
+- Một Page luôn xác định được connection dùng để đăng.
+- Một workspace quản lý được nhiều Brand và nhiều Page cho từng Brand.
+- Không có truy vấn hoặc action làm lộ dữ liệu giữa hai workspace.
+- AutoPilot và scheduler chạy độc lập trên nhiều Page.
+- Lỗi hoặc token hết hạn của một connection không ảnh hưởng connection khác.
+- Không đăng trùng khi retry hoặc worker chạy đồng thời.
+- Dữ liệu hiện tại được giữ nguyên sau migration.
+- Các bộ test hiện có tiếp tục chạy và có thêm test đa workspace, đa Brand và đa Facebook Connection.

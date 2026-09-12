@@ -4,6 +4,21 @@ Web app tự động hóa đăng bài Facebook: **AI viết nội dung → tìm 
 
 Xem `PLAN.md` cho kế hoạch tổng thể 6 tuần.
 
+## Đa Workspace · Đa Thương hiệu · Đa Facebook App
+
+Hệ thống tổ chức theo tầng: **User → Workspace → Facebook App (Connection) → Page → Brand**.
+
+- Một tài khoản có **nhiều Workspace** (góc làm việc tách biệt dữ liệu).
+- Mỗi workspace thêm được **1 hoặc nhiều Facebook Graph API App** — vì một
+  Facebook App chỉ cấp token cho một số Page giới hạn, thêm nhiều App để lấy
+  được các nhóm Page khác nhau (trang `/facebook-apps`).
+- Mỗi **Page nhớ đúng App** đã cấp token (`connectionId`) — đăng bài luôn dùng
+  đúng phiên bản Graph API + App Secret của App đó; lỗi một App không ảnh
+  hưởng App khác.
+- Mỗi workspace quản lý **nhiều Brand**; một Brand có thể có nhiều Page;
+  hồ sơ thương hiệu + trụ cột + kho tài liệu gắn theo Brand (dùng chung
+  giữa các Page cùng thương hiệu).
+
 ## Tech stack
 
 - **Next.js 16** (App Router, TypeScript, Tailwind CSS 4, Turbopack)
@@ -46,7 +61,7 @@ Mở http://localhost:3000 — lần đầu sẽ được chuyển tới **/setu
 src/
 ├── app/
 │   ├── (auth)/            # /login, /setup — trang public
-│   ├── (dashboard)/       # Trang private (dashboard, composer, brand, autopilot, media, history, calendar, pages, settings)
+│   ├── (dashboard)/       # Trang private (dashboard, composer, brand, autopilot, media, history, calendar, facebook-apps, pages, settings)
 │   ├── api/uploads/       # Route Handler nhận/phát/xóa file video upload
 │   ├── api/cron/tick/     # Endpoint cho worker/cron chạy một vòng scheduler
 │   ├── actions/           # Server Actions: auth, settings, pages, composer, media, publish, history, schedule, brand, autopilot
@@ -55,8 +70,9 @@ src/
 ├── lib/
 │   ├── prisma.ts          # Prisma Client singleton (better-sqlite3 adapter)
 │   ├── session.ts         # JWT session encrypt/decrypt + cookie
-│   ├── dal.ts             # getCurrentUser / requireCurrentUser
+│   ├── dal.ts             # getCurrentUser / requireCurrentUser + workspace context (membership/role)
 │   ├── settings.ts        # Đọc/ghi cấu hình tích hợp (mã hóa AES-256-GCM)
+│   ├── facebook-connection.ts # CRUD Facebook App trong workspace (nhiều App/ws)
 │   ├── ai.ts              # Gọi AI provider: /models, /chat/completions, sinh nội dung
 │   ├── ai-prompts.ts      # Prompt template + giọng điệu/mục tiêu/độ dài + parse JSON
 │   ├── pexels.ts          # Pexels client: tìm ảnh/video, cache quota (server-only)
@@ -72,8 +88,9 @@ src/
 │   └── facebook.ts        # Facebook Graph API client (token, Pages, đăng bài)
 └── generated/prisma/      # Prisma Client (generate, không commit)
 prisma/
-├── schema.prisma          # Models: User, FacebookPage, Post, Media, AppSetting,
-│                          #         BrandProfile, ContentPillar, KnowledgeDoc, AutoPilot
+├── schema.prisma          # Models: Workspace, WorkspaceMember, FacebookConnection, Brand,
+│                          #         FacebookPage, Post, Media, AppSetting, BrandProfile,
+│                          #         ContentPillar, KnowledgeDoc, AutoPilot, UsedMedia, User
 └── migrations/
 ```
 
@@ -85,7 +102,8 @@ Toàn bộ API key được nhập **trực tiếp trên web** tại `/settings`
 |---|---|
 | AI Provider (OpenAI-compatible) | **Base URL + API Key** — danh sách model tự tải về |
 | Pexels API | API Key ([đăng ký miễn phí](https://www.pexels.com/api/)) |
-| Facebook Graph API | App ID, App Secret, Graph API Version |
+
+Cấu hình **Facebook Graph API** không còn ở trang Cài đặt — đã chuyển sang trang **Facebook Apps** (`/facebook-apps`) theo từng workspace, thêm được nhiều App (mỗi App lấy một nhóm Page).
 
 ### AI Provider — model tự tải, không cần gõ tay
 
@@ -111,13 +129,17 @@ model chạy được thật (trả về cả nội dung phản hồi và số t
 
 Vào `/composer`:
 
-1. Nhập **chủ đề/ý tưởng** bài đăng.
-2. Chọn **giọng điệu** (thân thiện, chuyên nghiệp, sôi nổi, truyền cảm hứng, hài hước),
+1. Chọn **thương hiệu muốn viết** (dropdown "Viết theo thương hiệu"). Chọn Page
+   thì thương hiệu của Page tự được chọn; bạn có thể đổi hoặc để "Không dùng
+   hồ sơ thương hiệu". Khi chọn brand, AI đọc **hồ sơ + trụ cột + kho tài liệu**
+   của thương hiệu đó (ngành hàng, sản phẩm, khoảng giá, giọng điệu, điều cấm
+   nhắc...) — bài viết đúng chất thương hiệu, không bịa giá.
+2. Nhập **chủ đề/ý tưởng** bài đăng.
+3. Chọn **giọng điệu** (thân thiện, chuyên nghiệp, sôi nổi, truyền cảm hứng, hài hước),
    **mục tiêu** (tăng tương tác, bán hàng, nhận diện thương hiệu, chia sẻ kiến thức) và **độ dài**.
-3. Tùy chọn thêm **đối tượng độc giả** và **từ khóa cần có** — AI sẽ đưa các từ khóa vào bài một cách tự nhiên.
-4. Bấm **✨ Sinh nội dung** → AI trả về **2–3 phương án khác nhau về góc tiếp cận**.
-5. Bấm **Dùng phương án này** để đưa vào trình soạn thảo, chỉnh sửa lại tùy ý.
-6. **💾 Lưu nháp** để làm tiếp sau, hoặc chọn Page rồi **🚀 Đăng ngay**.
+4. Tùy chọn thêm **đối tượng độc giả** và **từ khóa cần có** — AI sẽ đưa các từ khóa vào bài một cách tự nhiên.
+5. Bấm **✨ Sinh nội dung** → AI trả về **2–3 phương án khác nhau về góc tiếp cận**.
+6. Bấm **Dùng phương án này** để đưa vào trình soạn thảo, chỉnh sửa lại tùy ý.
 
 Prompt template nằm ở `src/lib/ai-prompts.ts`. AI được yêu cầu trả về JSON, và bộ parse
 chấp nhận nhiều biến thể (mảng trần, `posts`/`options`, có/không bọc markdown) — nếu model
@@ -126,6 +148,18 @@ Prompt cũng ràng buộc **không bịa số liệu, giá cả hay cam kết** 
 
 Ô nội dung hiển thị **số ký tự** và cảnh báo khi dòng đầu vượt ~125 ký tự (ngưỡng Facebook
 cắt phần "Xem thêm").
+
+### Tìm ảnh/video Pexels ngay trên bài viết
+
+Trong trình soạn thảo có khối **"Tìm ảnh/video nhanh trên Pexels"**:
+
+- Gõ từ khóa (ưu tiên tiếng Anh, ví dụ `curtain`, `milk tea`) + chọn **Ảnh** hoặc **Video** → bấm **🔍 Tìm**.
+- **✨ Gợi ý từ khóa** — AI đọc nội dung bài viết + ngành hàng của thương hiệu đang chọn
+  rồi gợi ý các chips từ khóa (bấm chip để chạy tìm ngay).
+- Kết quả hiện lưới thumbnail — hover rồi bấm **➕** để đính kèm vào bài (video hiện
+  thời lượng). Đính kèm bị chặn khi đã đủ số lượng hoặc trộn ảnh/video.
+- Cần tìm nhiều trang / lưu vào thư viện? Bấm **🖼️ Chọn ảnh/video từ Pexels** để mở
+  trình chọn đầy đủ (modal).
 
 ## Hẹn giờ đăng & tự động đăng bài
 
@@ -209,12 +243,18 @@ Tự động đăng bài là thao tác **không thể hoàn tác** (bài đã l�
 
 Mọi lần giành bài đều tăng `attempts`, nên số lần thử luôn đếm được và hiển thị trên Lịch đăng.
 
-## Hồ sơ thương hiệu (trang `/brand`)
+## Thương hiệu (trang `/brand`)
 
-Đây là **nơi chứa tài liệu cơ bản về Page** để AI viết đúng chất thương hiệu của bạn.
-Nhập một lần, mọi bài viết sau đó (cả soạn tay lẫn tự động) đều dựa trên thông tin này.
+Đây là nơi **tạo và quản lý nhiều thương hiệu** trong workspace — mỗi thương hiệu
+một bộ hồ sơ + trụ cột + kho tài liệu, **dùng chung cho mọi Page** gắn với nó.
+Một Page nhiều thương hiệu? Không — một Page thuộc một thương hiệu; nhưng một
+thương hiệu có thể có nhiều Page.
 
-Ba khối, xếp theo mức độ quan trọng với AI:
+Tạo thương hiệu (➕ Thương hiệu mới), **Sửa** tên/mô tả, **Xoá** (Page được giữ
+lại chỉ bỏ gán; bài đã đăng giữ nguyên), rồi mở **Hồ sơ & nội dung** để nhập
+chi tiết. Gán Page vào thương hiệu ở [trang Pages](#quản-lý-page-trang-pages).
+
+Ba khối nội dung, xếp theo mức độ quan trọng với AI:
 
 **1. Thông tin cơ bản** — tên thương hiệu, ngành hàng, giới thiệu, sản phẩm/dịch vụ,
 khách hàng mục tiêu, điểm khác biệt, khoảng giá, liên hệ, giọng điệu, hashtag,
@@ -239,17 +279,24 @@ tự chọn tối đa 4 tài liệu liên quan nhất (chấm điểm theo độ
 
 ## Chế độ tự động (trang `/autopilot`)
 
-Mục tiêu: **đặt vài thông số một lần rồi không phải làm gì nữa**.
+Mục tiêu: **quản lý nhiều cấu hình tự động cùng lúc** — mỗi Page một cấu hình,
+bật/tắt riêng lẻ hoặc tất cả. Bảng tổng quan liệt kê mọi Page: trạng thái, chế
+độ, nhịp đăng, số bài đã lên kế hoạch 7 ngày tới và lỗi gần nhất. Bấm
+**Cấu hình** trên một dòng để chỉnh chi tiết cho Page đó.
 
-### Chỉ cần trả lời 3 câu hỏi
+Mỗi cấu hình trả lời 3 câu hỏi:
 
 | Câu hỏi | Ô nhập | Mặc định |
 |---|---|---|
 | Mỗi ngày đăng mấy bài? | `postsPerDay` (1–10) | 2 |
 | Đăng từ lúc nào đến lúc nào? | `windowStart` / `windowEnd` | 07:00 → 21:00 |
-| Có tự tìm hình không? | `autoMedia` | Có (2 ảnh/bài) |
+| Có tự tìm hình không? | `autoMedia` | Có |
+| Dùng ảnh/video thế nào? | `mediaMix` | Chỉ ảnh |
+| Nếu xen kẽ, bao nhiêu là video? | `videoPercent` | 25% |
 
-Ngoài ra chọn **những ngày nào trong tuần** và **đăng thẳng hay chờ duyệt**.
+Khi chọn **xen kẽ ảnh và video**, hệ thống chọn ngẫu nhiên theo tỉ lệ đã đặt nhưng vẫn giữ đúng hạn ngạch trong từng ngày. Một bài Facebook chỉ chứa ảnh hoặc một video, không trộn hai loại.
+
+Ngoài ra chọn **những ngày nào trong tuần**, **đăng thẳng hay chờ duyệt** và số ảnh mỗi bài (tối đa 4).
 Phần còn lại (khoảng cách tối thiểu giữa 2 bài, số ngày lên kế hoạch trước, độ dài,
 giọng điệu, hashtag) nằm trong **Tùy chọn nâng cao** — có sẵn giá trị hợp lý.
 
@@ -282,7 +329,7 @@ Facebook. Nó cũng chạy kiểu "bắn rồi quên", nên nếu nhà cung cấ
 ### Các mức chặn an toàn
 
 - Mặc định là **chờ duyệt**, không tự đăng gì cho tới khi bạn chủ động chuyển sang đăng thẳng.
-- Không bật được nếu **chưa có trụ cột nội dung nào** — hệ thống sẽ chỉ bạn qua trang Hồ sơ thương hiệu.
+- Không bật được nếu **thương hiệu của Page chưa có trụ cột nội dung nào** — hệ thống sẽ chỉ bạn qua trang Thương hiệu.
 - Từ chối thông số vô lý: giờ kết thúc trước giờ bắt đầu, hoặc khung giờ quá hẹp so với
   số bài × khoảng cách tối thiểu. **Thông số cũ không bị ghi đè khi nhập sai.**
 - Tối đa **12 bài mỗi lượt chạy**; gặp lỗi thì nghỉ 15 phút mới thử lại — giới hạn chi phí AI.
@@ -366,11 +413,20 @@ Khi chọn video, app ưu tiên bản **MP4 ~HD (≤1920px)** thay vì bản 4K 
 
 ## Kết nối Facebook & đăng bài
 
-1. Vào `/settings` → nhập **App ID** + **App Secret** của Facebook App.
-2. Vào `/pages` → dán **User Access Token** lấy từ [Graph API Explorer](https://developers.facebook.com/tools/explorer/)
-   với quyền `pages_show_list`, `pages_manage_posts`, `pages_read_engagement` → bấm **Đồng bộ Pages**.
-   App tự đổi sang token long-lived (~60 ngày), lưu Page token vào DB và import mọi Page bạn quản lý.
-3. Vào `/composer` → chọn Page, nhập nội dung (hoặc để AI viết), hashtag, chọn ảnh/video từ Pexels → **Đăng ngay**.
+1. Vào `/facebook-apps` → thêm **Facebook App** (tên gợi nhớ + App ID + App
+   Secret + Graph version). Một workspace thêm được **nhiều App** — mỗi App lấy
+   được một nhóm Page khác nhau (giới hạn của Facebook).
+2. Ở khối App tương ứng (hoặc trang `/pages`) dán **User Access Token** của
+   đúng App đó (lấy từ [Graph API Explorer](https://developers.facebook.com/tools/explorer/)
+   với quyền `pages_show_list`, `pages_manage_posts`, `pages_read_engagement`)
+   → bấm **Đồng bộ Pages**. App tự đổi sang token long-lived (~60 ngày), lưu
+   Page token vào DB kèm `connectionId` của App đã đồng bộ.
+3. Vào `/composer` → chọn Page (thấy tên Page + thương hiệu), nhập nội dung
+   (hoặc để AI viết), hashtag, chọn ảnh/video từ Pexels → **Đăng ngay**.
+
+Dữ liệu cũ (cấu hình Facebook trong trang Cài đặt) được **migration tự động
+chuyển** thành một Connection mặc định trong workspace đầu tiên — token và
+App Secret mã hóa được copy nguyên vẹn, không phải nhập lại.
 
 Bài đăng được ghi vào DB với trạng thái `PUBLISHED` / `FAILED` kèm thông báo lỗi thật từ Graph API,
 hiển thị ở cột "Lịch sử gần đây".
@@ -405,6 +461,7 @@ npm run test:e2e:scheduler        # E2E: vòng lặp tự đăng trong app + nú
 npm run test:e2e:autopilot        # E2E: hồ sơ thương hiệu + chế độ tự động (70 kiểm tra)
 npm run test:e2e:autopilot:cycle  # E2E: vòng đời trọn vẹn — AI viết → tìm ảnh → tự đăng lên FB
 npm run test:plan                 # Test logic thuần: chia khung giờ + xoay vòng trụ cột (55 kiểm tra)
+npm run test:multi-workspace     # Test đa workspace + đa Facebook App (25 kiểm tra)
 npm run test:db:prepare           # Tạo/cập nhật schema DB test (test.db)
 node scripts/restore-from-facebook.mjs   # Khôi phục Page + token từ Facebook (khi sự cố)
 npm run dev:test                  # Web server trỏ vào test.db + mock (dùng khi chạy test)

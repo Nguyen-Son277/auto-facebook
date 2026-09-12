@@ -7,10 +7,11 @@ const NAV_ITEMS = [
   { href: "/dashboard", label: "Tổng quan", icon: "📊" },
   { href: "/composer", label: "Soạn bài", icon: "✍️" },
   { href: "/autopilot", label: "Tự động đăng", icon: "🤖" },
-  { href: "/brand", label: "Hồ sơ thương hiệu", icon: "🏷️" },
+  { href: "/brand", label: "Thương hiệu", icon: "🏷️" },
   { href: "/media", label: "Thư viện Media", icon: "🖼️" },
   { href: "/history", label: "Lịch sử đăng", icon: "🕘" },
   { href: "/calendar", label: "Lịch đăng", icon: "📅" },
+  { href: "/facebook-apps", label: "Facebook Apps", icon: "🔗" },
   { href: "/pages", label: "Facebook Pages", icon: "📄" },
   { href: "/settings", label: "Cài đặt", icon: "⚙️" },
 ];

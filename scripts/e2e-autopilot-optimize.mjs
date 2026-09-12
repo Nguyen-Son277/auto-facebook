@@ -25,6 +25,7 @@
 
 import { chromium } from "playwright";
 import { openTestDb, requireSmokeUser, SMOKE_EMAIL } from "./lib/test-db.mjs";
+import { ensureWorkspace, ensureBrand, seedPage } from "./lib/test-fixtures.mjs";
 
 const BASE = process.env.BASE_URL ?? "http://localhost:3000";
 const PASSWORD = process.env.SMOKE_PASSWORD ?? "test123";
@@ -62,20 +63,21 @@ db.prepare("DELETE FROM FacebookPage WHERE userId = ?").run(user.id);
 
 const PAGE_ID = "opt-test-page";
 const now = new Date().toISOString();
-
-db.prepare(
-  `INSERT INTO FacebookPage (id, userId, fbPageId, name, category, accessToken, isActive, createdAt, updatedAt)
-   VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)`
-).run(PAGE_ID, user.id, "900900902", "Shop Tối Ưu", "Shopping", "test-page-token", now, now);
+const wsId = ensureWorkspace(db, user.id);
+const brandId = ensureBrand(db, wsId, user.id, "Shop Tối Ưu");
+seedPage(db, {
+  id: PAGE_ID, userId: user.id, workspaceId: wsId, brandId,
+  fbPageId: "900900902", name: "Shop Tối Ưu", category: "Shopping", accessToken: "test-page-token",
+});
 
 // Hồ sơ thương hiệu — có industry để kiểm chứng từ khóa bám ngành
 db.prepare(
-  `INSERT INTO BrandProfile (id, userId, pageId, brandName, industry, description, products, audience, tone, createdAt, updatedAt)
-   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  `INSERT INTO BrandProfile (id, userId, brandId, brandName, industry, description, products, audience, tone, createdAt, updatedAt)
+   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 ).run(
   "opt-brand",
   user.id,
-  PAGE_ID,
+  brandId,
   "Shop Rèm Tối Ưu",
   "Nội thất - rèm cửa",
   "Chuyên rèm cửa cao cấp tại Bình Dương.",
@@ -95,9 +97,9 @@ const pillars = [
 ];
 pillars.forEach(([name, weight, goal], i) => {
   db.prepare(
-    `INSERT INTO ContentPillar (id, userId, pageId, name, description, goal, weight, enabled, position, createdAt, updatedAt)
+    `INSERT INTO ContentPillar (id, userId, brandId, name, description, goal, weight, enabled, position, createdAt, updatedAt)
      VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)`
-  ).run(`opt-pillar-${i}`, user.id, PAGE_ID, name, `Mô tả ${name}`, goal, weight, i, now, now);
+  ).run(`opt-pillar-${i}`, user.id, brandId, name, `Mô tả ${name}`, goal, weight, i, now, now);
 });
 
 /** Đặt cấu hình autopilot trực tiếp để test nhanh, không qua form. */
@@ -336,9 +338,9 @@ try {
   // Bài đã đăng phải bị khóa
   const publishedId = "opt-published-post";
   db.prepare(
-    `INSERT INTO Post (id, userId, pageId, content, status, origin, attempts, createdAt, updatedAt, publishedAt, fbPostId)
-     VALUES (?, ?, ?, ?, 'PUBLISHED', 'AUTOPILOT', 1, ?, ?, ?, ?)`
-  ).run(publishedId, user.id, PAGE_ID, "Bài đã lên Facebook rồi.", now, now, now, "900900902_111");
+    `INSERT INTO Post (id, userId, workspaceId, pageId, content, status, origin, attempts, createdAt, updatedAt, publishedAt, fbPostId)
+     VALUES (?, ?, ?, ?, ?, 'PUBLISHED', 'AUTOPILOT', 1, ?, ?, ?, ?)`
+  ).run(publishedId, user.id, wsId, PAGE_ID, "Bài đã lên Facebook rồi.", now, now, now, "900900902_111");
 
   await page.goto(`${BASE}/posts/${publishedId}`);
   await page.waitForLoadState("networkidle");

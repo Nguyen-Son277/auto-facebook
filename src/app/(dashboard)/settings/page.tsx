@@ -2,7 +2,6 @@ import { requireCurrentUser } from "@/lib/dal";
 import PageHeader from "@/components/page-header";
 import {
   AiSettingsForm,
-  FacebookSettingsForm,
   PexelsSettingsForm,
 } from "@/components/settings-forms";
 import { getSettingsMeta, SETTING_KEYS } from "@/lib/settings";
@@ -10,10 +9,11 @@ import { fetchAiModels } from "@/lib/ai";
 import { getSchedulerStatus } from "@/lib/scheduler";
 import SchedulerToggle from "@/components/scheduler-toggle";
 
+// Cấu hình Facebook đã chuyển sang /facebook-apps (theo từng workspace,
+// nhiều App cùng lúc) — Settings chỉ còn AI + Pexels.
 const ALL_KEYS: string[] = [
   ...Object.values(SETTING_KEYS.AI),
   ...Object.values(SETTING_KEYS.PEXELS),
-  ...Object.values(SETTING_KEYS.FACEBOOK),
 ];
 
 export default async function SettingsPage() {
@@ -42,10 +42,6 @@ export default async function SettingsPage() {
           }
         />
         <PexelsSettingsForm masked={masked} />
-        <FacebookSettingsForm
-          masked={masked}
-          hasToken={savedKeys.has("facebook.userToken")}
-        />
 
         {/* ================= Tự động đăng bài ================= */}
         <section className="rounded-2xl border border-gray-200 bg-white p-5">

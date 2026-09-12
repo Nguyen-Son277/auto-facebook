@@ -8,36 +8,63 @@ import { pruneOrphanUploads } from "@/lib/uploads";
 export default async function ComposerPage() {
   const user = await requireCurrentUser();
 
-  const [activePages, drafts, history, ai, pexels, library, uploads] = await Promise.all([
-    prisma.facebookPage.findMany({
-      where: { userId: user.id, isActive: true },
-      orderBy: { name: "asc" },
-      select: { id: true, name: true, fbPageId: true },
-    }),
-    prisma.post.findMany({
-      where: { userId: user.id, status: "DRAFT" },
-      orderBy: { updatedAt: "desc" },
-      take: 20,
-      include: { page: { select: { name: true } } },
-    }),
-    prisma.post.findMany({
-      where: { userId: user.id, status: { not: "DRAFT" } },
-      orderBy: { createdAt: "desc" },
-      take: 10,
-      include: { page: { select: { name: true } } },
-    }),
-    getAiConfig(),
-    getPexelsConfig(),
-    prisma.media.findMany({
-      where: { userId: user.id, postId: null, providerId: { not: null } },
-      select: { providerId: true },
-    }),
-    // storageKey đang được tham chiếu — dùng cho việc dọn file mồ côi bên dưới
-    prisma.media.findMany({
-      where: { userId: user.id, storageKey: { not: null } },
-      select: { storageKey: true },
-    }),
-  ]);
+  // Workspace user là thành viên — brands lấy theo các workspace đó
+  const memberships = await prisma.workspaceMember.findMany({
+    where: { userId: user.id },
+    select: { workspaceId: true },
+  });
+  const workspaceIds = memberships.map((m) => m.workspaceId);
+
+  const [activePages, drafts, history, ai, pexels, library, uploads, brands] =
+    await Promise.all([
+      prisma.facebookPage.findMany({
+        where: { userId: user.id, isActive: true },
+        orderBy: { name: "asc" },
+        select: {
+          id: true,
+          name: true,
+          fbPageId: true,
+          brandId: true,
+          brand: { select: { name: true } },
+          connection: { select: { name: true } },
+        },
+      }),
+      prisma.post.findMany({
+        where: { userId: user.id, status: "DRAFT" },
+        orderBy: { updatedAt: "desc" },
+        take: 20,
+        include: { page: { select: { name: true } } },
+      }),
+      prisma.post.findMany({
+        where: { userId: user.id, status: { not: "DRAFT" } },
+        orderBy: { createdAt: "desc" },
+        take: 10,
+        include: { page: { select: { name: true } } },
+      }),
+      getAiConfig(),
+      getPexelsConfig(),
+      prisma.media.findMany({
+        where: { userId: user.id, postId: null, providerId: { not: null } },
+        select: { providerId: true },
+      }),
+      // storageKey đang được tham chiếu — dùng cho việc dọn file mồ côi bên dưới
+      prisma.media.findMany({
+        where: { userId: user.id, storageKey: { not: null } },
+        select: { storageKey: true },
+      }),
+      // Thương hiệu của workspace — cho dropdown "viết theo thương hiệu"
+      workspaceIds.length > 0
+        ? prisma.brand.findMany({
+            where: { workspaceId: { in: workspaceIds } },
+            orderBy: { createdAt: "asc" },
+            select: {
+              id: true,
+              name: true,
+              profile: { select: { industry: true, products: true } },
+            },
+          })
+        : Promise.resolve([]),
+    ]);
 
   // Dọn file video tải lên nhưng không còn bài nào tham chiếu (chỉ file cũ > 24h).
   // Không chặn render — đây chỉ là dọn dẹp nền.
@@ -56,7 +83,20 @@ export default async function ComposerPage() {
       />
 
       <ComposerStudio
-        pages={activePages}
+        pages={activePages.map((p) => ({
+          id: p.id,
+          name: p.name,
+          fbPageId: p.fbPageId,
+          brandId: p.brandId,
+          brandName: p.brand?.name ?? null,
+          connectionName: p.connection?.name ?? null,
+        }))}
+        brands={brands.map((b) => ({
+          id: b.id,
+          name: b.name,
+          industry: b.profile?.industry ?? null,
+          products: b.profile?.products ?? null,
+        }))}
         aiReady={Boolean(ai.baseUrl && ai.apiKey && ai.model)}
         pexelsReady={Boolean(pexels.apiKey)}
         libraryProviderIds={library

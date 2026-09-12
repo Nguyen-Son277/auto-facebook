@@ -1,11 +1,16 @@
 import "server-only";
 
-import { getSetting } from "./settings";
+import { decryptValue, getSetting } from "./settings";
 import { prisma } from "./prisma";
 
 // ============================================================
 // Facebook Graph API client (server-only)
 // Docs: https://developers.facebook.com/docs/graph-api/
+//
+// ĐA CONNECTION: mỗi hàm gọi Graph nhận graphVersion + appId/appSecret
+// từ FacebookConnection của Page (xem lib/facebook-connection.ts), thay
+// vì đọc cấu hình toàn cục. Mọi publish* nhận `conn` (graph version) để
+// dùng đúng phiên bản API của App đã cấp token cho Page đó.
 // ============================================================
 
 /**
@@ -22,6 +27,13 @@ export type GraphPage = {
   picture?: { data: { url: string } };
 };
 
+/** Cấu hình Graph API cần cho một lệnh gọi — lấy từ FacebookConnection. */
+export type GraphContext = {
+  appId?: string | null;
+  appSecret?: string | null;
+  graphVersion?: string | null;
+};
+
 export class FacebookApiError extends Error {
   code: number | undefined;
   fbTraceId: string | undefined;
@@ -34,6 +46,12 @@ export class FacebookApiError extends Error {
   }
 }
 
+/** Graph version hiệu dụng: ưu tiên conn, fallback AppSetting rồi v21.0. */
+async function effectiveVersion(conn?: GraphContext | null): Promise<string> {
+  if (conn?.graphVersion) return conn.graphVersion;
+  return (await getSetting("facebook.graphVersion")) ?? "v21.0";
+}
+
 /**
  * Gọi Graph API.
  * - GET  → tham số đưa vào query string.
@@ -44,9 +62,9 @@ async function fbFetch(
   path: string,
   accessToken: string,
   params: Record<string, string> = {},
-  options: { method?: "GET" | "POST" } = {}
+  options: { method?: "GET" | "POST"; conn?: GraphContext | null } = {}
 ) {
-  const version = (await getSetting("facebook.graphVersion")) ?? "v21.0";
+  const version = await effectiveVersion(options.conn);
   const method = options.method ?? "GET";
   const url = new URL(`${GRAPH_BASE}/${version}/${path}`);
 
@@ -88,23 +106,30 @@ async function parseGraphResponse(res: Response): Promise<Record<string, unknown
 }
 
 /** URL Graph API đầy đủ cho một path (dùng cho multipart). */
-async function graphUrl(path: string): Promise<string> {
-  const version = (await getSetting("facebook.graphVersion")) ?? "v21.0";
+async function graphUrl(path: string, conn?: GraphContext | null): Promise<string> {
+  const version = await effectiveVersion(conn);
   return `${GRAPH_BASE}/${version}/${path}`;
 }
 
 /** Đổi short-lived user token (2h) sang long-lived (~60 ngày) cùng ngày hết hạn. */
-export async function exchangeForLongLivedToken(shortToken: string): Promise<{
+export async function exchangeForLongLivedToken(
+  shortToken: string,
+  conn?: GraphContext | null
+): Promise<{
   accessToken: string;
   expiresInSeconds: number;
 }> {
-  const appId = await getSetting("facebook.appId");
-  const appSecret = await getSetting("facebook.appSecret");
+  let appId = conn?.appId ?? null;
+  let appSecret = conn?.appSecret ?? null;
   if (!appId || !appSecret) {
-    throw new FacebookApiError("Chưa cấu hình FACEBOOK_APP_ID / APP_SECRET.");
+    appId = await getSetting("facebook.appId");
+    appSecret = await getSetting("facebook.appSecret");
+  }
+  if (!appId || !appSecret) {
+    throw new FacebookApiError("Chưa cấu hình App ID / App Secret cho connection.");
   }
 
-  const version = (await getSetting("facebook.graphVersion")) ?? "v21.0";
+  const version = await effectiveVersion(conn);
   const url = new URL(`${GRAPH_BASE}/${version}/oauth/access_token`);
   url.searchParams.set("grant_type", "fb_exchange_token");
   url.searchParams.set("client_id", appId);
@@ -129,26 +154,47 @@ export async function exchangeForLongLivedToken(shortToken: string): Promise<{
 }
 
 /** Lấy danh sách Pages do user quản lý (kèm Page access token). */
-export async function fetchUserPages(userAccessToken: string): Promise<GraphPage[]> {
+export async function fetchUserPages(
+  userAccessToken: string,
+  conn?: GraphContext | null
+): Promise<GraphPage[]> {
   const data = (await fbFetch("me/accounts", userAccessToken, {
     fields: "id,name,category,access_token,picture.type(normal)",
     limit: "100",
-  })) as { data?: GraphPage[] };
+  }, { conn })) as { data?: GraphPage[] };
   return data.data ?? [];
 }
 
 /**
- * Sync danh sách Pages vào DB cho user: upsert theo fbPageId.
- * - Page mới → tạo mới.
- * - Page cũ → cập nhật tên/category/avatar/token.
- * Trả về số lượng page.
+ * Sync danh sách Pages vào DB **theo connection của workspace**:
+ * upsert theo (workspaceId, fbPageId).
+ * - Page mới → tạo mới, gắn connectionId.
+ * - Page cũ → cập nhật tên/category/avatar/token, KHÔNG đổi connectionId
+ *   (trừ khi fbPageId chưa từng có trong workspace này).
+ *
+ * Lưu ý: nếu cùng một Page xuất hiện qua connection khác trong cùng
+ * workspace, unique (workspaceId, fbPageId) giữ nguyên bản ghi gốc —
+ * không tạo trùng. Người dùng chuyển connection qua action riêng.
  */
 export async function syncPagesToDb(
   userId: string,
+  workspaceId: string,
+  connectionId: string,
   userAccessToken: string,
   expiresInSeconds?: number
 ): Promise<number> {
-  const pages = await fetchUserPages(userAccessToken);
+  const conn = await prisma.facebookConnection.findUnique({ where: { id: connectionId } });
+  if (!conn || conn.workspaceId !== workspaceId) {
+    throw new Error("Connection không thuộc workspace này.");
+  }
+
+  const graphCtx: GraphContext = {
+    appId: decryptValue(conn.appId),
+    appSecret: decryptValue(conn.appSecret),
+    graphVersion: decryptValue(conn.graphVersion) || "v21.0",
+  };
+
+  const pages = await fetchUserPages(userAccessToken, graphCtx);
   const expiresAt =
     expiresInSeconds && expiresInSeconds > 0
       ? new Date(Date.now() + expiresInSeconds * 1000)
@@ -156,7 +202,7 @@ export async function syncPagesToDb(
 
   for (const page of pages) {
     await prisma.facebookPage.upsert({
-      where: { fbPageId: page.id },
+      where: { workspaceId_fbPageId: { workspaceId, fbPageId: page.id } },
       update: {
         userId,
         name: page.name,
@@ -168,6 +214,8 @@ export async function syncPagesToDb(
       },
       create: {
         userId,
+        workspaceId,
+        connectionId,
         fbPageId: page.id,
         name: page.name,
         category: page.category ?? null,
@@ -187,13 +235,14 @@ export type PostResult = { success: true; fbPostId: string };
 /** Đăng bài text-only lên Page. POST /{page-id}/feed */
 export async function publishTextToPage(
   page: { fbPageId: string; accessToken: string },
-  message: string
+  message: string,
+  conn?: GraphContext | null
 ): Promise<string> {
   const data = (await fbFetch(
     `${page.fbPageId}/feed`,
     page.accessToken,
     { message },
-    { method: "POST" }
+    { method: "POST", conn }
   )) as { id: string };
   return data.id;
 }
@@ -202,13 +251,14 @@ export async function publishTextToPage(
 export async function publishPhotoToPage(
   page: { fbPageId: string; accessToken: string },
   message: string,
-  imageUrl: string
+  imageUrl: string,
+  conn?: GraphContext | null
 ): Promise<string> {
   const data = (await fbFetch(
     `${page.fbPageId}/photos`,
     page.accessToken,
     { url: imageUrl, caption: message, published: "true" },
-    { method: "POST" }
+    { method: "POST", conn }
   )) as { id: string };
   return data.id;
 }
@@ -217,13 +267,14 @@ export async function publishPhotoToPage(
 export async function publishVideoToPage(
   page: { fbPageId: string; accessToken: string },
   description: string,
-  videoUrl: string
+  videoUrl: string,
+  conn?: GraphContext | null
 ): Promise<string> {
   const data = (await fbFetch(
     `${page.fbPageId}/videos`,
     page.accessToken,
     { description, file_url: videoUrl },
-    { method: "POST" }
+    { method: "POST", conn }
   )) as { id: string };
   return data.id;
 }
@@ -240,7 +291,8 @@ export async function uploadVideoToPage(
   description: string,
   filePath: string,
   fileName: string,
-  mimeType: string
+  mimeType: string,
+  conn?: GraphContext | null
 ): Promise<string> {
   const { openAsBlob } = await import("node:fs");
   const blob = await openAsBlob(filePath, { type: mimeType });
@@ -250,7 +302,7 @@ export async function uploadVideoToPage(
   form.set("description", description);
   form.set("source", blob, fileName);
 
-  const url = await graphUrl(`${page.fbPageId}/videos`);
+  const url = await graphUrl(`${page.fbPageId}/videos`, conn);
 
   let res: Response;
   try {
@@ -277,10 +329,11 @@ export async function uploadVideoToPage(
 export async function publishMultiPhotosToPage(
   page: { fbPageId: string; accessToken: string },
   message: string,
-  imageUrls: string[]
+  imageUrls: string[],
+  conn?: GraphContext | null
 ): Promise<string> {
   if (imageUrls.length === 0) throw new FacebookApiError("Cần ít nhất 1 ảnh.");
-  if (imageUrls.length === 1) return publishPhotoToPage(page, message, imageUrls[0]);
+  if (imageUrls.length === 1) return publishPhotoToPage(page, message, imageUrls[0], conn);
 
   // Bước 1: upload ảnh unpublished
   const photoIds: string[] = [];
@@ -289,7 +342,7 @@ export async function publishMultiPhotosToPage(
       `${page.fbPageId}/photos`,
       page.accessToken,
       { url, published: "false" },
-      { method: "POST" }
+      { method: "POST", conn }
     )) as { id: string };
     photoIds.push(data.id);
   }
@@ -303,7 +356,7 @@ export async function publishMultiPhotosToPage(
     `${page.fbPageId}/feed`,
     page.accessToken,
     params,
-    { method: "POST" }
+    { method: "POST", conn }
   )) as { id: string };
   return data.id;
 }

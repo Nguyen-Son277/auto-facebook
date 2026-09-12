@@ -14,6 +14,7 @@
 
 import { chromium } from "playwright";
 import { openTestDb, requireSmokeUser, SMOKE_EMAIL } from "./lib/test-db.mjs";
+import { ensureWorkspace, ensureBrand, seedPage } from "./lib/test-fixtures.mjs";
 
 const BASE = process.env.BASE_URL ?? "http://localhost:3000";
 const PASSWORD = process.env.SMOKE_PASSWORD ?? "test123";
@@ -57,11 +58,12 @@ resetFixtures();
 
 // ---- Tạo Page test ----
 const PAGE_ID = "ap-test-page";
-const now = new Date().toISOString();
-db.prepare(
-  `INSERT INTO FacebookPage (id, userId, fbPageId, name, category, accessToken, isActive, createdAt, updatedAt)
-   VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)`
-).run(PAGE_ID, user.id, "900900900", "Shop Test Tự Động", "Shopping", "test-page-token", now, now);
+const wsId = ensureWorkspace(db, user.id);
+const brandId = ensureBrand(db, wsId, user.id, "Shop Test Tự Động");
+seedPage(db, {
+  id: PAGE_ID, userId: user.id, workspaceId: wsId, brandId,
+  fbPageId: "900900900", name: "Shop Test Tự Động", category: "Shopping", accessToken: "test-page-token",
+});
 
 console.log(`Dùng database test, user ${SMOKE_EMAIL}, Page "Shop Test Tự Động"`);
 

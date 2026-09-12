@@ -128,10 +128,22 @@ export async function loadBrandContext(
   pageId: string,
   opts: { focus?: string; pageName?: string } = {}
 ): Promise<BrandContext | undefined> {
+  // Nội dung thương hiệu thuộc Brand — tra brandId của Page rồi query theo brand.
+  // Page chưa gắn brand (dữ liệu cũ) → fallback theo pageId.
+  const page = await prisma.facebookPage.findUnique({
+    where: { id: pageId },
+    select: { brandId: true },
+  });
+  const brandId = page?.brandId;
+
   const [profile, docs] = await Promise.all([
-    prisma.brandProfile.findUnique({ where: { pageId } }),
+    brandId
+      ? prisma.brandProfile.findUnique({ where: { brandId } })
+      : prisma.brandProfile.findFirst({ where: { brand: { pages: { some: { id: pageId } } } } }),
     prisma.knowledgeDoc.findMany({
-      where: { pageId, enabled: true },
+      where: brandId
+        ? { brandId, enabled: true }
+        : { pageId, enabled: true },
       orderBy: { createdAt: "asc" },
       select: { id: true, title: true, kind: true, content: true, enabled: true },
     }),
@@ -212,3 +224,69 @@ export const DEFAULT_PILLARS: {
     weight: 15,
   },
 ];
+
+// ============================================================
+// Load BrandContext theo brandId (composer — "viết theo thương hiệu")
+// ============================================================
+
+/**
+ * Nạp hồ sơ + tài liệu của một Brand cụ thể để đưa vào prompt AI.
+ *
+ * Khác `loadBrandContext` (tra qua Page), hàm này nhận thẳng brandId —
+ * dùng cho form soạn bài cho phép chọn thương hiệu muốn viết.
+ * Kiểm tra user là thành viên workspace sở hữu brand trước khi trả dữ liệu.
+ */
+export async function loadBrandContextByBrand(
+  userId: string,
+  brandId: string,
+  opts: { focus?: string } = {}
+): Promise<BrandContext | undefined> {
+  const brand = await prisma.brand.findUnique({
+    where: { id: brandId },
+    select: {
+      id: true,
+      name: true,
+      workspaceId: true,
+      profile: true,
+      docs: {
+        where: { enabled: true },
+        orderBy: { createdAt: "asc" },
+        select: { id: true, title: true, kind: true, content: true, enabled: true },
+      },
+    },
+  });
+  if (!brand) return undefined;
+
+  const member = await prisma.workspaceMember.findUnique({
+    where: { workspaceId_userId: { workspaceId: brand.workspaceId, userId } },
+  });
+  if (!member) return undefined;
+
+  const selected = pickRelevantDocs(brand.docs, opts.focus ?? "", MAX_DOCS_IN_PROMPT);
+  const profile = brand.profile;
+  if (!profile && selected.length === 0) return undefined;
+
+  return {
+    brandName: profile?.brandName?.trim() || brand.name,
+    tagline: profile?.tagline ?? undefined,
+    description: profile?.description ?? undefined,
+    industry: profile?.industry ?? undefined,
+    products: profile?.products ?? undefined,
+    usp: profile?.usp ?? undefined,
+    priceRange: profile?.priceRange ?? undefined,
+    audience: profile?.audience ?? undefined,
+    address: profile?.address ?? undefined,
+    phone: profile?.phone ?? undefined,
+    website: profile?.website ?? undefined,
+    avoidTopics: profile?.avoidTopics ?? undefined,
+    signatureCta: profile?.signatureCta ?? undefined,
+    baseHashtags: profile?.baseHashtags ?? undefined,
+    samplePosts: profile?.samplePosts ?? undefined,
+    notes: profile?.notes ?? undefined,
+    knowledge: selected.map((d) => ({
+      title: d.title,
+      kind: d.kind,
+      content: truncateDoc(d.content),
+    })),
+  };
+}

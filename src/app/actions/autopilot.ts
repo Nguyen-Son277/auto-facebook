@@ -39,9 +39,18 @@ async function assertOwnedPage(userId: string, pageId: string) {
 
 /** Kiểm tra Page đã đủ điều kiện chạy tự động chưa. */
 async function readiness(pageId: string): Promise<string | null> {
-  const pillars = await prisma.contentPillar.count({ where: { pageId, enabled: true } });
+  // Trụ cột thuộc Brand của Page; dữ liệu cũ fallback theo pageId
+  const page = await prisma.facebookPage.findUnique({
+    where: { id: pageId },
+    select: { brandId: true },
+  });
+  const pillars = await prisma.contentPillar.count({
+    where: page?.brandId
+      ? { brandId: page.brandId, enabled: true }
+      : { pageId, enabled: true },
+  });
   if (pillars === 0) {
-    return "Chưa có trụ cột nội dung nào đang bật — vào Hồ sơ thương hiệu để thêm (hoặc bấm tạo bộ mặc định).";
+    return "Chưa có trụ cột nội dung nào đang bật — vào Thương hiệu để thêm (hoặc bấm tạo bộ mặc định).";
   }
   return null;
 }
@@ -360,4 +369,56 @@ export async function clearPlannedPosts(pageId: string): Promise<AutoPilotState>
         ? `Đã xóa ${deleted.count} bài chưa đăng. Bài đã đăng vẫn giữ nguyên.`
         : "Không có bài nào chưa đăng để xóa.",
   };
+}
+
+// ============================================================
+// Bật / tắt TẤT CẢ cấu hình (quản lý tập trung)
+// ============================================================
+
+export async function toggleAllAutoPilots(enabled: boolean): Promise<AutoPilotState> {
+  const user = await requireCurrentUser();
+
+  const configs = await prisma.autoPilot.findMany({
+    where: { userId: user.id },
+    select: { pageId: true, enabled: true, lastPlanError: true },
+  });
+  if (configs.length === 0) {
+    return { ok: false, error: "Chưa có cấu hình tự động nào — lưu thông số cho ít nhất một Page trước." };
+  }
+
+  if (enabled) {
+    // Chỉ bật những Page đủ điều kiện (có trụ cột); gom Pages bị chặn để báo
+    const blocked: string[] = [];
+    let onCount = 0;
+    for (const c of configs) {
+      const problem = await readiness(c.pageId);
+      if (problem) {
+        blocked.push(c.pageId);
+        continue;
+      }
+      await prisma.autoPilot.update({
+        where: { pageId: c.pageId },
+        data: { enabled: true, lastPlanError: null },
+      });
+      onCount++;
+    }
+    if (onCount > 0) kickAutopilotPlanner(true);
+    revalidatePath("/autopilot");
+    revalidatePath("/calendar");
+    if (blocked.length > 0) {
+      return {
+        ok: true,
+        message: `Đã bật ${onCount}/${configs.length} cấu hình. ${blocked.length} Page chưa có trụ cột nội dung nên bị bỏ qua — vào Thương hiệu để bổ sung.`,
+      };
+    }
+    return { ok: true, message: `Đã bật ${onCount}/${configs.length} cấu hình tự động.` };
+  }
+
+  await prisma.autoPilot.updateMany({
+    where: { userId: user.id },
+    data: { enabled: false },
+  });
+  revalidatePath("/autopilot");
+  revalidatePath("/calendar");
+  return { ok: true, message: `Đã tắt tất cả ${configs.length} cấu hình tự động. Bài đã lên lịch vẫn giữ nguyên.` };
 }

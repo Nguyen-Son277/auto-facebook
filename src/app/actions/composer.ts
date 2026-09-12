@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { requireCurrentUser } from "@/lib/dal";
 import { prisma } from "@/lib/prisma";
 import { generatePostVariants, type AiUsage } from "@/lib/ai";
+import { loadBrandContextByBrand } from "@/lib/brand";
 import { parseAttachments, type AttachedMedia } from "@/lib/posts";
 import {
   createAndPublishPost,
@@ -49,7 +50,7 @@ export async function generateContent(
   _prev: GenerateState,
   formData: FormData
 ): Promise<GenerateState> {
-  await requireCurrentUser();
+  const user = await requireCurrentUser();
 
   const topic = str(formData, "topic");
   if (!topic) return { ok: false, error: "Vui lòng nhập chủ đề bài đăng." };
@@ -59,6 +60,13 @@ export async function generateContent(
 
   const variantCount = Number(str(formData, "variantCount")) || 3;
 
+  // "Viết theo thương hiệu": nạp hồ sơ + trụ cột + tài liệu của brand được chọn
+  // (sai workspace / brand không tồn tại → trả undefined, AI viết generic như cũ).
+  const brandId = str(formData, "brandId");
+  const brand = brandId
+    ? await loadBrandContextByBrand(user.id, brandId, { focus: topic })
+    : undefined;
+
   const res = await generatePostVariants({
     topic,
     tone: pick<Tone>(str(formData, "tone"), TONES, "friendly"),
@@ -67,6 +75,7 @@ export async function generateContent(
     audience: str(formData, "audience"),
     keywords: str(formData, "keywords"),
     pageName: str(formData, "pageName"),
+    brand,
     variantCount,
   });
 

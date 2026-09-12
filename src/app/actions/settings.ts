@@ -10,7 +10,6 @@ import {
   setSetting,
   SETTING_KEYS,
 } from "@/lib/settings";
-import { exchangeForLongLivedToken, fetchUserPages } from "@/lib/facebook";
 import { fetchAiModels } from "@/lib/ai";
 
 export type ActionState = {
@@ -228,68 +227,6 @@ export async function savePexelsSettings(
 }
 
 // ============================================================
-// Facebook Graph API
-// ============================================================
-
-export async function saveFacebookSettings(
-  _prev: ActionState,
-  formData: FormData
-): Promise<ActionState> {
-  await requireCurrentUser();
-
-  const appId = str(formData, "appId");
-  const appSecret = str(formData, "appSecret");
-  const graphVersion = str(formData, "graphVersion") || "v21.0";
-  const userToken = str(formData, "userToken");
-
-  if (!appId || !appSecret) {
-    return { error: "App ID và App Secret là bắt buộc." };
-  }
-  if (!/^v\d+\.\d+$/.test(graphVersion)) {
-    return { error: `Graph API version không hợp lệ: "${graphVersion}" (ví dụ: v21.0)` };
-  }
-
-  await setSetting(SETTING_KEYS.FACEBOOK.appId, appId);
-  await setSetting(SETTING_KEYS.FACEBOOK.appSecret, appSecret);
-  await setSetting(SETTING_KEYS.FACEBOOK.graphVersion, graphVersion);
-
-  revalidatePath("/settings");
-  revalidatePath("/pages");
-
-  if (intentOf(formData) === "save") {
-    return { ok: true, message: `Đã lưu cấu hình Facebook (Graph ${graphVersion}).` };
-  }
-
-  // Kiểm tra kết nối: cần User Access Token để xác thực thật
-  if (!userToken) {
-    return {
-      ok: true,
-      message: "Đã lưu cấu hình. Dán User Access Token rồi bấm lại để kiểm tra kết nối.",
-    };
-  }
-
-  try {
-    const { accessToken, expiresInSeconds } = await exchangeForLongLivedToken(userToken);
-    await setSetting(SETTING_KEYS.FACEBOOK.userToken, accessToken);
-    await setSetting(
-      SETTING_KEYS.FACEBOOK.userTokenExpiresAt,
-      String(Date.now() + expiresInSeconds * 1000)
-    );
-
-    const pages = await fetchUserPages(accessToken);
-    revalidatePath("/pages");
-    return {
-      ok: true,
-      message: `Token hợp lệ — tài khoản quản lý ${pages.length} Page.`,
-      details: pages.slice(0, 15).map((p) => `• ${p.name} (${p.id})`),
-    };
-  } catch (err) {
-    return {
-      ok: false,
-      error: `Không xác thực được token: ${err instanceof Error ? err.message : String(err)}`,
-    };
-  }
-}
 
 // ============================================================
 // Trạng thái tổng hợp

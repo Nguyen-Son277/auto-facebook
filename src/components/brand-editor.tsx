@@ -135,12 +135,12 @@ export type DocData = {
 // 1. Thông tin cơ bản
 // ============================================================
 
-function ProfileForm({ pageId, profile }: { pageId: string; profile: BrandProfileData }) {
+function ProfileForm({ brandId, profile }: { brandId: string; profile: BrandProfileData }) {
   const [state, action, pending] = useActionState(saveBrandProfile, null);
 
   return (
     <form action={action} className="space-y-5">
-      <input type="hidden" name="pageId" value={pageId} />
+      <input type="hidden" name="brandId" value={brandId} />
 
       <Alert state={state} testId="brand-profile-alert" />
 
@@ -295,7 +295,7 @@ function ProfileForm({ pageId, profile }: { pageId: string; profile: BrandProfil
 // 2. Trụ cột nội dung
 // ============================================================
 
-function PillarSection({ pageId, pillars }: { pageId: string; pillars: PillarData[] }) {
+function PillarSection({ brandId, pillars }: { brandId: string; pillars: PillarData[] }) {
   const [state, action, pending] = useActionState(savePillar, null);
   const [editing, setEditing] = useState<PillarData | null>(null);
   const [busy, setBusy] = useState(false);
@@ -327,7 +327,7 @@ function PillarSection({ pageId, pillars }: { pageId: string; pillars: PillarDat
             disabled={busy}
             onClick={async () => {
               setBusy(true);
-              await createDefaultPillars(pageId);
+              await createDefaultPillars(brandId);
               setBusy(false);
             }}
             className={`${btnPrimary} mt-3`}
@@ -394,7 +394,7 @@ function PillarSection({ pageId, pillars }: { pageId: string; pillars: PillarDat
       )}
 
       <form action={action} className="space-y-3 rounded-lg border border-gray-200 p-4">
-        <input type="hidden" name="pageId" value={pageId} />
+        <input type="hidden" name="brandId" value={brandId} />
         <input type="hidden" name="id" value={editing?.id ?? ""} />
         <input type="hidden" name="enabled" value={editing ? (editing.enabled ? "1" : "0") : "1"} />
 
@@ -467,7 +467,7 @@ function PillarSection({ pageId, pillars }: { pageId: string; pillars: PillarDat
 
 const DOC_KINDS = ["PRODUCT", "PRICE", "FAQ", "POLICY", "STORY", "OTHER"];
 
-function DocSection({ pageId, docs }: { pageId: string; docs: DocData[] }) {
+function DocSection({ brandId, docs }: { brandId: string; docs: DocData[] }) {
   const [state, action, pending] = useActionState(saveKnowledgeDoc, null);
   const [editing, setEditing] = useState<DocData | null>(null);
 
@@ -536,7 +536,7 @@ function DocSection({ pageId, docs }: { pageId: string; docs: DocData[] }) {
       )}
 
       <form action={action} className="space-y-3 rounded-lg border border-gray-200 p-4">
-        <input type="hidden" name="pageId" value={pageId} />
+        <input type="hidden" name="brandId" value={brandId} />
         <input type="hidden" name="id" value={editing?.id ?? ""} />
         <input type="hidden" name="enabled" value={editing ? (editing.enabled ? "1" : "0") : "1"} />
 
@@ -606,12 +606,12 @@ const TABS = [
 ] as const;
 
 export default function BrandEditor({
-  pageId,
+  brandId,
   profile,
   pillars,
   docs,
 }: {
-  pageId: string;
+  brandId: string;
   profile: BrandProfileData;
   pillars: PillarData[];
   docs: DocData[];
@@ -645,9 +645,9 @@ export default function BrandEditor({
       </div>
 
       <div className="rounded-xl border border-gray-200 bg-white p-5">
-        {tab === "profile" ? <ProfileForm pageId={pageId} profile={profile} /> : null}
-        {tab === "pillars" ? <PillarSection pageId={pageId} pillars={pillars} /> : null}
-        {tab === "docs" ? <DocSection pageId={pageId} docs={docs} /> : null}
+        {tab === "profile" ? <ProfileForm brandId={brandId} profile={profile} /> : null}
+        {tab === "pillars" ? <PillarSection brandId={brandId} pillars={pillars} /> : null}
+        {tab === "docs" ? <DocSection brandId={brandId} docs={docs} /> : null}
       </div>
     </div>
   );

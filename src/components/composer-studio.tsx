@@ -8,6 +8,7 @@ import {
   removePost,
   submitPost,
 } from "@/app/actions/composer";
+import { searchPexelsMedia, suggestKeywords } from "@/app/actions/media";
 import { GOALS, LENGTHS, TONES } from "@/lib/ai-prompts";
 import {
   countChars,
@@ -15,12 +16,27 @@ import {
   validateAttachments,
   type AttachedMedia,
 } from "@/lib/posts";
-import MediaBrowser from "@/components/media-browser";
+import type { KeywordState, MediaSearchState, MediaType, PexelsMediaItem } from "@/lib/pexels-types";
+import MediaBrowser, { toAttachment } from "@/components/media-browser";
 
 export type ComposerPageOption = {
   id: string;
   name: string;
   fbPageId: string;
+  /** Brand Page thuộc về (nếu đã gán) — để đồng bộ dropdown AI */
+  brandId?: string | null;
+  /** Tên thương hiệu Page thuộc về (nếu đã gán) */
+  brandName?: string | null;
+  /** Tên Facebook App cấp token cho Page */
+  connectionName?: string | null;
+};
+
+export type ComposerBrandOption = {
+  id: string;
+  name: string;
+  /** Ngành hàng + sản phẩm chính (từ hồ sơ) — cho gợi ý từ khóa tìm media */
+  industry?: string | null;
+  products?: string | null;
 };
 
 export type DraftItem = {
@@ -82,6 +98,7 @@ function atHour(hour: number, dayOffset: number): Date {
 
 export default function ComposerStudio({
   pages,
+  brands = [],
   drafts,
   history,
   aiReady,
@@ -89,6 +106,7 @@ export default function ComposerStudio({
   libraryProviderIds,
 }: {
   pages: ComposerPageOption[];
+  brands?: ComposerBrandOption[];
   drafts: DraftItem[];
   history: HistoryItem[];
   aiReady: boolean;
@@ -122,6 +140,66 @@ export default function ComposerStudio({
   const [uploadError, setUploadError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [scheduledAt, setScheduledAt] = useState("");
+
+  // ---------- Viết theo thương hiệu ----------
+  // brandOverride = "" (chưa đụng dropdown) → derive theo Page; đụng rồi → theo người dùng.
+  // Derive khi render thay vì useEffect — tránh cascading render.
+  const [brandOverride, setBrandOverride] = useState<string | null>(null);
+  const pageBrandId = pages.find((x) => x.id === pageId)?.brandId ?? null;
+  const brandId = brandOverride ?? pageBrandId ?? "";
+  const selectedBrand = brands.find((b) => b.id === brandId) ?? null;
+  const setBrandId = setBrandOverride;
+
+  // ---------- Tìm media nhanh (inline) ----------
+  const [quickQuery, setQuickQuery] = useState("");
+  const [quickType, setQuickType] = useState<MediaType>("IMAGE");
+  const [quickResult, setQuickResult] = useState<MediaSearchState>(null);
+  const [quickSearching, startQuickSearch] = useTransition();
+  const [quickKw, setQuickKw] = useState<KeywordState>(null);
+  const [quickSuggesting, startQuickSuggest] = useTransition();
+
+  function runQuickSearch(query: string, mediaType: MediaType = quickType) {
+    const q = query.trim();
+    if (!q) return;
+    startQuickSearch(async () => {
+      const fd = new FormData();
+      fd.set("query", q);
+      fd.set("mediaType", mediaType);
+      fd.set("page", "1");
+      const res = await searchPexelsMedia(null, fd);
+      setQuickResult(res);
+    });
+  }
+
+  function onQuickSuggest() {
+    if (content.trim().length < 10) {
+      setQuickKw({
+        ok: false,
+        error: "Nhập ít nhất 10 ký tự nội dung rồi bấm gợi ý từ khóa.",
+      });
+      return;
+    }
+    startQuickSuggest(async () => {
+      const fd = new FormData();
+      fd.set("content", content);
+      // Bám ngành hàng thương hiệu đang chọn — từ khóa sát nội dung hơn
+      if (selectedBrand?.industry) fd.set("industry", selectedBrand.industry);
+      if (selectedBrand?.products) fd.set("products", selectedBrand.products);
+      const res = await suggestKeywords(null, fd);
+      setQuickKw(res);
+    });
+  }
+
+  function quickAdd(item: PexelsMediaItem) {
+    const att = toAttachment(item);
+    const next = [...attachments, att];
+    const check = validateAttachments(next);
+    if (!check.ok) {
+      setMediaNotice(check.error);
+      return;
+    }
+    addMedia([att]);
+  }
 
   const editorRef = useRef<HTMLDivElement>(null);
   const [loadingDraft, startLoadDraft] = useTransition();
@@ -327,6 +405,33 @@ export default function ComposerStudio({
           className="space-y-3"
         >
           <input type="hidden" name="pageName" value={selectedPage?.name ?? ""} />
+
+          <div>
+            <label className={labelCls}>
+              Viết theo thương hiệu
+            </label>
+            <select
+              name="brandId"
+              className={selectCls}
+              value={brandId}
+              onChange={(e) => setBrandId(e.target.value)}
+              data-testid="composer-brand-select"
+            >
+              <option value="">— Không dùng hồ sơ thương hiệu —</option>
+              {brands.map((b) => (
+                <option key={b.id} value={b.id}>
+                  {b.name}
+                </option>
+              ))}
+            </select>
+            <p className="mt-1 text-xs text-gray-500">
+              {selectedBrand
+                ? `AI sẽ dùng hồ sơ, trụ cột và kho tài liệu của "${selectedBrand.name}" để viết đúng chất thương hiệu.`
+                : brands.length > 0
+                  ? "Chọn thương hiệu để AI viết đúng chất — hoặc để trống nếu chỉ cần bài generic."
+                  : "Chưa có thương hiệu nào — tạo ở trang Thương hiệu để AI viết đúng chất hơn."}
+            </p>
+          </div>
 
           <div>
             <label className={labelCls}>Chủ đề / ý tưởng bài đăng</label>
@@ -547,6 +652,7 @@ export default function ComposerStudio({
               {pages.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.name}
+                  {p.brandName ? ` — ${p.brandName}` : ""}
                 </option>
               ))}
             </select>
@@ -590,6 +696,175 @@ export default function ComposerStudio({
               value={hashtags}
               onChange={(e) => setHashtags(e.target.value)}
             />
+          </div>
+
+          {/* ================= Tìm media nhanh trên bài viết ================= */}
+          <div className="rounded-xl border border-cyan-200 bg-cyan-50/40 p-4">
+            <div className="mb-3 flex items-center gap-3">
+              <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-cyan-100 text-lg">
+                🔎
+              </span>
+              <div>
+                <h3 className="text-sm font-semibold text-gray-900">Tìm ảnh/video nhanh trên Pexels</h3>
+                <p className="text-xs text-gray-500">
+                  Gõ từ khóa hoặc để AI gợi ý theo nội dung
+                  {selectedBrand ? ` và ngành hàng của "${selectedBrand.name}"` : ""} — bấm ➕ để đính kèm
+                </p>
+              </div>
+            </div>
+
+            {!pexelsReady ? (
+              <p className="text-sm text-gray-600">
+                Chưa cấu hình Pexels API.{" "}
+                <a href="/settings" className="font-medium text-blue-600 underline">
+                  Vào Cài đặt
+                </a>{" "}
+                để nhập API Key (miễn phí).
+              </p>
+            ) : (
+              <>
+                <div className="flex flex-wrap items-center gap-2">
+                  <input
+                    type="text"
+                    className={`${inputCls} max-w-xs`}
+                    placeholder="Ví dụ: curtain, window, interior…"
+                    value={quickQuery}
+                    onChange={(e) => setQuickQuery(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        runQuickSearch(quickQuery);
+                      }
+                    }}
+                    data-testid="quick-media-input"
+                  />
+                  <div className="flex overflow-hidden rounded-lg border border-gray-300">
+                    <button
+                      type="button"
+                      onClick={() => setQuickType("IMAGE")}
+                      className={`px-3 py-1.5 text-xs font-medium ${
+                        quickType === "IMAGE" ? "bg-cyan-600 text-white" : "bg-white text-gray-600"
+                      }`}
+                    >
+                      Ảnh
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setQuickType("VIDEO")}
+                      className={`px-3 py-1.5 text-xs font-medium ${
+                        quickType === "VIDEO" ? "bg-cyan-600 text-white" : "bg-white text-gray-600"
+                      }`}
+                    >
+                      Video
+                    </button>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => runQuickSearch(quickQuery)}
+                    disabled={quickSearching || !quickQuery.trim()}
+                    data-testid="quick-media-search"
+                    className="rounded-lg bg-cyan-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-cyan-700 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {quickSearching ? "Đang tìm..." : "🔍 Tìm"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={onQuickSuggest}
+                    disabled={quickSuggesting}
+                    data-testid="quick-suggest-btn"
+                    className="rounded-lg border border-violet-300 bg-white px-3 py-2 text-sm font-medium text-violet-700 transition hover:bg-violet-50 disabled:opacity-60"
+                    title="AI gợi ý từ khóa tìm ảnh/video theo nội dung bài viết"
+                  >
+                    {quickSuggesting ? "Đang gợi ý..." : "✨ Gợi ý từ khóa"}
+                  </button>
+                </div>
+
+                {/* Chips từ khóa AI gợi ý */}
+                {quickKw?.error ? (
+                  <p className="mt-2 text-sm text-red-600">✗ {quickKw.error}</p>
+                ) : null}
+                {quickKw?.ok && quickKw.keywords?.length ? (
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {quickKw.keywords.map((k) => (
+                      <button
+                        key={k.query}
+                        type="button"
+                        onClick={() => {
+                          setQuickQuery(k.query);
+                          runQuickSearch(k.query);
+                        }}
+                        className="rounded-full border border-cyan-300 bg-white px-3 py-1 text-xs font-medium text-cyan-800 transition hover:bg-cyan-100"
+                      >
+                        {k.label}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+
+                {/* Kết quả tìm */}
+                {quickResult?.error ? (
+                  <p className="mt-3 text-sm text-red-600">✗ {quickResult.error}</p>
+                ) : null}
+                {quickResult?.ok && quickResult.items?.length ? (
+                  <div
+                    className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6"
+                    data-testid="quick-media-grid"
+                  >
+                    {quickResult.items.map((item) => {
+                      const itemKey = `${item.type}:${item.id}`;
+                      const attached =
+                        item.type === "VIDEO"
+                          ? videoCount > 0
+                          : photoCount >= MAX_PHOTOS_PER_POST || videoCount > 0;
+                      const already = attachments.some(
+                        (m) => m.providerId === item.id && m.type === item.type
+                      );
+                      return (
+                        <div
+                          key={itemKey}
+                          className="group relative overflow-hidden rounded-lg border border-gray-200 bg-white"
+                        >
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={item.previewUrl}
+                            alt={"alt" in item ? item.alt : ""}
+                            className="h-24 w-full object-cover"
+                            loading="lazy"
+                          />
+                          {item.type === "VIDEO" ? (
+                            <span className="absolute bottom-1 left-1 rounded bg-black/70 px-1.5 py-0.5 text-[10px] font-medium text-white">
+                              ▶ {Math.round((item.duration ?? 0) / 60)}:{String((item.duration ?? 0) % 60).padStart(2, "0")}
+                            </span>
+                          ) : null}
+                          <button
+                            type="button"
+                            onClick={() => quickAdd(item)}
+                            disabled={attached}
+                            className={`absolute inset-0 flex items-center justify-center bg-black/0 text-2xl font-bold text-white opacity-0 transition group-hover:bg-black/40 group-hover:opacity-100 ${
+                              attached ? "cursor-not-allowed bg-black/40 opacity-100" : ""
+                            }`}
+                            title={
+                              already
+                                ? "Đã đính kèm trong bài"
+                                : attached
+                                  ? "Đã đủ số lượng cho phép"
+                                  : "Đính kèm vào bài"
+                            }
+                          >
+                            {already ? "✓" : attached ? "✕" : "➕"}
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : null}
+                {quickResult?.ok && quickResult.items?.length === 0 ? (
+                  <p className="mt-3 text-sm text-gray-500">
+                    Không tìm thấy kết quả — thử từ khóa khác (Pexels ưu tiên từ khóa tiếng Anh).
+                  </p>
+                ) : null}
+              </>
+            )}
           </div>
 
           <div>

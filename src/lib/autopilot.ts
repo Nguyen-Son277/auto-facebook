@@ -433,9 +433,17 @@ async function createPlannedPost(input: {
 
   const status = config.mode === "AUTO" ? "SCHEDULED" : "PENDING_REVIEW";
 
+  // Lấy workspace/brand của Page để Post luôn thuộc đúng tenant
+  const pageRow = await prisma.facebookPage.findUnique({
+    where: { id: input.pageId },
+    select: { workspaceId: true, brandId: true },
+  });
+
   const post = await prisma.post.create({
     data: {
       userId: config.userId,
+      workspaceId: pageRow?.workspaceId ?? "ws-legacy",
+      brandId: pageRow?.brandId ?? null,
       pageId: input.pageId,
       content: variant.content,
       hook: variant.hook || null,
@@ -453,6 +461,7 @@ async function createPlannedPost(input: {
       data: {
         postId: post.id,
         userId: config.userId,
+        workspaceId: pageRow?.workspaceId ?? null,
         type: m.type,
         source: m.source,
         remoteUrl: m.remoteUrl,
@@ -499,8 +508,15 @@ export async function planForAutoPilot(
     skipped: 0,
   };
 
+  // Trụ cột thuộc Brand của Page (fallback pageId cho dữ liệu cũ)
+  const pageForBrand = await prisma.facebookPage.findUnique({
+    where: { id: config.pageId },
+    select: { brandId: true },
+  });
   const pillars = await prisma.contentPillar.findMany({
-    where: { pageId: config.pageId, enabled: true },
+    where: pageForBrand?.brandId
+      ? { brandId: pageForBrand.brandId, enabled: true }
+      : { pageId: config.pageId, enabled: true },
     orderBy: [{ position: "asc" }, { createdAt: "asc" }],
     select: {
       id: true,
@@ -818,4 +834,91 @@ export async function getAutoPilotOverview(
     plannedNext7Days,
     pendingReview,
   };
+}
+
+// ============================================================
+// Danh sách mọi cấu hình tự động (trang quản lý tập trung)
+// ============================================================
+
+export type AutoPilotConfigRow = {
+  pageId: string;
+  pageName: string;
+  isActive: boolean;
+  brandId: string | null;
+  brandName: string | null;
+  enabled: boolean;
+  mode: string;
+  postsPerDay: number;
+  windowStart: string;
+  windowEnd: string;
+  daysOfWeek: string;
+  plannedNext7Days: number;
+  lastPlanError: string | null;
+  hasConfig: boolean;
+};
+
+/**
+ * Mọi cấu hình autopilot của user — mỗi Page một dòng, kèm thông tin
+ * Page/thương hiệu để hiển thị bảng quản lý. Page chưa có cấu hình cũng
+ * được liệt kê (hasConfig = false) để người dùng thấy còn thiếu gì.
+ */
+export async function listAutoPilotConfigs(userId: string): Promise<AutoPilotConfigRow[]> {
+  const pages = await prisma.facebookPage.findMany({
+    where: { userId, isActive: true },
+    orderBy: { createdAt: "asc" },
+    select: {
+      id: true,
+      name: true,
+      isActive: true,
+      brandId: true,
+      brand: { select: { name: true } },
+      autopilot: {
+        select: {
+          enabled: true,
+          mode: true,
+          postsPerDay: true,
+          windowStart: true,
+          windowEnd: true,
+          daysOfWeek: true,
+          lastPlanError: true,
+        },
+      },
+    },
+  });
+
+  if (pages.length === 0) return [];
+
+  const pageIds = pages.map((p) => p.id);
+
+  // Đếm bài đã lên kế hoạch 7 ngày tới cho tất cả Page trong 1 query
+  const now = new Date();
+  const in7Days = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+  const planned = await prisma.post.groupBy({
+    by: ["pageId"],
+    where: {
+      pageId: { in: pageIds },
+      origin: "AUTOPILOT",
+      status: { in: ["SCHEDULED", "PENDING_REVIEW"] },
+      scheduledAt: { gte: now, lte: in7Days },
+    },
+    _count: { _all: true },
+  });
+  const plannedByPage = new Map(planned.map((r) => [r.pageId, r._count._all]));
+
+  return pages.map((p) => ({
+    pageId: p.id,
+    pageName: p.name,
+    isActive: p.isActive,
+    brandId: p.brandId,
+    brandName: p.brand?.name ?? null,
+    enabled: p.autopilot?.enabled ?? false,
+    mode: p.autopilot?.mode ?? "REVIEW",
+    postsPerDay: p.autopilot?.postsPerDay ?? 0,
+    windowStart: p.autopilot?.windowStart ?? "07:00",
+    windowEnd: p.autopilot?.windowEnd ?? "21:00",
+    daysOfWeek: p.autopilot?.daysOfWeek ?? "0,1,2,3,4,5,6",
+    plannedNext7Days: plannedByPage.get(p.id) ?? 0,
+    lastPlanError: p.autopilot?.lastPlanError ?? null,
+    hasConfig: Boolean(p.autopilot),
+  }));
 }

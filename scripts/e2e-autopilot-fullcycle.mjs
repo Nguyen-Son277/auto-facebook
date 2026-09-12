@@ -9,6 +9,7 @@
 // ============================================================
 
 import { openTestDb, requireSmokeUser } from "./lib/test-db.mjs";
+import { ensureWorkspace, ensureBrand, seedPage } from "./lib/test-fixtures.mjs";
 import { seedMockSettings } from "./lib/seed-settings.mjs";
 
 const FB_MOCK = process.env.FB_MOCK_URL ?? "http://127.0.0.1:4021";
@@ -61,23 +62,25 @@ reset();
 seedMockSettings(db);
 
 const now = new Date().toISOString();
-db.prepare(
-  `INSERT INTO FacebookPage (id, userId, fbPageId, name, category, accessToken, isActive, createdAt, updatedAt)
-   VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)`
-).run(PAGE_ID, user.id, "900900901", "Shop Vòng Đời", "Shopping", "test-page-token", now, now);
+const wsId = ensureWorkspace(db, user.id);
+const brandId = ensureBrand(db, wsId, user.id, "Shop Vòng Đời");
+seedPage(db, {
+  id: PAGE_ID, userId: user.id, workspaceId: wsId, brandId,
+  fbPageId: "900900901", name: "Shop Vòng Đời", category: "Shopping", accessToken: "test-page-token",
+});
 
 db.prepare(
-  `INSERT INTO BrandProfile (id, userId, pageId, brandName, industry, description, products, tone, createdAt, updatedAt)
+  `INSERT INTO BrandProfile (id, userId, brandId, brandName, industry, description, products, tone, createdAt, updatedAt)
    VALUES (?, ?, ?, ?, ?, ?, ?, 'friendly', ?, ?)`
-).run("bp-cycle", user.id, PAGE_ID, "Shop Vòng Đời", "Bán lẻ",
+).run("bp-cycle", user.id, brandId, "Shop Vòng Đời", "Bán lẻ",
       "Cửa hàng test vòng đời tự động.", "Sản phẩm A\nSản phẩm B", now, now);
 
 // 2 trụ cột để có xoay vòng
 for (const [i, name] of [["p1", "Giới thiệu sản phẩm"], ["p2", "Chia sẻ kiến thức"]].entries()) {
   db.prepare(
-    `INSERT INTO ContentPillar (id, userId, pageId, name, description, goal, weight, enabled, position, createdAt, updatedAt)
+    `INSERT INTO ContentPillar (id, userId, brandId, name, description, goal, weight, enabled, position, createdAt, updatedAt)
      VALUES (?, ?, ?, ?, ?, 'sales', 50, 1, ?, ?, ?)`
-  ).run(name[0], user.id, PAGE_ID, name[1], `Viết bài ${name[1]}`, i, now, now);
+  ).run(name[0], user.id, brandId, name[1], `Viết bài ${name[1]}`, i, now, now);
 }
 
 try {

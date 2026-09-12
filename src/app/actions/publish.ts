@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { requireCurrentUser } from "@/lib/dal";
 import { prisma } from "@/lib/prisma";
 import { buildMessage, deliverToFacebook } from "@/lib/deliver";
+import type { GraphContext } from "@/lib/facebook";
 import {
   parseAttachments,
   validateAttachments,
@@ -41,12 +42,14 @@ async function createPostRecord(
   userId: string,
   input: PublishInput,
   status: string,
-  pageDbId: string | null
+  page: { id: string; workspaceId: string; brandId: string | null } | null
 ) {
   const post = await prisma.post.create({
     data: {
       userId,
-      pageId: pageDbId,
+      workspaceId: page!.workspaceId,
+      brandId: page!.brandId,
+      pageId: page!.id,
       content: input.content,
       hashtags: input.hashtags?.trim() || null,
       status,
@@ -58,6 +61,7 @@ async function createPostRecord(
       data: {
         postId: post.id,
         userId,
+        workspaceId: page!.workspaceId,
         type: m.type,
         source: m.source,
         remoteUrl: m.remoteUrl,
@@ -81,11 +85,28 @@ async function createPostRecord(
   return post;
 }
 
-/** Lấy Page thuộc user và đang hoạt động (kèm token để gọi Graph API). */
+/** Lấy Page thuộc user và đang hoạt động (kèm token + connection để gọi Graph API). */
 async function resolvePage(userId: string, pageId: string) {
   return prisma.facebookPage.findFirst({
     where: { id: pageId, userId, isActive: true },
+    include: { connection: true },
   });
+}
+
+/** Build GraphContext từ connection của Page (đã mã hóa trong DB). */
+async function graphContextForPage(
+  page: { connection?: { id: string } | null; connectionId?: string | null } | null
+): Promise<GraphContext | null> {
+  const connId = page?.connection?.id ?? page?.connectionId ?? null;
+  if (!connId) return null;
+  const { resolveConnection } = await import("@/lib/facebook-connection");
+  const resolved = await resolveConnection(connId);
+  if (!resolved) return null;
+  return {
+    appId: resolved.appId,
+    appSecret: resolved.appSecret,
+    graphVersion: resolved.graphVersion,
+  };
 }
 
 /**
@@ -109,14 +130,15 @@ export async function createAndPublishPost(
 
   const fullMessage = buildMessage(input.content, input.hashtags);
 
-  const post = await createPostRecord(userId, input, "PUBLISHING", page.id);
+  const post = await createPostRecord(userId, input, "PUBLISHING", page);
 
   try {
     const fbPostId = await deliverToFacebook(
       userId,
       { fbPageId: page.fbPageId, accessToken: page.accessToken },
       fullMessage,
-      input.attachments
+      input.attachments,
+      await graphContextForPage(page)
     );
 
     await prisma.post.update({
@@ -184,7 +206,7 @@ export async function schedulePost(
   const page = await resolvePage(userId, input.pageId);
   if (!page) return { ok: false, error: "Page không tồn tại hoặc đã tắt hoạt động." };
 
-  const post = await createPostRecord(userId, input, "SCHEDULED", page.id);
+  const post = await createPostRecord(userId, input, "SCHEDULED", page);
 
   await prisma.post.update({
     where: { id: post.id },
@@ -221,7 +243,10 @@ export async function retryPost(
 ): Promise<PublishOutcome> {
   const post = await prisma.post.findFirst({
     where: { id: postId, userId },
-    include: { media: { orderBy: { position: "asc" } }, page: true },
+    include: {
+      media: { orderBy: { position: "asc" } },
+      page: { include: { connection: true } },
+    },
   });
 
   if (!post) return { ok: false, error: "Không tìm thấy bài đăng." };
@@ -267,7 +292,8 @@ export async function retryPost(
       userId,
       { fbPageId: post.page.fbPageId, accessToken: post.page.accessToken },
       buildMessage(post.content, post.hashtags),
-      media
+      media,
+      await graphContextForPage(post.page)
     );
 
     await prisma.post.update({
@@ -309,14 +335,13 @@ export async function saveDraftPost(
   if (!input.content.trim()) return { ok: false, error: "Chưa có nội dung để lưu nháp." };
 
   // Nháp có thể chưa cần chọn Page → chỉ kiểm tra nếu người dùng đã chọn
-  let pageDbId: string | null = null;
+  let page: Awaited<ReturnType<typeof resolvePage>> = null;
   if (input.pageId) {
-    const page = await resolvePage(userId, input.pageId);
+    page = await resolvePage(userId, input.pageId);
     if (!page) return { ok: false, error: "Page không tồn tại hoặc đã tắt hoạt động." };
-    pageDbId = page.id;
   }
 
-  const post = await createPostRecord(userId, input, "DRAFT", pageDbId);
+  const post = await createPostRecord(userId, input, "DRAFT", page);
   revalidatePath("/composer");
   return { ok: true, message: "Đã lưu nháp.", postId: post.id };
 }

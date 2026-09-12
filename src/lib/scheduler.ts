@@ -2,6 +2,7 @@ import "server-only";
 
 import { prisma } from "@/lib/prisma";
 import { buildMessage, deliverToFacebook } from "@/lib/deliver";
+import type { GraphContext } from "@/lib/facebook";
 import { getSetting, setSetting } from "@/lib/settings";
 import { validateAttachments, type AttachedMedia } from "@/lib/posts";
 
@@ -124,7 +125,7 @@ async function findDuePosts(now: Date) {
     take: MAX_POSTS_PER_TICK,
     include: {
       media: { orderBy: { position: "asc" } },
-      page: true,
+      page: { include: { connection: true } },
     },
   });
 }
@@ -231,13 +232,29 @@ export async function runSchedulerTick(
       continue;
     }
 
-    // --- Gửi lên Facebook ---
+    // --- Gửi lên Facebook bằng đúng connection của Page ---
+    // GraphContext = graphVersion của FacebookConnection đã cấp token Page.
+    // Page nào chưa gắn connection (dữ liệu cũ) → null → fallback AppSetting.
+    let graphCtx: GraphContext | null = null;
+    if (post.page?.connection) {
+      const { resolveConnection } = await import("./facebook-connection");
+      const resolved = await resolveConnection(post.page.connection.id);
+      if (resolved) {
+        graphCtx = {
+          appId: resolved.appId,
+          appSecret: resolved.appSecret,
+          graphVersion: resolved.graphVersion,
+        };
+      }
+    }
+
     try {
       const fbPostId = await deliverToFacebook(
         post.userId,
         { fbPageId: post.page!.fbPageId, accessToken: post.page!.accessToken },
         buildMessage(post.content, post.hashtags),
-        media
+        media,
+        graphCtx
       );
 
       await prisma.post.update({
