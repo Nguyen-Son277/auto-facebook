@@ -50,6 +50,8 @@ model User {
   notifications Notification[]
   userSettings  UserSetting[]
   docsWritten   Doc[]
+  questionsAsked FeedbackQuestion[]
+  answersGiven   FeedbackAnswer[]
 }
 
 // ============================================================
@@ -533,4 +535,40 @@ model Doc {
   author User @relation(fields: [authorId], references: [id], onDelete: Cascade)
 
   @@index([published, updatedAt])
+}
+
+// ============================================================
+// CÂU HỎI TƯƠNG TÁC — admin đặt câu hỏi cho người dùng
+// (ý tưởng mới, cần góp ý...) để phát triển sản phẩm.
+// Mỗi user trả lời 1 lần cho mỗi câu hỏi (upsert theo unique).
+// ============================================================
+
+model FeedbackQuestion {
+  id        String   @id @default(cuid())
+  question  String
+  /// false = ẩn khỏi trang /docs nhưng giữ lại dữ liệu
+  active    Boolean  @default(true)
+  authorId  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  author  User            @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  answers FeedbackAnswer[]
+
+  @@index([active, createdAt])
+}
+
+model FeedbackAnswer {
+  id         String   @id @default(cuid())
+  questionId String
+  userId     String
+  body       String
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  question FeedbackQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  user     User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([questionId, userId])
+  @@index([userId])
 }

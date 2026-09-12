@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { createSession, destroySession } from "@/lib/session";
 import { ensureWorkspaceForUser, requireCurrentUser } from "@/lib/dal";
 import { validatePasswordStrength } from "@/lib/password";
+import { notify, notifyAdmins } from "@/lib/notify";
 
 export type LoginState = { error?: string } | null;
 
@@ -143,6 +144,21 @@ export async function register(
   });
   // Tạo sẵn workspace của riêng họ — duyệt xong là làm việc được ngay
   await ensureWorkspaceForUser(created.id);
+
+  // Thông báo chào mừng (user sẽ đọc ngay sau khi được duyệt)
+  await notify(created.id, {
+    type: "SYSTEM",
+    title: "🎉 Chào mừng bạn đến với FB Marketing Auto!",
+    body: "Tài khoản của bạn đang chờ quản trị viên duyệt. Được duyệt xong hãy đọc trang Hướng dẫn sử dụng để bắt đầu trong 5 phút.",
+    link: "/docs",
+  });
+  // Báo admin có người mới chờ duyệt
+  await notifyAdmins({
+    type: "ADMIN",
+    title: "🛡️ Có người dùng mới chờ duyệt",
+    body: `${name || email} (${email}) vừa gửi đăng ký — vào Quản trị để duyệt.`,
+    link: "/admin",
+  });
 
   return {
     ok: true,

@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { ensureWorkspaceForUser, getCurrentUser, type CurrentUser } from "@/lib/dal";
-import { notify, notifyAllUsers } from "@/lib/notify";
+import { notify } from "@/lib/notify";
 import { validatePasswordStrength } from "@/lib/password";
 
 // ============================================================
@@ -39,21 +39,16 @@ function revalidateAdmin() {
 }
 
 // ============================================================
-// Duyệt đăng ký — đặt mật khẩu tạm, buộc đổi lần đầu
+// Duyệt đăng ký — chỉ mở khoá tài khoản.
+//
+// Người dùng tự chọn mật khẩu khi đăng ký, nên duyệt KHÔNG đụng
+// tới mật khẩu: họ đăng nhập bằng chính mật khẩu đã đăng ký.
+// (Admin chỉ cấp mật khẩu tạm khi user QUÊN mật khẩu — resetUserPassword.)
 // ============================================================
 
-export async function approveUser(
-  _prev: AdminState,
-  formData: FormData
-): Promise<AdminState> {
+export async function approveUser(userId: string): Promise<AdminState> {
   const me = await requireAdmin();
   if (!isUser(me)) return me;
-
-  const userId = str(formData, "userId");
-  const tempPassword = str(formData, "tempPassword");
-
-  const pwError = validatePasswordStrength(tempPassword);
-  if (pwError) return { ok: false, error: pwError };
 
   const target = await prisma.user.findUnique({
     where: { id: userId },
@@ -61,30 +56,25 @@ export async function approveUser(
   });
   if (!target) return { ok: false, error: "Không tìm thấy tài khoản." };
   if (target.role === "ADMIN") {
-    return { ok: false, error: "Không áp dụng mật khẩu tạm cho tài khoản ADMIN." };
+    return { ok: false, error: "Không cần duyệt tài khoản ADMIN — ADMIN không bị chặn duyệt." };
   }
 
-  const passwordHash = await bcrypt.hash(tempPassword, 12);
   await prisma.user.update({
     where: { id: target.id },
-    data: {
-      status: "APPROVED",
-      password: passwordHash,
-      mustChangePassword: true,
-    },
+    data: { status: "APPROVED" },
   });
   await ensureWorkspaceForUser(target.id);
   await notify(target.id, {
     type: "ADMIN",
     title: "🛡️ Tài khoản của bạn đã được duyệt",
-    body: "Quản trị viên đã kích hoạt tài khoản. Đăng nhập bằng mật khẩu tạm được cấp — hệ thống sẽ yêu cầu đổi mật khẩu ngay lần đầu.",
+    body: "Quản trị viên đã kích hoạt tài khoản. Đăng nhập bằng mật khẩu bạn đã đăng ký khi tạo tài khoản.",
     link: "/login",
   });
 
   revalidateAdmin();
   return {
     ok: true,
-    message: `Đã duyệt ${target.email}. Gửi mật khẩu tạm cho người dùng — họ buộc đổi khi đăng nhập lần đầu.`,
+    message: `Đã duyệt ${target.email}. Người dùng đăng nhập bằng mật khẩu đã đăng ký.`,
   };
 }
 

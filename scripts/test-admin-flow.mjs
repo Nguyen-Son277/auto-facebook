@@ -2,12 +2,13 @@
 //
 // Kiểm chứng:
 //   1. Migration user_admin_controls: cột mới trên User.
-//   2. Vòng đời trạng thái: PENDING → APPROVED (kèm mật khẩu tạm +
-//      mustChangePassword) → REJECTED → mở lại APPROVED.
+//   2. Vòng đời trạng thái: PENDING → APPROVED (giữ nguyên mật khẩu đã
+//      đăng ký, không buộc đổi) → REJECTED → mở lại APPROVED.
 //   3. Tạo tài khoản: PENDING mặc định khi đăng ký; APPROVED khi admin cấp.
-//   4. Đổi role: ADMIN ↔ USER; ADMIN luôn status NULL.
-//   5. Ràng buộc: email unique; ADMIN không bị khoá; xóa user cascade dữ liệu.
-//   6. Đổi mật khẩu: clear mustChangePassword + set passwordChangedAt.
+//   4. Reset mật khẩu (user quên): mật khẩu tạm + buộc đổi lần đầu.
+//   5. Đổi role: ADMIN ↔ USER; ADMIN luôn status NULL.
+//   6. Ràng buộc: email unique; ADMIN không bị khoá; xóa user cascade dữ liệu.
+//   7. Đổi mật khẩu: clear mustChangePassword + set passwordChangedAt.
 //
 // Chạy: node scripts/test-admin-flow.mjs
 // KHÔNG đụng tới Facebook thật — chỉ test tầng DB.
@@ -65,19 +66,32 @@ check("status mặc định PENDING", regged?.status === "PENDING");
 check("mustChangePassword=false khi tự đăng ký", Number(regged?.mustChangePassword) === 0);
 
 // ============================================================
-section("3. Duyệt → APPROVED + mật khẩu tạm + buộc đổi");
+section("3. Duyệt → APPROVED, GIỮ NGUYÊN mật khẩu đã đăng ký");
+// Duyệt chỉ mở khoá — không đụng password/mustChangePassword.
+// (Admin chỉ cấp mật khẩu tạm khi user QUÊN mật khẩu — resetUserPassword.)
 // ============================================================
-const tempHash = bcrypt.hashSync("Abc@12345", 12);
 db.prepare(
-  `UPDATE User SET status='APPROVED', password=?, mustChangePassword=1 WHERE id=?`
-).run(tempHash, regged.id);
+  `UPDATE User SET status='APPROVED' WHERE id=?`
+).run(regged.id);
 const approved = db.prepare("SELECT * FROM User WHERE id = ?").get(regged.id);
 check("status chuyển APPROVED", approved?.status === "APPROVED");
-check("mustChangePassword bật", Number(approved?.mustChangePassword) === 1);
-check("mật khẩu tạm verify đúng", bcrypt.compareSync("Abc@12345", approved.password));
+check("mustChangePassword vẫn false (không buộc đổi)", Number(approved?.mustChangePassword) === 0);
+check("mật khẩu ĐÃ ĐĂNG KÝ vẫn dùng được", bcrypt.compareSync("Password1", approved.password));
+check("không ghi đè bằng mật khẩu tạm", !bcrypt.compareSync("Abc@12345", approved.password));
 
 // ============================================================
-section("4. Đổi mật khẩu lần đầu");
+section("4. Admin reset mật khẩu (user quên) → mật khẩu tạm + buộc đổi");
+// ============================================================
+const tempHash2 = bcrypt.hashSync("Abc@12345", 12);
+db.prepare(
+  `UPDATE User SET password=?, mustChangePassword=1 WHERE id=?`
+).run(tempHash2, regged.id);
+const reset = db.prepare("SELECT * FROM User WHERE id = ?").get(regged.id);
+check("reset: mật khẩu tạm verify đúng", bcrypt.compareSync("Abc@12345", reset.password));
+check("reset: mustChangePassword bật", Number(reset?.mustChangePassword) === 1);
+
+// ============================================================
+section("4b. Đổi mật khẩu sau reset (buộc lần đầu)");
 // ============================================================
 const newHash = bcrypt.hashSync("NewPass99", 12);
 db.prepare(

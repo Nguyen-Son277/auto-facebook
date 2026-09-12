@@ -53,15 +53,16 @@ App chỉ mở cho người dùng được admin cấp quyền:
   (mặc định `nms2772k2@gmail.com` / `Admin@123` — **lần đăng nhập đầu bắt buộc đổi mật khẩu**).
 - **Đăng ký**: người vào `/register` gửi đăng ký → tài khoản ở trạng thái **Chờ duyệt**,
   chưa đăng nhập được.
-- **Duyệt**: admin vào **🛡️ Quản trị** (`/admin`) → bấm **Duyệt**, đặt **mật khẩu tạm**
-  (gợi ý `Abc@12345`) → gửi cho người dùng. Họ **bắt buộc đổi mật khẩu** ở lần đăng nhập đầu.
+- **Duyệt**: admin vào **🛡️ Quản trị** (`/admin`) → bấm **Duyệt** → người dùng
+  đăng nhập bằng **mật khẩu họ đã đăng ký** (duyệt chỉ mở khoá, không đụng mật khẩu).
 - **Từ chối/Khoá**: chặn đăng nhập, giữ nguyên dữ liệu — mở lại được bất cứ lúc nào.
-- **Reset mật khẩu**: cấp mật khẩu tạm mới khi người dùng quên.
+- **Reset mật khẩu**: cấp mật khẩu tạm mới khi người dùng quên (bắt buộc đổi lần đăng nhập đầu).
 - **Xoá hẳn**: phá hủy toàn bộ dữ liệu của user (confirm 2 bước) — cân nhắc dùng Khoá thay thế.
-- **Tạo tài khoản trực tiếp**: admin cấp tài khoản cho người khác mà không cần họ đăng ký.
-- Khi **duyệt** hoặc **reset mật khẩu**, admin đặt mật khẩu tạm (không dùng lại mật khẩu
-  người đăng ký tự chọn) → người dùng buộc đổi ngay lần đăng nhập đầu. Khi chỉ **mở lại**
-  tài khoản bị khoá, mật khẩu cũ được giữ nguyên — không buộc đổi.
+- **Tạo tài khoản trực tiếp**: admin cấp tài khoản cho người khác mà không cần họ đăng ký
+  (mật khẩu tạm + bắt buộc đổi lần đầu).
+- Khi **reset mật khẩu** hoặc **tạo tài khoản trực tiếp**, admin đặt mật khẩu tạm →
+  người dùng buộc đổi ngay lần đăng nhập đầu. Khi **duyệt** hoặc **mở lại** tài khoản
+  bị khoá, mật khẩu hiện tại được giữ nguyên — không buộc đổi.
 
 | Lệnh | Mục đích |
 |---|---|
@@ -116,6 +117,16 @@ prisma/
 │                          #         ContentPillar, KnowledgeDoc, AutoPilot, UsedMedia, User
 └── migrations/
 ```
+
+## Tính năng
+
+- **Hướng dẫn ban đầu (Onboarding)** — lần đầu đăng nhập, dashboard hiển thị checklist 5 bước (thêm App → đồng bộ Page → cấu hình AI/Pexels → tạo thương hiệu → soạn bài). Bấm "Hoàn thành" để không hiện lại; đọc lại mọi lúc ở trang Hướng dẫn.
+- **Trang Hướng dẫn (`/docs`)** — các bài hướng dẫn chi tiết do admin ban hành (markdown tự render, escape HTML an toàn) + **câu hỏi tương tác** từ đội ngũ phát triển — user trả lời trực tiếp để góp ý. Admin tạo/sửa/xoá docs + câu hỏi tại `/admin/docs`.
+  - Seed nội dung mặc định: `npm run db:seed-docs` (8 bài hướng dẫn + 2 câu hỏi mẫu, idempotent).
+- **Thông báo 3 nơi** — trang `/notifications`, chuông trên header, và **popup toast góc dưới trái** tự ẩn sau ~7 giây.
+  - User nhận: tin từ admin, hệ thống (autopilot chạy/hoàn tất/lỗi, bài đăng thành công/thất bại/chờ duyệt), chào mừng, docs mới.
+  - Admin nhận thêm: user mới chờ duyệt, tổng hợp bài đăng mỗi nhịp scheduler.
+  - Admin soạn/sửa/xoá thông báo tại `/admin/notifications` (gửi tới tất cả / chỉ admin / 1 user cụ thể).
 
 ## Cấu hình tích hợp (trang Cài đặt)
 

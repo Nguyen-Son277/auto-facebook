@@ -21,12 +21,31 @@ export const metadata: Metadata = {
     "Tự động viết nội dung bằng AI, tìm media từ Pexels và đăng bài lên Facebook Page.",
 };
 
+// Script chạy TRƯỚC khi vẽ trang (chống nhấp nháy theme — FOUC):
+// ưu tiên cookie "theme" → localStorage "theme" → hệ điều hành.
+const THEME_INIT_SCRIPT = `(function(){try{
+  var pref = "system";
+  var m = document.cookie.match(/(?:^|; )theme=(light|dark|system)/);
+  if (m) pref = m[1];
+  else {
+    var ls = localStorage.getItem("theme");
+    if (ls === "light" || ls === "dark" || ls === "system") pref = ls;
+  }
+  var dark = pref === "dark" || (pref === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+  if (dark) document.documentElement.classList.add("dark");
+  document.documentElement.dataset.themePref = pref;
+}catch(e){}})();`;
+
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
       lang="vi"
+      suppressHydrationWarning
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
+      </head>
       <body className="min-h-full flex flex-col">{children}</body>
     </html>
   );

@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { requireCurrentUser, resolveWorkspace } from "@/lib/dal";
 import { prisma } from "@/lib/prisma";
-import { getFacebookConfig, setSetting, SETTING_KEYS, decryptValue } from "@/lib/settings";
+import { encryptValue } from "@/lib/settings";
 import {
   exchangeForLongLivedToken,
   syncPagesToDb,
@@ -76,7 +76,6 @@ export async function syncFacebookPages(
     }
 
     // 2) Lưu token vào connection (mã hóa)
-    const { encryptValue } = await import("@/lib/settings");
     const tokenExpiresAt = expiresInSeconds
       ? new Date(Date.now() + expiresInSeconds * 1000)
       : null;
@@ -275,6 +274,3 @@ export async function deleteFacebookConnection(connectionId: string): Promise<vo
   }
   revalidatePath("/facebook-apps");
 }
-
-// ---- Giữ export cho code cũ import SETTING_KEYS/setSetting nếu cần ----
-export { SETTING_KEYS, setSetting, getFacebookConfig, decryptValue };

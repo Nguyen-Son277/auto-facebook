@@ -89,16 +89,37 @@ export async function notifyAllUsers(
   opts: { includeAdmins?: boolean } = {}
 ): Promise<number> {
   const users = await prisma.user.findMany({
-    where: {
-      status: "APPROVED",
-      ...(opts.includeAdmins ? {} : { role: { not: "ADMIN" } }),
-    },
+    where: opts.includeAdmins
+      ? // ADMIN có status NULL (kế thừa) — phải bắt bằng role, không lọc status
+        { OR: [{ status: "APPROVED" }, { role: "ADMIN" }] }
+      : { status: "APPROVED", role: { not: "ADMIN" } },
     select: { id: true },
   });
   return notifyMany(
     users.map((u) => u.id),
     input
   );
+}
+
+/**
+ * Gửi cho mọi user có role ADMIN — kênh báo sự kiện hệ thống:
+ * user mới chờ duyệt, autopilot lỗi, bài đăng thất bại...
+ * Lỗi notify không làm hỏng luồng chính.
+ */
+export async function notifyAdmins(input: NotificationInput): Promise<number> {
+  try {
+    const admins = await prisma.user.findMany({
+      where: { role: "ADMIN" },
+      select: { id: true },
+    });
+    return notifyMany(
+      admins.map((a) => a.id),
+      input
+    );
+  } catch (err) {
+    console.error("[notify] không gửi được cho admin:", err);
+    return 0;
+  }
 }
 
 /**

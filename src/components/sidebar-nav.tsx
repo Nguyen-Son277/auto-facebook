@@ -13,11 +13,14 @@ const NAV_ITEMS = [
   { href: "/calendar", label: "Lịch đăng", icon: "📅" },
   { href: "/facebook-apps", label: "Facebook Apps", icon: "🔗" },
   { href: "/pages", label: "Facebook Pages", icon: "📄" },
+  { href: "/docs", label: "Hướng dẫn", icon: "📚" },
   { href: "/settings", label: "Cài đặt", icon: "⚙️" },
 ];
 
 const ADMIN_ITEMS = [
   { href: "/admin", label: "Quản trị", icon: "🛡️" },
+  { href: "/admin/docs", label: "Docs & Câu hỏi", icon: "📚" },
+  { href: "/admin/notifications", label: "Thông báo", icon: "📣" },
 ];
 
 export default function SidebarNav({

@@ -33,6 +33,58 @@ const STATUS_LABEL: Record<string, { label: string; cls: string }> = {
   DISABLED: { label: "⚪ Đã tắt", cls: "bg-gray-100 text-gray-600" },
 };
 
+/** Form đồng bộ Pages cho MỘT connection — dùng useActionState đúng chữ ký action. */
+function SyncForm({ conn }: { conn: ConnectionView }) {
+  const [state, action, pending] = useActionState(
+    syncFacebookPages,
+    null as PageActionState
+  );
+
+  return (
+    <form
+      action={action}
+      className="mt-4 flex flex-wrap items-end gap-2 rounded-xl bg-gray-50 p-3"
+      data-testid={`fbapps-sync-${conn.appId}`}
+    >
+      <input type="hidden" name="connectionId" value={conn.id} />
+      <label className="flex-1 text-xs">
+        <span className="mb-1 block font-medium text-gray-600">
+          User Access Token của App này (quyền pages_show_list,
+          pages_manage_posts, pages_read_engagement)
+        </span>
+        <input
+          name="userToken"
+          placeholder="EAAG…"
+          className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+        />
+      </label>
+      <button
+        type="submit"
+        disabled={pending}
+        className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:opacity-50"
+      >
+        {pending ? "Đang đồng bộ…" : "🔄 Đồng bộ Pages"}
+      </button>
+      {state?.error && (
+        <p
+          className="w-full text-sm text-red-600"
+          data-testid="fbapps-sync-error"
+        >
+          {state.error}
+        </p>
+      )}
+      {state?.ok && state.message && (
+        <p
+          className="w-full text-sm text-green-700"
+          data-testid="fbapps-sync-ok"
+        >
+          {state.message}
+        </p>
+      )}
+    </form>
+  );
+}
+
 export default function FacebookAppsClient({
   workspaceId,
   connections,
@@ -235,30 +287,7 @@ export default function FacebookAppsClient({
               )}
 
               {/* Form đồng bộ Page theo connection này */}
-              <form
-                action={syncFacebookPages as unknown as (formData: FormData) => void}
-                className="mt-4 flex flex-wrap items-end gap-2 rounded-xl bg-gray-50 p-3"
-                data-testid={`fbapps-sync-${conn.appId}`}
-              >
-                <input type="hidden" name="connectionId" value={conn.id} />
-                <label className="flex-1 text-xs">
-                  <span className="mb-1 block font-medium text-gray-600">
-                    User Access Token của App này (quyền pages_show_list,
-                    pages_manage_posts, pages_read_engagement)
-                  </span>
-                  <input
-                    name="userToken"
-                    placeholder="EAAG…"
-                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
-                  />
-                </label>
-                <button
-                  type="submit"
-                  className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
-                >
-                  🔄 Đồng bộ Pages
-                </button>
-              </form>
+              <SyncForm conn={conn} />
 
               {/* Pages của connection */}
               {pages.length > 0 && (

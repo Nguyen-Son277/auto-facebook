@@ -1,12 +1,14 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { cookies } from "next/headers";
 import { requireCurrentUser } from "@/lib/dal";
 import { resetPexelsRateLimit } from "@/lib/pexels";
 import {
   getAiConfigForUser,
   getFacebookConfig,
   getPexelsKeyForUser,
+  getUserSetting,
   setUserSetting,
   SETTING_KEYS,
 } from "@/lib/settings";
@@ -274,4 +276,60 @@ export async function getIntegrationStatus() {
     pexels: Boolean(pexelsKey),
     facebook: Boolean(fb.appId && fb.appSecret),
   };
+}
+
+// ============================================================
+// Onboarding — tắt hướng dẫn ban đầu (đặt cờ vĩnh viễn)
+// ============================================================
+
+/** User bấm "Hoàn thành — không hiện lại" trên OnboardingGuide. */
+export async function dismissOnboarding(): Promise<{ ok: boolean } | null> {
+  const user = await requireCurrentUser();
+  await setUserSetting(user.id, SETTING_KEYS.APP.onboardingDone, "1");
+  revalidatePath("/dashboard");
+  return { ok: true };
+}
+
+/** Trang dashboard đọc cờ này để quyết định có hiện onboarding không. */
+export async function isOnboardingDone(): Promise<boolean> {
+  const user = await requireCurrentUser();
+  const done = await getUserSetting(user.id, SETTING_KEYS.APP.onboardingDone);
+  return done === "1";
+}
+
+// ============================================================
+// Theme Sáng / Tối / Hệ thống
+// ============================================================
+
+export type ThemePreference = "light" | "dark" | "system";
+
+/** Đọc lựa chọn theme đã lưu (mặc định "system"). */
+export async function getThemePreference(): Promise<ThemePreference> {
+  const user = await requireCurrentUser();
+  const saved = await getUserSetting(user.id, SETTING_KEYS.APP.theme);
+  return saved === "light" || saved === "dark" || saved === "system" ? saved : "system";
+}
+
+/**
+ * Lưu theme: UserSetting (nhớ theo tài khoản) + cookie (script no-flash
+ * ở root layout đọc được ngay lần tải sau, không đụng DB).
+ */
+export async function setThemePreference(
+  theme: ThemePreference
+): Promise<{ ok: boolean } | null> {
+  const user = await requireCurrentUser();
+  if (theme !== "light" && theme !== "dark" && theme !== "system") {
+    return { ok: false };
+  }
+
+  await setUserSetting(user.id, SETTING_KEYS.APP.theme, theme);
+
+  const cookieStore = await cookies();
+  cookieStore.set("theme", theme, {
+    maxAge: 60 * 60 * 24 * 365,
+    path: "/",
+    sameSite: "lax",
+  });
+
+  return { ok: true };
 }

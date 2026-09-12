@@ -60,8 +60,7 @@ export default function AdminClient({
   const [notice, setNotice] = useState<AdminState>(null);
   const [busy, startBusy] = useTransition();
 
-  // Form trạng thái: approve/reset/create/delete
-  const [approveEmail, setApproveEmail] = useState<string | null>(null);
+  // Form trạng thái: reset/create/delete
   const [resetEmail, setResetEmail] = useState<string | null>(null);
   const [deleteEmail, setDeleteEmail] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
@@ -235,16 +234,21 @@ export default function AdminClient({
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex flex-wrap justify-end gap-1.5">
-                      {/* Duyệt đăng ký */}
+                      {/* Duyệt đăng ký — chỉ mở khoá, không đụng mật khẩu */}
                       {u.status === "PENDING" && !isAdmin && (
                         <button
                           type="button"
+                          disabled={busy}
                           onClick={() => {
-                            setApproveEmail(u.email);
-                            setResetEmail(null);
-                            setDeleteEmail(null);
+                            if (
+                              window.confirm(
+                                `Duyệt ${u.email}? Người này sẽ đăng nhập bằng mật khẩu họ đã đăng ký.`
+                              )
+                            ) {
+                              run(() => approveUser(u.id));
+                            }
                           }}
-                          className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700"
+                          className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
                         >
                           ✓ Duyệt
                         </button>
@@ -285,7 +289,6 @@ export default function AdminClient({
                           type="button"
                           onClick={() => {
                             setResetEmail(u.email);
-                            setApproveEmail(null);
                             setDeleteEmail(null);
                           }}
                           className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50"
@@ -307,7 +310,6 @@ export default function AdminClient({
                               )
                             ) {
                               setDeleteEmail(u.email);
-                              setApproveEmail(null);
                               setResetEmail(null);
                             }
                           }}
@@ -324,53 +326,6 @@ export default function AdminClient({
           </tbody>
         </table>
       </div>
-
-      {/* Modal duyệt — nhập mật khẩu tạm */}
-      {approveEmail && (
-        <ModalBackdrop onClose={() => setApproveEmail(null)}>
-          <h3 className="text-lg font-bold text-gray-900">Duyệt {approveEmail}</h3>
-          <p className="mt-1 text-sm text-gray-500">
-            Đặt mật khẩu tạm — người dùng bắt buộc đổi ở lần đăng nhập đầu.
-          </p>
-          <form
-            action={async (fd) => {
-              const box: { res: AdminState } = { res: null };
-              await run(async () => {
-                box.res = await approveUser(null, fd);
-                return box.res;
-              });
-              if (box.res?.ok) setApproveEmail(null);
-            }}
-            className="mt-4 space-y-3"
-          >
-            <input type="hidden" name="userId" value={users.find((u) => u.email === approveEmail)?.id} />
-            <PasswordInput
-              id="approve-temp-password"
-              name="tempPassword"
-              autoComplete="new-password"
-              minLength={8}
-              defaultValue="Abc@12345"
-              inputClassName="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
-            />
-            <div className="flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setApproveEmail(null)}
-                className="rounded-lg border border-gray-300 px-4 py-2 text-sm"
-              >
-                Huỷ
-              </button>
-              <button
-                type="submit"
-                disabled={busy}
-                className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
-              >
-                {busy ? "Đang duyệt..." : "Duyệt & cấp mật khẩu"}
-              </button>
-            </div>
-          </form>
-        </ModalBackdrop>
-      )}
 
       {/* Modal reset mật khẩu */}
       {resetEmail && (

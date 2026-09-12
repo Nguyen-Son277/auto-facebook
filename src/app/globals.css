@@ -1,26 +1,261 @@
 @import "tailwindcss";
 
+/* ============================================================
+   THEME SÁNG / TỐI — đảo palette qua biến CSS.
+
+   Utility Tailwind (bg-white, text-gray-500, border-gray-200,
+   bg-gray-50...) compile ra var(--color-*). Ta map token sang biến
+   trung gian rồi ghi đè dưới `.dark` → mọi class hiện có tự thích ứng
+   2 theme KHÔNG cần sửa component.
+
+   NGUYÊN TẮC:
+   - Thang xám định hướng ĐÚNG: 50 = nhạt nhất (nền) → 900 = đậm nhất
+     (chữ). Theme tối ĐẢO TOÀN BỘ thang → bg-gray-50 thành nền tối,
+     text-gray-900 thành chữ trắng. Một thang phục vụ đúng cả nền lẫn chữ.
+   - Chữ chính: đen tuyệt đối (#000) ở sáng, trắng tuyệt đối (#fff) ở tối.
+   - --color-white GIỮ NGUYÊN #fff (vì text-white nằm trên nút màu);
+     nền card theme tối xử lý riêng ở mục "NỀN CARD" bên dưới.
+   - Phần tử cố ý nền tối (khối code, nút Tìm) dùng palette `slate`
+     — KHÔNG override → giữ nguyên ở cả 2 theme.
+   ============================================================ */
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* ---------- Thang xám: 50 nhạt nhất → 900 đậm nhất (theme SÁNG) ---------- */
+  --g-50: #f7f8fa;               /* nền main — sáng dịu, không chói */
+  --g-100: #eff1f5;              /* nền phụ (thead, chip) */
+  --g-200: #e3e6eb;              /* viền chính */
+  --g-300: #c6ccd6;              /* viền input */
+  --g-400: #6b7280;              /* chữ meta (thời gian, ghi chú) */
+  --g-500: #4b5563;              /* chữ phụ — đậm rõ, không mờ */
+  --g-600: #343b47;              /* chữ thường */
+  --g-700: #202631;              /* chữ đậm */
+  --g-800: #0f1419;
+  --g-900: #000000;              /* tiêu đề — ĐEN TUYỆT ĐỐI */
+  --g-950: #000000;
+
+  --text-placeholder: #5f6a78;   /* placeholder — đọc rõ */
+
+  /* ---------- Accent sắc độ NHẠT (nền badge / viền / nav active) ----------
+     PHẢI đi qua biến trung gian: `@theme inline` chèn thẳng giá trị vào
+     utility, nên override trực tiếp --color-* trong .dark sẽ vô hiệu. */
+  --blue-50: #eff6ff;
+  --blue-100: #dbeafe;
+  --blue-200: #bfdbfe;
+  --blue-300: #93c5fd;
+  --red-50: #fef2f2;
+  --red-100: #fee2e2;
+  --red-200: #fecaca;
+  --red-300: #fca5a5;
+  --emerald-50: #ecfdf5;
+  --emerald-100: #d1fae5;
+  --emerald-200: #a7f3d0;
+  --emerald-300: #6ee7b7;
+  --amber-50: #fffbeb;
+  --amber-100: #fef3c7;
+  --amber-200: #fde68a;
+  --amber-300: #fcd34d;
+  --violet-50: #f5f3ff;
+  --violet-100: #ede9fe;
+  --violet-200: #ddd6fe;
+  --violet-300: #c4b5fd;
+  --cyan-50: #ecfeff;
+  --cyan-100: #cffafe;
+  --cyan-200: #a5f3fc;
+  --cyan-300: #67e8f9;
+  --purple-50: #faf5ff;
+  --purple-100: #f3e8ff;
+  --purple-200: #e9d5ff;
+  --purple-300: #d8b4fe;
+  --indigo-50: #eef2ff;
+  --indigo-100: #e0e7ff;
+  --yellow-50: #fefce8;
+  --yellow-100: #fef9c3;
+  --yellow-200: #fef08a;
+  --green-50: #f0fdf4;
+  --green-100: #dcfce7;
+
+  --background: #f7f8fa;
+  --foreground: #000000;
 }
 
+.dark {
+  /* ---------- Đảo toàn bộ thang (theme TỐI) ---------- */
+  --g-50: #0b1120;               /* nền main — tối dịu, không chói */
+  --g-100: #151d2c;
+  --g-200: #202a3b;              /* viền chính */
+  --g-300: #2c3648;              /* viền input */
+  --g-400: #97a3b4;              /* chữ meta */
+  --g-500: #b6c0cd;              /* chữ phụ — sáng rõ */
+  --g-600: #cbd3dd;              /* chữ thường */
+  --g-700: #dde3ea;              /* chữ đậm */
+  --g-800: #eef1f5;
+  --g-900: #ffffff;              /* tiêu đề — TRẮNG TUYỆT ĐỐI */
+  --g-950: #ffffff;
+
+  --text-placeholder: #a8b3c3;
+
+  /* Accent nhạt → tối pha màu: badge/sidebar active không còn khối pastel chói */
+  --blue-50: #101d33;
+  --blue-100: #16294a;
+  --blue-200: #1e3a63;
+  --blue-300: #2b5288;
+  --red-50: #2a1418;
+  --red-100: #3a1a20;
+  --red-200: #56242c;
+  --red-300: #7a3340;
+  --emerald-50: #0e2419;
+  --emerald-100: #123322;
+  --emerald-200: #1a4a31;
+  --emerald-300: #236845;
+  --amber-50: #2a1f0c;
+  --amber-100: #3a2a10;
+  --amber-200: #553d17;
+  --amber-300: #7a5720;
+  --violet-50: #1d1733;
+  --violet-100: #271d47;
+  --violet-200: #382a66;
+  --violet-300: #4e3a8c;
+  --cyan-50: #0d2430;
+  --cyan-100: #123343;
+  --cyan-200: #194a5e;
+  --cyan-300: #226880;
+  --purple-50: #1e1633;
+  --purple-100: #2a1d47;
+  --purple-200: #3c2a66;
+  --purple-300: #543a8c;
+  --indigo-50: #151a33;
+  --indigo-100: #1d2547;
+  --yellow-50: #2a240c;
+  --yellow-100: #3a3110;
+  --yellow-200: #554717;
+  --green-50: #0e2419;
+  --green-100: #123322;
+
+  --background: #0b1120;
+  --foreground: #ffffff;
+}
+
+/* Map token Tailwind → biến theme. `inline` khiến utility tham chiếu
+   TRỰC TIẾP var() → đổi class .dark trên <html> là UI đảo màu ngay. */
 @theme inline {
+  --color-white: #ffffff;        /* giữ trắng thật cho text-white trên nút màu */
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+
+  --color-gray-50: var(--g-50);
+  --color-gray-100: var(--g-100);
+  --color-gray-200: var(--g-200);
+  --color-gray-300: var(--g-300);
+  --color-gray-400: var(--g-400);
+  --color-gray-500: var(--g-500);
+  --color-gray-600: var(--g-600);
+  --color-gray-700: var(--g-700);
+  --color-gray-800: var(--g-800);
+  --color-gray-900: var(--g-900);
+  --color-gray-950: var(--g-950);
+
+  /* ---------- Accent nhạt: trỏ qua biến trung gian để .dark ghi đè được ---------- */
+  --color-blue-50: var(--blue-50);
+  --color-blue-100: var(--blue-100);
+  --color-blue-200: var(--blue-200);
+  --color-blue-300: var(--blue-300);
+  --color-red-50: var(--red-50);
+  --color-red-100: var(--red-100);
+  --color-red-200: var(--red-200);
+  --color-red-300: var(--red-300);
+  --color-emerald-50: var(--emerald-50);
+  --color-emerald-100: var(--emerald-100);
+  --color-emerald-200: var(--emerald-200);
+  --color-emerald-300: var(--emerald-300);
+  --color-amber-50: var(--amber-50);
+  --color-amber-100: var(--amber-100);
+  --color-amber-200: var(--amber-200);
+  --color-amber-300: var(--amber-300);
+  --color-violet-50: var(--violet-50);
+  --color-violet-100: var(--violet-100);
+  --color-violet-200: var(--violet-200);
+  --color-violet-300: var(--violet-300);
+  --color-cyan-50: var(--cyan-50);
+  --color-cyan-100: var(--cyan-100);
+  --color-cyan-200: var(--cyan-200);
+  --color-cyan-300: var(--cyan-300);
+  --color-purple-50: var(--purple-50);
+  --color-purple-100: var(--purple-100);
+  --color-purple-200: var(--purple-200);
+  --color-purple-300: var(--purple-300);
+  --color-indigo-50: var(--indigo-50);
+  --color-indigo-100: var(--indigo-100);
+  --color-yellow-50: var(--yellow-50);
+  --color-yellow-100: var(--yellow-100);
+  --color-yellow-200: var(--yellow-200);
+  --color-green-50: var(--green-50);
+  --color-green-100: var(--green-100);
+
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+/* Nền card (`bg-white`) ở theme tối — dùng :where() để specificity bằng
+   utility gốc (0,1,0), đứng sau nên thắng; mọi biến thể hover:/focus:
+   (0,2,0) vẫn hoạt động bình thường. */
+@layer utilities {
+  .dark :where(.bg-white) {
+    background-color: #141c2b;
   }
+  .dark :where(.bg-white\/80) {
+    background-color: rgb(20 28 43 / 0.85);
+  }
+
+  /* Accent CHỮ: sáng hơn ở theme tối cho đọc rõ. KHÔNG đụng token
+     --color-*-600/700 vì nút đặc (bg-blue-600 + text-white) cần giữ
+     độ đậm để tương phản với chữ trắng. */
+  .dark :where(.text-blue-600) { color: #7fb0fa; }
+  .dark :where(.text-blue-700) { color: #9cc3fb; }
+  .dark :where(.text-blue-800) { color: #b3d1fc; }
+  .dark :where(.text-blue-900) { color: #c9dffd; }
+  .dark :where(.text-red-600) { color: #f87f7f; }
+  .dark :where(.text-red-700) { color: #fa9a9a; }
+  .dark :where(.text-red-800) { color: #fcb5b5; }
+  .dark :where(.text-emerald-600) { color: #4fd39b; }
+  .dark :where(.text-emerald-700) { color: #6fdcaa; }
+  .dark :where(.text-emerald-800) { color: #92e5bf; }
+  .dark :where(.text-amber-600) { color: #f0b429; }
+  .dark :where(.text-amber-700) { color: #f3c257; }
+  .dark :where(.text-amber-800) { color: #f6d28a; }
+  .dark :where(.text-violet-700) { color: #b49bf5; }
+  .dark :where(.text-violet-900) { color: #d0c2fa; }
+  .dark :where(.text-purple-700) { color: #bb9bf5; }
+  .dark :where(.text-cyan-600) { color: #4dd4e8; }
+  .dark :where(.text-cyan-700) { color: #6fdfef; }
+  .dark :where(.text-yellow-600) { color: #f2cf3d; }
+  .dark :where(.text-yellow-700) { color: #f5d964; }
+  .dark :where(.text-yellow-800) { color: #f8e494; }
+  .dark :where(.text-green-700) { color: #6fdcaa; }
+}
+
+/* Placeholder input — trước đây dùng mặc định trình duyệt (quá nhạt).
+   opacity:1 ghi đè mức 50% mặc định của browser. */
+::placeholder,
+input::placeholder,
+textarea::placeholder {
+  color: var(--text-placeholder);
+  opacity: 1;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
+}
+
+/* Chuyển màu mượt khi đổi theme — chỉ khi có class .theme-anim
+   (thêm tạm thời lúc bấm chuyển để tránh nhấp nháy lúc load trang). */
+html.theme-anim,
+html.theme-anim *,
+html.theme-anim *::before,
+html.theme-anim *::after {
+  transition:
+    background-color 0.25s ease,
+    border-color 0.25s ease,
+    color 0.25s ease;
 }

@@ -3,6 +3,8 @@ import { requireCurrentUser } from "@/lib/dal";
 import { prisma } from "@/lib/prisma";
 import PageHeader from "@/components/page-header";
 import SchedulerBanner from "@/components/scheduler-banner";
+import OnboardingGuide from "@/components/onboarding-guide";
+import { getUserSetting, SETTING_KEYS } from "@/lib/settings";
 import { getSchedulerStatus } from "@/lib/scheduler";
 
 export const dynamic = "force-dynamic";
@@ -10,7 +12,7 @@ export const dynamic = "force-dynamic";
 export default async function DashboardPage() {
   const user = await requireCurrentUser();
 
-  const [pagesCount, postsTotal, published, scheduled, drafts, recentPosts, scheduler] =
+  const [pagesCount, postsTotal, published, scheduled, drafts, recentPosts, scheduler, onboardingDone] =
     await Promise.all([
       prisma.facebookPage.count({ where: { userId: user.id, isActive: true } }),
       prisma.post.count({ where: { userId: user.id } }),
@@ -24,7 +26,10 @@ export default async function DashboardPage() {
         include: { page: true, media: true },
       }),
       getSchedulerStatus(user.id),
+      getUserSetting(user.id, SETTING_KEYS.APP.onboardingDone),
     ]);
+
+  const showOnboarding = onboardingDone !== "1";
 
   const stats = [
     { label: "Pages đã kết nối", value: pagesCount, icon: "📄", href: "/pages" },
@@ -47,6 +52,8 @@ export default async function DashboardPage() {
         title={`Xin chào, ${user.name ?? "bạn"} 👋`}
         description="Tổng quan hoạt động đăng bài của bạn"
       />
+
+      {showOnboarding && <OnboardingGuide />}
 
       {/* Thẻ thống kê */}
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">

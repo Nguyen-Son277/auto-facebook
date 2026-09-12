@@ -54,6 +54,7 @@ export function decryptValue(stored: string): string {
 export const SETTING_KEYS = {
   AI: { baseUrl: "ai.baseUrl", apiKey: "ai.apiKey", model: "ai.model" },
   PEXELS: { apiKey: "pexels.apiKey" },
+  APP: { onboardingDone: "app.onboardingDone", theme: "app.theme" },
   FACEBOOK: {
     appId: "facebook.appId",
     appSecret: "facebook.appSecret",
@@ -77,6 +78,8 @@ const KEY_TO_GROUP: Record<string, string> = {
   "ai.apiKey": "AI",
   "ai.model": "AI",
   "pexels.apiKey": "PEXELS",
+  "app.onboardingDone": "APP",
+  "app.theme": "APP",
   "facebook.appId": "FACEBOOK",
   "facebook.appSecret": "FACEBOOK",
   "facebook.graphVersion": "FACEBOOK",

@@ -146,9 +146,9 @@ export default function NotificationBell({
       {open && (
         <div
           data-testid={`notification-panel${testIdSuffix}`}
-          className="absolute right-0 z-50 mt-2 w-[22rem] max-w-[90vw] overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl"
+          className="absolute right-0 z-50 mt-2 flex max-h-[min(28rem,75vh)] w-[22rem] max-w-[90vw] flex-col overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl"
         >
-          <div className="flex items-center justify-between border-b border-gray-100 px-4 py-2.5">
+          <div className="flex shrink-0 items-center justify-between border-b border-gray-100 px-4 py-2.5">
             <p className="text-sm font-semibold text-gray-900">
               Thông báo{" "}
               {unread > 0 && <span className="text-red-600">({unread} mới)</span>}
@@ -163,7 +163,7 @@ export default function NotificationBell({
             </button>
           </div>
 
-          <div className="max-h-[20rem] overflow-y-auto">
+          <div className="min-h-0 flex-1 overflow-y-auto">
             {loading && items.length === 0 && (
               <p className="px-4 py-6 text-center text-sm text-gray-400">Đang tải…</p>
             )}
@@ -206,7 +206,7 @@ export default function NotificationBell({
 
           <a
             href="/notifications"
-            className="block border-t border-gray-100 px-4 py-2.5 text-center text-xs font-semibold text-blue-600 hover:bg-blue-50"
+            className="block shrink-0 border-t border-gray-100 px-4 py-2.5 text-center text-xs font-semibold text-blue-600 hover:bg-blue-50"
           >
             Xem tất cả thông báo →
           </a>

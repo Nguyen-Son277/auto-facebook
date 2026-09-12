@@ -5,7 +5,8 @@ import {
   PexelsSettingsForm,
 } from "@/components/settings-forms";
 import ChangePasswordForm from "@/components/change-password-form";
-import { getUserSettingsMeta, SETTING_KEYS } from "@/lib/settings";
+import ThemeSelector from "@/components/theme-selector";
+import { getUserSettingsMeta, getUserSetting, SETTING_KEYS } from "@/lib/settings";
 import { fetchAiModels } from "@/lib/ai";
 
 // Cấu hình Facebook đã chuyển sang /facebook-apps (theo từng workspace,
@@ -18,6 +19,7 @@ const ALL_KEYS: string[] = [
 export default async function SettingsPage() {
   const user = await requireCurrentUser();
   const { masked, savedKeys } = await getUserSettingsMeta(user.id, [...ALL_KEYS]);
+  const themePref = (await getUserSetting(user.id, SETTING_KEYS.APP.theme)) ?? "system";
 
   // Nếu đã có Base URL + API Key → tải sẵn danh sách model để người dùng
   // chọn ngay khi mở trang, không phải gõ tên model.
@@ -32,6 +34,30 @@ export default async function SettingsPage() {
       />
 
       <div className="space-y-5">
+        {/* ================= Giao diện ================= */}
+        <section className="rounded-2xl border border-gray-200 bg-white p-5">
+          <div className="mb-1 flex items-center gap-3">
+            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-100 text-xl">
+              🎨
+            </span>
+            <div>
+              <h2 className="font-semibold text-gray-900">Giao diện</h2>
+              <p className="text-xs text-gray-500">
+                Chọn theme sáng hoặc tối — áp dụng ngay và lưu theo tài khoản
+              </p>
+            </div>
+          </div>
+          <div className="mt-4">
+            <ThemeSelector
+              current={
+                themePref === "light" || themePref === "dark" || themePref === "system"
+                  ? themePref
+                  : "system"
+              }
+            />
+          </div>
+        </section>
+
         <AiSettingsForm
           masked={masked}
           initialModels={aiModels?.models ?? []}

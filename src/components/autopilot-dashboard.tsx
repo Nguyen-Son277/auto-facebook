@@ -148,7 +148,7 @@ function PowerSwitch({
             })
           }
           className={`rounded-lg px-5 py-2.5 text-sm font-semibold text-white transition disabled:opacity-60 ${
-            enabled ? "bg-gray-600 hover:bg-gray-700" : "bg-emerald-600 hover:bg-emerald-700"
+            enabled ? "bg-slate-600 hover:bg-slate-700" : "bg-emerald-600 hover:bg-emerald-700"
           }`}
         >
           {pending ? "Đang xử lý…" : enabled ? "Tắt tự động" : "Bật tự động"}
