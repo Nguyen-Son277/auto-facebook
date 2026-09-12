@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { markReadAction } from "@/app/actions/notifications";
 
 // ============================================================
-// Toast thông báo — popup nhỏ ở GÓC DƯỚI TRÁI.
+// Toast thông báo — popup nhỏ ở GÓC DƯỚI PHẢI.
 //
 // Poll /api/notifications mỗi 30s; tin mới (id chưa thấy trong phiên)
 // hiện popup nhỏ, tự ẩn sau ~7 giây. Bấm vào = đánh dấu đã đọc +
@@ -132,7 +132,7 @@ export default function NotificationToast() {
 
   return (
     <div
-      className="fixed bottom-4 left-4 z-[60] flex w-80 max-w-[90vw] flex-col gap-2"
+      className="fixed bottom-4 right-4 z-[60] flex w-80 max-w-[90vw] flex-col gap-2"
       data-testid="notification-toast"
     >
       {toasts.map((t) => (
