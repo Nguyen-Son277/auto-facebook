@@ -23,6 +23,33 @@ const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
  */
 const POOL_MAX = Number(process.env.PRISMA_POOL_MAX ?? 3);
 
+/**
+ * Lưới an toàn cho cấu hình sai: nếu DATABASE_URL vô tình trỏ SESSION pooler
+ * của Supabase (cổng 5432) thì tự đổi sang TRANSACTION pooler (6543).
+ *
+ * Session pooler chỉ cho 15 client và app trên Vercel sẽ chết hàng loạt với
+ * `(EMAXCONNSESSION) max clients reached in session mode`. Đổi cổng ở đây giúp
+ * app vẫn chạy dù biến môi trường trên Vercel chưa được sửa — kèm cảnh báo để
+ * nhắc sửa cho đúng.
+ *
+ * Chỉ áp dụng cho host pooler của Supabase; mọi connection string khác giữ nguyên.
+ * DIRECT_URL (Prisma CLI migrate) KHÔNG đi qua đây nên vẫn dùng cổng 5432.
+ */
+function normalizeDatabaseUrl(raw: string): string {
+  if (!/\.pooler\.supabase\.com:5432(\/|$|\?)/.test(raw)) return raw;
+
+  const fixed =
+    raw.replace(/(\.pooler\.supabase\.com):5432/, "$1:6543") +
+    (raw.includes("?") ? "&pgbouncer=true" : "?pgbouncer=true");
+
+  console.warn(
+    "[prisma] DATABASE_URL đang trỏ session pooler (5432) — đã tự chuyển sang " +
+      "transaction pooler (6543) để không cạn kết nối. " +
+      "Hãy sửa biến môi trường DATABASE_URL cho đúng."
+  );
+  return fixed;
+}
+
 function createPrismaClient(): PrismaClient {
   const connectionString = process.env.DATABASE_URL;
   if (!connectionString) {
@@ -32,7 +59,7 @@ function createPrismaClient(): PrismaClient {
   }
 
   const adapter = new PrismaPg({
-    connectionString,
+    connectionString: normalizeDatabaseUrl(connectionString),
     max: POOL_MAX,
     idleTimeoutMillis: 10_000,
     connectionTimeoutMillis: 10_000,
