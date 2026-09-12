@@ -67,3 +67,6 @@ next-env.d.ts
 .windsurf/
 
 IDEA.md
+# File kiểm thử tạm (không commit)
+/tmp-*.mjs
+/.tmp-*
