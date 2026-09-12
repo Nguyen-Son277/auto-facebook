@@ -34,7 +34,9 @@ export default async function AdminNotificationsPage() {
     },
   });
 
+  // Bỏ chính admin đang thao tác — người tạo thông báo không nhận tin của mình
   const users = await prisma.user.findMany({
+    where: { id: { not: me.id } },
     orderBy: { createdAt: "asc" },
     select: { id: true, email: true, name: true, role: true },
   });

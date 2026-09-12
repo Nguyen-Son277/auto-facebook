@@ -83,10 +83,13 @@ export async function notifyMany(
 /**
  * Gửi cho toàn bộ user THƯỜNG đang hoạt động (APPROVED).
  * Mặc định bỏ qua ADMIN — admin tự tạo tin cho chính họ khi cần.
+ *
+ * excludeUserId: bỏ qua người GỬI (admin đang thao tác) — người tạo
+ * thông báo không cần nhận lại tin của chính mình.
  */
 export async function notifyAllUsers(
   input: NotificationInput,
-  opts: { includeAdmins?: boolean } = {}
+  opts: { includeAdmins?: boolean; excludeUserId?: string } = {}
 ): Promise<number> {
   const users = await prisma.user.findMany({
     where: opts.includeAdmins
@@ -96,7 +99,7 @@ export async function notifyAllUsers(
     select: { id: true },
   });
   return notifyMany(
-    users.map((u) => u.id),
+    users.map((u) => u.id).filter((id) => id !== opts.excludeUserId),
     input
   );
 }
@@ -105,15 +108,20 @@ export async function notifyAllUsers(
  * Gửi cho mọi user có role ADMIN — kênh báo sự kiện hệ thống:
  * user mới chờ duyệt, autopilot lỗi, bài đăng thất bại...
  * Lỗi notify không làm hỏng luồng chính.
+ *
+ * excludeUserId: bỏ qua admin đang thao tác (xem notifyAllUsers).
  */
-export async function notifyAdmins(input: NotificationInput): Promise<number> {
+export async function notifyAdmins(
+  input: NotificationInput,
+  opts: { excludeUserId?: string } = {}
+): Promise<number> {
   try {
     const admins = await prisma.user.findMany({
       where: { role: "ADMIN" },
       select: { id: true },
     });
     return notifyMany(
-      admins.map((a) => a.id),
+      admins.map((a) => a.id).filter((id) => id !== opts.excludeUserId),
       input
     );
   } catch (err) {

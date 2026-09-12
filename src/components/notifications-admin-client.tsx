@@ -94,8 +94,8 @@ export default function NotificationsAdminClient({
                   className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
                   defaultValue="all"
                 >
-                  <option value="all">Tất cả người dùng</option>
-                  <option value="admins">Chỉ admin</option>
+                  <option value="all">Tất cả người dùng (trừ bạn)</option>
+                  <option value="admins">Chỉ admin khác (trừ bạn)</option>
                   {users.map((u) => (
                     <option key={u.id} value={`user:${u.id}`}>
                       Riêng: {u.label}

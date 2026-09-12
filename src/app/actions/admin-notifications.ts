@@ -45,11 +45,14 @@ function validateInput(title: string, type: string): string | null {
  * Soạn thông báo mới.
  *
  * formData:
- *   target  — "all" (mọi user thường + admin) | "admins" | "user:<userId>"
+ *   target  — "all" (mọi user thường + admin khác) | "admins" | "user:<userId>"
  *   type    — ACTIVITY | ADMIN | SYSTEM
  *   title   — bắt buộc
  *   body    — tùy chọn
  *   link    — URL nội bộ, tùy chọn
+ *
+ * Admin đang thao tác LUÔN được loại khỏi danh sách nhận — người tạo
+ * thông báo không nhận lại tin của chính mình.
  */
 export async function adminCreateNotification(
   _prev: AdminNotifyState,
@@ -75,11 +78,17 @@ export async function adminCreateNotification(
   };
 
   if (target === "all") {
-    await notifyAllUsers(input, { includeAdmins: true });
+    await notifyAllUsers(input, { includeAdmins: true, excludeUserId: me.id });
   } else if (target === "admins") {
-    await notifyAdmins(input);
+    await notifyAdmins(input, { excludeUserId: me.id });
   } else if (target.startsWith("user:")) {
     const userId = target.slice(5);
+    if (userId === me.id) {
+      return {
+        ok: false,
+        error: "Bạn là người tạo thông báo nên không cần tự nhận tin của mình.",
+      };
+    }
     const user = await prisma.user.findUnique({ where: { id: userId }, select: { email: true } });
     if (!user) return { ok: false, error: "Không tìm thấy người dùng đích." };
     await prisma.notification.createMany({
@@ -140,13 +149,14 @@ export async function adminDeleteNotification(id: string): Promise<AdminNotifySt
   return { ok: true, message: "Đã xoá thông báo." };
 }
 
-/** Danh sách user để chọn đích gửi (dropdown). */
+/** Danh sách user để chọn đích gửi (dropdown) — bỏ chính admin đang thao tác. */
 export async function listUsersForTarget(): Promise<
   { id: string; label: string }[]
 > {
   const me = await requireAdmin();
   if (!isUser(me)) return [];
   const users = await prisma.user.findMany({
+    where: { id: { not: me.id } },
     orderBy: { createdAt: "asc" },
     select: { id: true, email: true, name: true, role: true },
   });

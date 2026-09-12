@@ -72,6 +72,7 @@ export async function saveDoc(_prev: DocState, formData: FormData): Promise<DocS
       });
 
       // Bật publish lần đầu + có cờ thông báo → báo mọi người
+      // (bỏ chính admin ban hành — không nhận lại tin của mình)
       if (wasUnpublished && publishNow && notifyOnPublish) {
         await notifyAllUsers(
           {
@@ -80,7 +81,7 @@ export async function saveDoc(_prev: DocState, formData: FormData): Promise<DocS
             body: "Hướng dẫn mới vừa được ban hành — bấm để đọc ngay.",
             link: `/docs/${existing.slug}`,
           },
-          { includeAdmins: true }
+          { includeAdmins: true, excludeUserId: me.id }
         );
       }
 
@@ -115,7 +116,7 @@ export async function saveDoc(_prev: DocState, formData: FormData): Promise<DocS
           body: "Hướng dẫn mới vừa được ban hành — bấm để đọc ngay.",
           link: `/docs/${created.slug}`,
         },
-        { includeAdmins: true }
+        { includeAdmins: true, excludeUserId: me.id }
       );
     }
 
