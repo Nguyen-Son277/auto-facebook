@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import PageHeader from "@/components/page-header";
 import ComposerStudio from "@/components/composer-studio";
 import { getAiConfigForUser, getPexelsKeyForUser } from "@/lib/settings";
-import { pruneOrphanUploads } from "@/lib/uploads";
+import { MAX_VIDEO_BYTES, pruneOrphanUploads } from "@/lib/uploads";
 
 export default async function ComposerPage() {
   const user = await requireCurrentUser();
@@ -99,6 +99,7 @@ export default async function ComposerPage() {
         }))}
         aiReady={Boolean(ai.baseUrl && ai.apiKey && ai.model)}
         pexelsReady={Boolean(pexels.apiKey)}
+        maxVideoBytes={MAX_VIDEO_BYTES}
         libraryProviderIds={library
           .map((m) => m.providerId)
           .filter((id): id is string => Boolean(id))}

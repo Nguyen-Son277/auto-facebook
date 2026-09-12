@@ -9,7 +9,9 @@ const nextConfig: NextConfig = {
   images: {
     remotePatterns: [{ protocol: "https", hostname: "images.pexels.com" }],
   },
-  serverExternalPackages: ["better-sqlite3"],
+  // Driver PostgreSQL dùng bởi Prisma adapter — để ngoài bundle server,
+  // tránh Next đóng gói nhầm các module Node-only của `pg`.
+  serverExternalPackages: ["pg"],
 };
 
 export default nextConfig;

@@ -104,6 +104,7 @@ export default function ComposerStudio({
   aiReady,
   pexelsReady,
   libraryProviderIds,
+  maxVideoBytes = 50 * 1024 * 1024,
 }: {
   pages: ComposerPageOption[];
   brands?: ComposerBrandOption[];
@@ -112,6 +113,8 @@ export default function ComposerStudio({
   aiReady: boolean;
   pexelsReady: boolean;
   libraryProviderIds: string[];
+  /** Giới hạn dung lượng video (byte) — server truyền xuống từ MAX_VIDEO_BYTES. */
+  maxVideoBytes?: number;
 }) {
   const router = useRouter();
 
@@ -275,10 +278,14 @@ export default function ComposerStudio({
   }
 
   /**
-   * Tải video từ máy lên server. Dùng XMLHttpRequest (không phải fetch)
-   * vì cần theo dõi tiến trình tải — video có thể vài trăm MB.
+   * Tải video từ máy lên Supabase Storage theo 2 bước:
+   *   1. POST /api/uploads  → server kiểm tra hợp lệ và cấp signed upload URL
+   *   2. PUT thẳng file lên Storage bằng XMLHttpRequest (để theo dõi tiến trình)
+   *
+   * File KHÔNG đi qua Vercel Function vì body bị giới hạn 4.5MB — nhờ vậy
+   * video tới 50MB vẫn tải lên được.
    */
-  function onUploadVideo(file: File) {
+  async function onUploadVideo(file: File) {
     setUploadError(null);
 
     if (videoCount > 0) {
@@ -290,22 +297,55 @@ export default function ComposerStudio({
       return;
     }
 
-    const maxMb = 200;
-    if (file.size > maxMb * 1024 * 1024) {
+    if (file.size > maxVideoBytes) {
       setUploadError(
-        `File ${(file.size / 1024 / 1024).toFixed(0)}MB vượt giới hạn ${maxMb}MB.`
+        `File ${(file.size / 1024 / 1024).toFixed(0)}MB vượt giới hạn ${Math.round(
+          maxVideoBytes / 1024 / 1024
+        )}MB.`
       );
       return;
     }
 
-    const form = new FormData();
-    form.append("file", file);
-
     setUploading(true);
     setUploadPct(0);
 
+    // Bước 1 — xin signed upload URL
+    let sign: {
+      ok?: boolean;
+      error?: string;
+      storageKey?: string;
+      uploadUrl?: string;
+      size?: number;
+      mimeType?: string;
+      previewUrl?: string;
+    };
+    try {
+      const res = await fetch("/api/uploads", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          fileName: file.name,
+          mimeType: file.type,
+          size: file.size,
+        }),
+      });
+      sign = await res.json();
+      if (!res.ok || !sign.ok || !sign.uploadUrl || !sign.storageKey) {
+        setUploading(false);
+        setUploadError(sign.error ?? `Không xin được quyền tải lên (HTTP ${res.status}).`);
+        return;
+      }
+    } catch {
+      setUploading(false);
+      setUploadError("Không kết nối được máy chủ — kiểm tra mạng rồi thử lại.");
+      return;
+    }
+
+    // Bước 2 — PUT file trực tiếp lên Storage
     const xhr = new XMLHttpRequest();
-    xhr.open("POST", "/api/uploads");
+    xhr.open("PUT", sign.uploadUrl);
+    xhr.setRequestHeader("Content-Type", file.type || "application/octet-stream");
+    xhr.setRequestHeader("x-upsert", "false");
 
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable) {
@@ -315,48 +355,43 @@ export default function ComposerStudio({
 
     xhr.onload = () => {
       setUploading(false);
-      let payload: {
-        ok?: boolean;
-        error?: string;
-        storageKey?: string;
-        size?: number;
-        mimeType?: string;
-        previewUrl?: string;
-      } = {};
-      try {
-        payload = JSON.parse(xhr.responseText);
-      } catch {
-        setUploadError(`Máy chủ trả về dữ liệu không hợp lệ (HTTP ${xhr.status}).`);
-        return;
-      }
 
-      if (xhr.status >= 200 && xhr.status < 300 && payload.ok && payload.storageKey) {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        const storageKey = sign.storageKey!;
         addMedia([
           {
-            remoteUrl: payload.previewUrl ?? `/api/uploads/${payload.storageKey}`,
-            previewUrl: payload.previewUrl ?? undefined,
+            remoteUrl: sign.previewUrl ?? `/api/uploads/${storageKey}`,
+            previewUrl: sign.previewUrl ?? undefined,
             type: "VIDEO",
             source: "UPLOAD",
-            storageKey: payload.storageKey,
-            mimeType: payload.mimeType,
-            sizeBytes: payload.size,
+            storageKey,
+            mimeType: sign.mimeType,
+            sizeBytes: sign.size ?? file.size,
             alt: file.name,
           },
         ]);
         setMediaNotice(`Đã tải lên "${file.name}" — bấm Đăng ngay để đăng video này.`);
-      } else {
-        setUploadError(payload.error ?? `Tải lên thất bại (HTTP ${xhr.status}).`);
+        return;
       }
+
+      let message = `Tải lên thất bại (HTTP ${xhr.status}).`;
+      try {
+        const payload = JSON.parse(xhr.responseText) as { message?: string; error?: string };
+        message = payload.message ?? payload.error ?? message;
+      } catch {
+        // Giữ thông báo mặc định
+      }
+      setUploadError(message);
     };
 
     xhr.onerror = () => {
       setUploading(false);
-      setUploadError("Không kết nối được máy chủ — kiểm tra mạng rồi thử lại.");
+      setUploadError("Không kết nối được nơi lưu trữ — kiểm tra mạng rồi thử lại.");
     };
 
     xhr.onabort = () => setUploading(false);
 
-    xhr.send(form);
+    xhr.send(file);
   }
 
   const photoCount = attachments.filter((m) => m.type === "IMAGE").length;

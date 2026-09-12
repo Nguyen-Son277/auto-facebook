@@ -4,10 +4,9 @@ import {
   publishMultiPhotosToPage,
   publishTextToPage,
   publishVideoToPage,
-  uploadVideoToPage,
   type GraphContext,
 } from "@/lib/facebook";
-import { resolveUploadPath, uploadSize } from "@/lib/uploads";
+import { signedReadUrl, uploadSize } from "@/lib/uploads";
 
 // ============================================================
 // Gửi nội dung + media lên Facebook.
@@ -40,7 +39,7 @@ export function buildMessage(content: string, hashtags?: string | null): string 
 
 /**
  * Gửi nội dung + media lên Facebook, chọn đúng endpoint:
- * - Có video (file upload)   → POST /videos multipart (source = file)
+ * - Có video (file upload)   → POST /videos với file_url = signed URL của Storage
  * - Có video (URL công khai) → POST /videos với file_url
  * - Có ảnh                   → /photos hoặc /photos unpublished + /feed
  * - Không có media           → /feed
@@ -57,21 +56,16 @@ export async function deliverToFacebook(
 
   if (video) {
     if (video.source === "UPLOAD" && video.storageKey) {
-      const filePath = resolveUploadPath(userId, video.storageKey);
+      // Trên Vercel không còn file trên đĩa: kiểm tra object còn tồn tại rồi
+      // đưa Facebook một URL có chữ ký để Facebook tự tải video về.
       const size = await uploadSize(userId, video.storageKey);
       if (size === null) {
         throw new Error(
           "File video không còn trên máy chủ — hãy chọn lại video rồi đăng."
         );
       }
-      return uploadVideoToPage(
-        page,
-        message,
-        filePath,
-        video.storageKey,
-        video.mimeType ?? "video/mp4",
-        conn
-      );
+      const videoUrl = await signedReadUrl(userId, video.storageKey);
+      return publishVideoToPage(page, message, videoUrl, conn);
     }
     if (/^https?:\/\//i.test(video.remoteUrl)) {
       return publishVideoToPage(page, message, video.remoteUrl, conn);

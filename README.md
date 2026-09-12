@@ -564,3 +564,107 @@ npm run test:e2e:week6                # chạy test
 `npm run db:backup` giữ 10 bản gần nhất trong `backups/` (đã có trong `.gitignore`).
 Chạy nó trước mỗi lần migration hoặc dọn dữ liệu.
 
+---
+
+# ☁️ Triển khai: Supabase + Vercel
+
+> ⚠️ **Mục "Chạy test đúng cách" phía trên đang mô tả bộ test SQLite cũ.** Dự án đã
+> chuyển sang PostgreSQL; các script test chưa được chuyển đổi xong (xem mục 7).
+
+## 1. Supabase
+
+1. Tạo project (region **Southeast Asia (Singapore)** cho gần Việt Nam).
+2. Vào **Project Settings → Database → Connection string**. Lấy **Session pooler**
+   (cổng `5432`) — **không** dùng host `db.<ref>.supabase.co` vì host đó chỉ có IPv6,
+   nhiều máy và Vercel không kết nối được.
+
+   ```
+   postgresql://postgres.<project-ref>:<PASSWORD>@aws-0-ap-southeast-1.pooler.supabase.com:5432/postgres
+   ```
+
+   Mật khẩu chứa ký tự đặc biệt phải mã hoá URL (`@` → `%40`).
+3. **Project Settings → API**: lấy `Project URL` và `service_role` key (khoá bí mật,
+   chỉ đặt ở server — **không** dùng ở trình duyệt).
+4. Storage bucket: chạy `npm run db:setup-storage` (tạo bucket private `uploads`,
+   giới hạn 50MB) hoặc tạo tay trong Dashboard → Storage.
+
+## 2. Biến môi trường
+
+| Biến | Ghi chú |
+|---|---|
+| `DATABASE_URL` | Session pooler (5432) — runtime của app |
+| `DIRECT_URL` | Session pooler (5432) — Prisma CLI (migrate) |
+| `SESSION_SECRET` | `openssl rand -base64 32` (≥16 ký tự) |
+| `SESSION_COOKIE_NAME` | `session` |
+| `SUPABASE_URL` | `https://<ref>.supabase.co` |
+| `SUPABASE_SERVICE_ROLE_KEY` | service_role key |
+| `SUPABASE_STORAGE_BUCKET` | `uploads` |
+| `CRON_SECRET` | `openssl rand -base64 32` — bảo vệ `/api/cron/tick` |
+| `SCHEDULER_IN_PROCESS` | `0` trên Vercel (bắt buộc) |
+| `MAX_VIDEO_BYTES` | `52428800` (50MB — giới hạn Supabase Free) |
+
+Không bắt buộc: `AI_*`, `PEXELS_API_KEY`, `FACEBOOK_*` — người dùng nhập trong UI
+và được lưu (mã hoá AES-256-GCM) trong DB.
+
+## 3. Khởi tạo database
+
+```bash
+npm run db:deploy      # áp migration lên Supabase
+npm run db:seed-admin  # tạo admin đầu tiên từ ADMIN_EMAIL + ADMIN_PASSWORD
+```
+
+## 4. Vercel
+
+1. Import repo GitHub vào Vercel, framework **Next.js**, Node **22.x**, region **sin1**.
+2. Dán toàn bộ biến ở mục 2 cho **Production** (và Preview).
+3. Deploy. `postinstall` tự chạy `prisma generate` (bắt buộc vì `src/generated/prisma`
+   không được commit).
+4. Không cần `vercel.json`; không bật migrate tự động trong build để tránh preview
+   deploy ghi vào DB thật.
+
+### Vì sao `SCHEDULER_IN_PROCESS=0`?
+
+Trên serverless, vòng lặp `setInterval` trong `src/instrumentation.ts` không đáng tin
+(mỗi lambda instance một vòng, máy ngủ là dừng). Trên Vercel phải tắt và dùng cron
+ngoài gọi `/api/cron/tick`.
+
+## 5. Cron ngoài (gói Hobby)
+
+Vercel Hobby chỉ cho cron **1 lần/ngày** nên dùng dịch vụ ngoài:
+
+- **cron-job.org** (miễn phí): tạo job
+  - Method: `POST`
+  - URL: `https://<domain>/api/cron/tick?source=cron`
+  - Header: `Authorization: Bearer <CRON_SECRET>`
+  - Interval: 5 phút (hoặc 1 phút)
+- **GitHub Actions** (dự phòng): workflow `schedule: */5 * * * *` gọi `curl -X POST`
+  kèm header trên, secret lưu ở Repository secrets.
+
+Kiểm tra nhanh:
+
+```bash
+curl -i -X POST https://<domain>/api/cron/tick                       # 401
+curl -s -X POST -H "Authorization: Bearer $CRON_SECRET" \
+  https://<domain>/api/cron/tick                                     # {"ok":true,...}
+```
+
+## 6. Video tải lên — vì sao không đi qua server
+
+Vercel Function giới hạn body **4.5MB**, nên trình duyệt không thể POST video qua
+`/api/uploads`. Luồng thật:
+
+1. `POST /api/uploads` → server kiểm tra định dạng/dung lượng, trả **signed upload URL**.
+2. Trình duyệt `PUT` thẳng file lên Supabase Storage (có thanh tiến trình).
+3. `GET /api/uploads/<key>` → **302** sang signed URL (Storage hỗ trợ Range nên tua được).
+4. Khi đăng bài, server đưa Facebook signed URL để Facebook tự tải video về.
+
+Giới hạn file: **50MB** trên Supabase Free (nâng Pro rồi tăng `MAX_VIDEO_BYTES`).
+
+## 7. Việc còn lại
+
+Các script test (`scripts/e2e-*.mjs`, `scripts/lib/test-db.mjs`, `scripts/prepare-test-db.mjs`,
+`seed-docs`, `smoke-login`, `restore-from-facebook`) **vẫn dùng API SQLite
+(`better-sqlite3`) và chưa chạy được** sau khi chuyển sang PostgreSQL. Cần chuyển
+sang `pg` trước khi dùng lại bộ test. `scripts/backup-db.mjs` đã bị bỏ (Supabase tự
+sao lưu).
+

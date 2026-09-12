@@ -280,50 +280,12 @@ export async function publishVideoToPage(
 }
 
 /**
- * Đăng video bằng cách TẢI FILE từ máy lên Graph API.
- * POST /{page-id}/videos dạng multipart/form-data với trường `source`.
+ * Đăng video bằng URL công khai (hoặc signed URL của Supabase Storage).
  *
- * Dùng fs.openAsBlob để stream từ đĩa — không nạp cả video vào RAM,
- * nên file vài trăm MB vẫn đăng được.
+ * Trên Vercel không có ổ đĩa bền nên KHÔNG còn đường upload multipart từ
+ * file local: video được đưa cho Facebook dưới dạng `file_url` để Facebook
+ * tự tải về (xem lib/deliver.ts).
  */
-export async function uploadVideoToPage(
-  page: { fbPageId: string; accessToken: string },
-  description: string,
-  filePath: string,
-  fileName: string,
-  mimeType: string,
-  conn?: GraphContext | null
-): Promise<string> {
-  const { openAsBlob } = await import("node:fs");
-  const blob = await openAsBlob(filePath, { type: mimeType });
-
-  const form = new FormData();
-  form.set("access_token", page.accessToken);
-  form.set("description", description);
-  form.set("source", blob, fileName);
-
-  const url = await graphUrl(`${page.fbPageId}/videos`, conn);
-
-  let res: Response;
-  try {
-    res = await fetch(url, {
-      method: "POST",
-      body: form,
-      // Video lớn có thể mất nhiều phút
-      signal: AbortSignal.timeout(15 * 60 * 1000),
-    });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    throw new FacebookApiError(
-      /abort|timeout/i.test(message)
-        ? "Tải video lên Facebook quá lâu (quá 15 phút) — thử file nhỏ hơn."
-        : `Không gửi được video lên Facebook: ${message}`
-    );
-  }
-
-  const data = (await parseGraphResponse(res)) as { id: string };
-  return data.id;
-}
 
 /** Đăng nhiều ảnh (tối đa 4) — flow: upload unpublished ảnh, rồi /feed kèm attached_media. */
 export async function publishMultiPhotosToPage(

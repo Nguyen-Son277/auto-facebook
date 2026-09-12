@@ -1,5 +1,6 @@
 // Prisma schema — Facebook Marketing Automation App
-// Lưu ý: SQLite không hỗ trợ enum nên các trạng thái dùng String.
+// Lưu ý: các trạng thái dùng String (không dùng enum) để giữ mô hình dữ liệu
+// đơn giản và không phải migrate enum mỗi khi thêm giá trị mới.
 
 generator client {
   provider = "prisma-client"
@@ -7,7 +8,7 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
 }
 
 model AppSetting {
