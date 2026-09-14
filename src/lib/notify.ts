@@ -155,8 +155,32 @@ export async function notifyOncePer(
   }
 }
 
-// ---------- Đọc ----------
+/**
+ * Như notifyAdmins() nhưng chống spam theo từng admin — dùng cho tổng kết lỗi
+ * lặp lại mỗi nhịp scheduler. Trả về số admin thực sự được gửi.
+ */
+export async function notifyAdminsOncePer(
+  input: NotificationInput & { dedupeWindowMs?: number },
+  opts: { excludeUserId?: string } = {}
+): Promise<number> {
+  try {
+    const admins = await prisma.user.findMany({
+      where: { role: "ADMIN" },
+      select: { id: true },
+    });
+    let sent = 0;
+    for (const admin of admins) {
+      if (admin.id === opts.excludeUserId) continue;
+      if (await notifyOncePer(admin.id, input)) sent++;
+    }
+    return sent;
+  } catch (err) {
+    console.error("[notify] không gửi được cho admin:", err);
+    return 0;
+  }
+}
 
+// ---------- Đọc ----------
 export async function countUnread(userId: string): Promise<number> {
   return prisma.notification.count({ where: { userId, read: false } });
 }

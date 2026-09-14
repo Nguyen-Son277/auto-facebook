@@ -6,19 +6,29 @@ import {
   PageDeleteButton,
   PageToggleActiveButton,
 } from "@/components/page-actions";
+import PageBrandSelect from "@/components/page-brand-select";
 
 /** Tính số ngày còn lại của token (hàm thuần, tách khỏi render). */
 function daysUntil(date: Date): number {
   return Math.max(0, Math.ceil((date.getTime() - Date.now()) / 86_400_000));
 }
 
-export default async function PagesPage() {
-  const user = await requireCurrentUser();
-  const ctx = await resolveWorkspace(null);
+export default async function PagesPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ ws?: string }>;
+}) {
+  await requireCurrentUser();
+  const sp = await searchParams;
+  // Nhận ?ws= giống trang Thương hiệu / Facebook Apps — trước đây trang này
+  // luôn dùng workspace mặc định nên có thể lệch workspace với trang Brand.
+  const ctx = await resolveWorkspace(sp.ws ?? null);
 
   const [pages, connections, brands] = await Promise.all([
     prisma.facebookPage.findMany({
-      where: { userId: user.id, workspaceId: ctx.workspace.id },
+      // Cách ly theo WORKSPACE (không theo userId) để khớp với trang Thương
+      // hiệu và Facebook Apps — mọi thành viên thấy cùng một danh sách Page.
+      where: { workspaceId: ctx.workspace.id },
       orderBy: { createdAt: "asc" },
       include: { connection: { select: { id: true, name: true } } },
     }),
@@ -120,7 +130,12 @@ export default async function PagesPage() {
                 >
                   {page.isActive ? "Hoạt động" : "Tạm dừng"}
                 </span>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                  <PageBrandSelect
+                    pageId={page.id}
+                    brandId={page.brandId}
+                    brands={brands}
+                  />
                   <PageToggleActiveButton pageId={page.id} isActive={page.isActive} />
                   <PageDeleteButton pageId={page.id} />
                 </div>

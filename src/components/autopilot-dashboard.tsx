@@ -708,7 +708,14 @@ export default function AutopilotDashboard({
   config: AutoPilotConfigView;
   posts: PlannedPost[];
   pendingReview: number;
-  readiness: { pillars: number; hasProfile: boolean };
+  readiness: {
+    pillars: number;
+    hasProfile: boolean;
+    /** Page đã gắn thương hiệu chưa — chưa gắn thì không thể có trụ cột. */
+    hasBrand: boolean;
+    /** Lý do chặn (nếu có), dùng chung câu chữ với server. */
+    issue: string | null;
+  };
   quota: { used: number; limit: number; remaining: number; live: boolean; blocked: boolean };
 }) {
   const enabled = config?.enabled ?? false;
@@ -718,7 +725,25 @@ export default function AutopilotDashboard({
 
   return (
     <div className="space-y-5">
-      {readiness.pillars === 0 ? (
+      {!readiness.hasBrand ? (
+        <div
+          className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800"
+          data-testid="ap-needs-brand"
+        >
+          <p className="font-medium">⚠ Page chưa gắn thương hiệu</p>
+          <p className="mt-1 text-xs">
+            Trụ cột nội dung và hồ sơ thương hiệu thuộc về thương hiệu. Page chưa gắn
+            thương hiệu thì hệ thống chưa biết phải viết gì, nên chế độ tự động không
+            bật được.
+          </p>
+          <Link
+            href="/pages"
+            className="mt-2 inline-block rounded-lg bg-red-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-700"
+          >
+            Gán thương hiệu cho Page →
+          </Link>
+        </div>
+      ) : readiness.pillars === 0 ? (
         <div
           className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800"
           data-testid="ap-needs-setup"

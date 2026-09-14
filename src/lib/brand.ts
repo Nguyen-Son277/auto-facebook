@@ -2,6 +2,11 @@ import "server-only";
 
 import { prisma } from "./prisma";
 import type { BrandContext } from "./ai-prompts";
+import {
+  contentScopeForPage,
+  readinessProblem,
+  type PageReadiness,
+} from "./brand-scope";
 
 // ============================================================
 // Hồ sơ thương hiệu — tầng dữ liệu.
@@ -119,6 +124,56 @@ export type BrandSource = {
   notes: string | null;
 };
 
+// ============================================================
+// TRA CỨU THEO BRAND — nguồn sự thật duy nhất.
+//
+// Phần logic THUẦN (contentScopeForPage, readinessProblem, type PageReadiness)
+// nằm ở ./brand-scope để kiểm thử được mà không cần database. File này bọc
+// thêm phần truy vấn Prisma rồi re-export lại, để nơi khác chỉ cần import từ
+// "@/lib/brand".
+// ============================================================
+
+export { contentScopeForPage, readinessProblem };
+export type { PageReadiness };
+
+/** Brand của một Page. `null` = Page chưa gắn thương hiệu. */
+export async function resolvePageBrand(pageId: string): Promise<{
+  brandId: string | null;
+  brandName: string | null;
+} | null> {
+  const page = await prisma.facebookPage.findUnique({
+    where: { id: pageId },
+    select: { brandId: true, brand: { select: { name: true } } },
+  });
+  if (!page) return null;
+  return { brandId: page.brandId, brandName: page.brand?.name ?? null };
+}
+
+/** Tình trạng sẵn sàng chạy tự động của một Page. */
+export async function getPageReadiness(pageId: string): Promise<PageReadiness | null> {
+  const scope = await resolvePageBrand(pageId);
+  if (!scope) return null;
+
+  const [pillars, profile] = await Promise.all([
+    prisma.contentPillar.count({
+      where: { ...contentScopeForPage(scope.brandId, pageId), enabled: true },
+    }),
+    scope.brandId
+      ? prisma.brandProfile.findUnique({
+          where: { brandId: scope.brandId },
+          select: { description: true, products: true },
+        })
+      : Promise.resolve(null),
+  ]);
+
+  return {
+    brandId: scope.brandId,
+    brandName: scope.brandName,
+    pillars,
+    hasProfile: Boolean(profile?.description?.trim() || profile?.products?.trim()),
+  };
+}
+
 /**
  * Gom hồ sơ + tài liệu liên quan thành BrandContext cho prompt.
  *
@@ -130,20 +185,13 @@ export async function loadBrandContext(
 ): Promise<BrandContext | undefined> {
   // Nội dung thương hiệu thuộc Brand — tra brandId của Page rồi query theo brand.
   // Page chưa gắn brand (dữ liệu cũ) → fallback theo pageId.
-  const page = await prisma.facebookPage.findUnique({
-    where: { id: pageId },
-    select: { brandId: true },
-  });
-  const brandId = page?.brandId;
+  const scope = await resolvePageBrand(pageId);
+  const brandId = scope?.brandId ?? null;
 
   const [profile, docs] = await Promise.all([
-    brandId
-      ? prisma.brandProfile.findUnique({ where: { brandId } })
-      : prisma.brandProfile.findFirst({ where: { brand: { pages: { some: { id: pageId } } } } }),
+    brandId ? prisma.brandProfile.findUnique({ where: { brandId } }) : Promise.resolve(null),
     prisma.knowledgeDoc.findMany({
-      where: brandId
-        ? { brandId, enabled: true }
-        : { pageId, enabled: true },
+      where: { ...contentScopeForPage(brandId, pageId), enabled: true },
       orderBy: { createdAt: "asc" },
       select: { id: true, title: true, kind: true, content: true, enabled: true },
     }),

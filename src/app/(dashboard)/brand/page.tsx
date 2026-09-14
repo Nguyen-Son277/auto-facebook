@@ -3,6 +3,7 @@ import { requireCurrentUser, resolveWorkspace } from "@/lib/dal";
 import { prisma } from "@/lib/prisma";
 import PageHeader from "@/components/page-header";
 import BrandEditor from "@/components/brand-editor";
+import BrandPagesPanel from "@/components/brand-pages-panel";
 import BrandListClient from "./brand-list-client";
 
 // ============================================================
@@ -105,34 +106,8 @@ export default async function BrandPage({
             </span>
           </div>
 
-          {/* ===== Pages thuộc thương hiệu ===== */}
-          <div className="mb-4 rounded-xl border border-gray-200 bg-white p-4" data-testid="brand-pages-panel">
-            <div className="mb-2 flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-gray-900">Page thuộc thương hiệu</h3>
-              <span className="text-xs text-gray-500">
-                {pages.filter((p) => p.brandId === selected.id).length} Page gắn vào thương hiệu này
-              </span>
-            </div>
-            {pages.filter((p) => p.brandId === selected.id).length === 0 ? (
-              <p className="text-sm text-gray-500">
-                Chưa có Page nào. Gán Page ở{" "}
-                <Link href="/pages" className="font-medium text-blue-600 hover:underline">
-                  trang Pages
-                </Link>{" "}
-                để nội dung thương hiệu áp dụng cho Page đó.
-              </p>
-            ) : (
-              <div className="flex flex-wrap gap-2">
-                {pages
-                  .filter((p) => p.brandId === selected.id)
-                  .map((p) => (
-                    <span key={p.id} className="rounded-full bg-blue-50 px-3 py-1 text-sm text-blue-800">
-                      {p.name}
-                    </span>
-                  ))}
-              </div>
-            )}
-          </div>
+          {/* ===== Pages thuộc thương hiệu — gán/bỏ gán ngay tại đây ===== */}
+          <BrandPagesPanel brandId={selected.id} pages={pages} />
 
           <BrandEditor
             brandId={selected.id}

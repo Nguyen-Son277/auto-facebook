@@ -18,6 +18,25 @@ export type PageActionState = {
 } | null;
 
 /**
+ * Page + kiểm tra user là THÀNH VIÊN workspace sở hữu Page.
+ *
+ * Vì sao không so `page.userId`: Page được đồng bộ bởi một thành viên, nhưng
+ * dữ liệu cách ly theo workspace (xem schema.prisma, khối WORKSPACE). Nếu chỉ
+ * chủ Page thao tác được thì các thành viên khác vẫn THẤY Page ở trang
+ * Thương hiệu nhưng bấm nút lại thất bại im lặng.
+ */
+async function accessiblePage(pageId: string, userId: string) {
+  const page = await prisma.facebookPage.findUnique({ where: { id: pageId } });
+  if (!page) return null;
+  const member = await prisma.workspaceMember.findUnique({
+    where: { workspaceId_userId: { workspaceId: page.workspaceId, userId } },
+    select: { role: true },
+  });
+  if (!member) return null;
+  return page;
+}
+
+/**
  * Đồng bộ danh sách Pages THEO CONNECTION của workspace:
  * nhận User Access Token của Facebook App đó, đổi long-lived,
  * fetch /me/accounts rồi upsert theo (workspaceId, fbPageId).
@@ -143,8 +162,8 @@ export async function syncFacebookPagesLegacy(
 
 export async function togglePageActive(pageId: string): Promise<void> {
   const user = await requireCurrentUser();
-  const page = await prisma.facebookPage.findUnique({ where: { id: pageId } });
-  if (!page || page.userId !== user.id) return;
+  const page = await accessiblePage(pageId, user.id);
+  if (!page) return;
 
   await prisma.facebookPage.update({
     where: { id: pageId },
@@ -152,12 +171,13 @@ export async function togglePageActive(pageId: string): Promise<void> {
   });
   revalidatePath("/pages");
   revalidatePath("/dashboard");
+  revalidatePath("/autopilot");
 }
 
 export async function deletePage(pageId: string): Promise<void> {
   const user = await requireCurrentUser();
-  const page = await prisma.facebookPage.findUnique({ where: { id: pageId } });
-  if (!page || page.userId !== user.id) return;
+  const page = await accessiblePage(pageId, user.id);
+  if (!page) return;
 
   await prisma.facebookPage.delete({ where: { id: pageId } });
   revalidatePath("/pages");
@@ -165,25 +185,80 @@ export async function deletePage(pageId: string): Promise<void> {
 }
 
 /**
- * Gán Page vào Brand (trong cùng workspace).
- * Kiểm tra Brand thuộc workspace của Page.
+ * Gán / bỏ gán Page vào Brand (trong cùng workspace).
+ *
+ * Vì sao trả về kết quả thay vì `void`: bản cũ `return` im lặng khi user
+ * không phải chủ Page hoặc Brand khác workspace, nên giao diện không có cách
+ * nào báo lỗi — người dùng chỉ thấy "gắn mãi không được". Trả state để nút
+ * gắn hiển thị đúng nguyên nhân.
+ *
+ * Phân quyền theo THÀNH VIÊN workspace (không phải `page.userId`): dữ liệu đã
+ * cách ly theo workspace, nên mọi thành viên đều gắn được cho Page của
+ * workspace mình.
  */
-export async function assignPageToBrand(pageId: string, brandId: string | null): Promise<void> {
+export async function assignPageToBrand(
+  pageId: string,
+  brandId: string | null
+): Promise<PageActionState> {
   const user = await requireCurrentUser();
-  const page = await prisma.facebookPage.findUnique({ where: { id: pageId } });
-  if (!page || page.userId !== user.id) return;
+
+  const page = await prisma.facebookPage.findUnique({
+    where: { id: pageId },
+    select: { id: true, name: true, workspaceId: true },
+  });
+  if (!page) return { ok: false, error: "Page không tồn tại." };
+
+  const member = await prisma.workspaceMember.findUnique({
+    where: { workspaceId_userId: { workspaceId: page.workspaceId, userId: user.id } },
+    select: { role: true },
+  });
+  if (!member) {
+    return { ok: false, error: "Bạn không có quyền thao tác trên Page này." };
+  }
+
+  let brandName: string | null = null;
+  const details: string[] = [];
 
   if (brandId) {
-    const brand = await prisma.brand.findUnique({ where: { id: brandId } });
-    if (!brand || brand.workspaceId !== page.workspaceId) return;
+    const brand = await prisma.brand.findUnique({
+      where: { id: brandId },
+      select: { id: true, name: true, workspaceId: true },
+    });
+    if (!brand) return { ok: false, error: "Thương hiệu không tồn tại." };
+    if (brand.workspaceId !== page.workspaceId) {
+      return { ok: false, error: "Thương hiệu thuộc workspace khác — không gắn được." };
+    }
+    brandName = brand.name;
+
+    // Cảnh báo sớm: Brand chưa có trụ cột thì bật tự động vẫn bị chặn.
+    const pillars = await prisma.contentPillar.count({
+      where: { brandId, enabled: true },
+    });
+    if (pillars === 0) {
+      details.push(
+        "Thương hiệu này chưa có trụ cột nội dung nào đang bật — vào trang Thương hiệu để thêm trước khi bật chế độ tự động."
+      );
+    }
   }
 
   await prisma.facebookPage.update({
     where: { id: pageId },
     data: { brandId },
   });
+
   revalidatePath("/pages");
   revalidatePath("/brand");
+  revalidatePath("/autopilot");
+  revalidatePath("/facebook-apps");
+  revalidatePath("/composer");
+
+  return {
+    ok: true,
+    message: brandId
+      ? `Đã gắn "${page.name}" vào thương hiệu "${brandName}".`
+      : `Đã bỏ gắn thương hiệu khỏi "${page.name}".`,
+    details: details.length > 0 ? details : undefined,
+  };
 }
 
 /**
@@ -192,8 +267,8 @@ export async function assignPageToBrand(pageId: string, brandId: string | null):
  */
 export async function switchPageConnection(pageId: string, connectionId: string): Promise<void> {
   const user = await requireCurrentUser();
-  const page = await prisma.facebookPage.findUnique({ where: { id: pageId } });
-  if (!page || page.userId !== user.id) return;
+  const page = await accessiblePage(pageId, user.id);
+  if (!page) return;
 
   const conn = await prisma.facebookConnection.findUnique({ where: { id: connectionId } });
   if (!conn || conn.workspaceId !== page.workspaceId) return;

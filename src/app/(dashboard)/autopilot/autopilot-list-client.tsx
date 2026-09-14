@@ -67,7 +67,16 @@ export default function AutopilotListClient({
                   <span className="font-medium text-gray-900">{c.pageName}</span>
                 </td>
                 <td className="px-4 py-3 text-gray-600">
-                  {c.brandName ?? <span className="text-gray-400">chưa gán</span>}
+                  {c.brandName ?? (
+                    <Link
+                      href="/pages"
+                      className="text-amber-700 underline decoration-dotted hover:text-amber-800"
+                      data-testid="ap-brand-missing"
+                      title="Page chưa gắn thương hiệu — bấm để gán ở trang Pages"
+                    >
+                      ⚠ chưa gán
+                    </Link>
+                  )}
                 </td>
                 <td className="px-4 py-3">
                   {c.lastPlanError ? (

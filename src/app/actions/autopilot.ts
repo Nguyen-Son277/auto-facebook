@@ -7,6 +7,7 @@ import { requireCurrentUser } from "@/lib/dal";
 import { prisma } from "@/lib/prisma";
 import { kickAutopilotPlanner } from "@/lib/scheduler";
 import { runAutopilotPlanner, type PlannerRunResult } from "@/lib/autopilot";
+import { getPageReadiness, readinessProblem } from "@/lib/brand";
 import {
   clampPlanAheadDays,
   clampPostsPerDay,
@@ -41,20 +42,11 @@ async function assertOwnedPage(userId: string, pageId: string) {
 
 /** Kiểm tra Page đã đủ điều kiện chạy tự động chưa. */
 async function readiness(pageId: string): Promise<string | null> {
-  // Trụ cột thuộc Brand của Page; dữ liệu cũ fallback theo pageId
-  const page = await prisma.facebookPage.findUnique({
-    where: { id: pageId },
-    select: { brandId: true },
-  });
-  const pillars = await prisma.contentPillar.count({
-    where: page?.brandId
-      ? { brandId: page.brandId, enabled: true }
-      : { pageId, enabled: true },
-  });
-  if (pillars === 0) {
-    return "Chưa có trụ cột nội dung nào đang bật — vào Thương hiệu để thêm (hoặc bấm tạo bộ mặc định).";
-  }
-  return null;
+  // Dùng chung helper với bộ lập kế hoạch và giao diện — nhờ đó Page chưa gắn
+  // thương hiệu nhận đúng thông báo thay vì bị báo nhầm là thiếu trụ cột.
+  const state = await getPageReadiness(pageId);
+  if (!state) return "Page không tồn tại.";
+  return readinessProblem(state);
 }
 
 // ============================================================

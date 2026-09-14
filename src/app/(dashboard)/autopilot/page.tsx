@@ -2,6 +2,7 @@ import Link from "next/link";
 import { requireCurrentUser } from "@/lib/dal";
 import { prisma } from "@/lib/prisma";
 import { getAutoPilotOverview, listAutoPilotConfigs } from "@/lib/autopilot";
+import { getPageReadiness, readinessProblem } from "@/lib/brand";
 import { getPexelsQuota } from "@/lib/pexels";
 import PageHeader from "@/components/page-header";
 import AutopilotDashboard from "@/components/autopilot-dashboard";
@@ -55,18 +56,12 @@ export default async function AutopilotPage({
 
   // ===== Chế độ chi tiết một Page (?page=) =====
   if (selected) {
-    const [overview, pillarCount, page] = await Promise.all([
+    const [overview, readinessState] = await Promise.all([
       getAutoPilotOverview(user.id, selected.pageId),
-      selected.brandId
-        ? prisma.contentPillar.count({ where: { brandId: selected.brandId, enabled: true } })
-        : prisma.contentPillar.count({ where: { pageId: selected.pageId, enabled: true } }),
-      prisma.brandProfile.findFirst({
-        where: selected.brandId
-          ? { brandId: selected.brandId }
-          : { brand: { pages: { some: { id: selected.pageId } } } },
-        select: { description: true, products: true },
-      }),
+      getPageReadiness(selected.pageId),
     ]);
+
+    const readinessIssue = readinessState ? readinessProblem(readinessState) : null;
 
     const quota = getPexelsQuota(user.id);
     const config = overview.config;
@@ -125,8 +120,10 @@ export default async function AutopilotPage({
           pendingReview={overview.pendingReview}
           quota={quota}
           readiness={{
-            pillars: pillarCount,
-            hasProfile: Boolean(page?.description?.trim() || page?.products?.trim()),
+            pillars: readinessState?.pillars ?? 0,
+            hasProfile: readinessState?.hasProfile ?? false,
+            hasBrand: Boolean(readinessState?.brandId),
+            issue: readinessIssue,
           }}
         />
       </div>

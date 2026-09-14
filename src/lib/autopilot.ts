@@ -10,7 +10,7 @@ import {
   searchMedia,
   MAX_PER_PAGE,
 } from "./pexels";
-import { loadBrandContext } from "./brand";
+import { contentScopeForPage, loadBrandContext, resolvePageBrand } from "./brand";
 import {
   decideMediaKind,
   formatHm,
@@ -524,14 +524,10 @@ export async function planForAutoPilot(
   };
 
   // Trụ cột thuộc Brand của Page (fallback pageId cho dữ liệu cũ)
-  const pageForBrand = await prisma.facebookPage.findUnique({
-    where: { id: config.pageId },
-    select: { brandId: true },
-  });
+  const pageForBrand = await resolvePageBrand(config.pageId);
+  const brandId = pageForBrand?.brandId ?? null;
   const pillars = await prisma.contentPillar.findMany({
-    where: pageForBrand?.brandId
-      ? { brandId: pageForBrand.brandId, enabled: true }
-      : { pageId: config.pageId, enabled: true },
+    where: { ...contentScopeForPage(brandId, config.pageId), enabled: true },
     orderBy: [{ position: "asc" }, { createdAt: "asc" }],
     select: {
       id: true,
@@ -544,8 +540,11 @@ export async function planForAutoPilot(
   });
 
   if (pillars.length === 0) {
-    outcome.error =
-      "Chưa có trụ cột nội dung nào — vào Hồ sơ thương hiệu để thêm hoặc tạo bộ mặc định.";
+    // Phân biệt rõ 2 nguyên nhân — Page chưa gắn Brand thì không thể có trụ cột,
+    // nên báo "thiếu trụ cột" sẽ khiến người dùng đi sai hướng.
+    outcome.error = brandId
+      ? "Chưa có trụ cột nội dung nào — vào Hồ sơ thương hiệu để thêm hoặc tạo bộ mặc định."
+      : "Page chưa gắn thương hiệu — vào trang Pages để gán Page vào một thương hiệu, rồi thêm trụ cột nội dung.";
     return outcome;
   }
 

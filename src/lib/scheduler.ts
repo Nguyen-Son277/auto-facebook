@@ -1,7 +1,13 @@
 import "server-only";
 
 import { prisma } from "@/lib/prisma";
-import { notify, notifyAdmins } from "./notify";
+import {
+  notify,
+  notifyAdmins,
+  notifyAdminsOncePer,
+  notifyMany,
+  notifyOncePer,
+} from "./notify";
 import { buildMessage, deliverToFacebook } from "@/lib/deliver";
 import type { GraphContext } from "@/lib/facebook";
 import { getSetting, setSetting } from "@/lib/settings";
@@ -407,30 +413,12 @@ export function kickAutopilotPlanner(force = false): boolean {
 
   void (async () => {
     try {
-      // Thông báo "AutoPilot bắt đầu chạy" cho admin + chủ các Page bật tự động
-      try {
-        const activeConfigs = await prisma.autoPilot.findMany({
-          where: { enabled: true },
-          select: { userId: true },
-        });
-        const ownerIds = [...new Set(activeConfigs.map((c) => c.userId))];
-        for (const ownerId of ownerIds) {
-          void notify(ownerId, {
-            type: "SYSTEM",
-            title: "🤖 AutoPilot bắt đầu chạy",
-            body: "Hệ thống đang lập kế hoạch tạo bài cho các Page của bạn.",
-            link: "/autopilot",
-          });
-        }
-        await notifyAdmins({
-          type: "SYSTEM",
-          title: "🤖 AutoPilot bắt đầu chạy",
-          body: "Hệ thống đang lập kế hoạch tạo bài cho các Page đang bật tự động.",
-          link: "/autopilot",
-        });
-      } catch {
-        // Không chặn việc lập kế hoạch nếu gửi thông báo lỗi
-      }
+      // KHÔNG gửi thông báo "AutoPilot bắt đầu chạy" nữa.
+      //
+      // Nhịp lập kế hoạch chạy mỗi PLANNER_INTERVAL_MS kể cả khi không có gì để
+      // làm, nên thông báo vô điều kiện kiểu đó chỉ tạo spam — thực tế đã sinh
+      // 454 tin trong ~33 giờ (khoảng 1 tin mỗi 4,4 phút) cho admin.
+      // Nay chỉ báo khi có kết quả thật: tạo được bài, hoặc có Page lỗi.
 
       // Nạp động: giữ cho luồng đăng bài không phải tải sẵn AI/Pexels
       const { runAutopilotPlannerSafely } = await import("./autopilot");
@@ -444,41 +432,54 @@ export function kickAutopilotPlanner(force = false): boolean {
           if (page.error) console.warn(`[tự động] ${page.pageName}: ${page.error}`);
         }
 
-        // Tổng hợp kết quả từng Page → 1 tin cho chủ Page + 1 tin cho admin
-        const ownerIds = new Set<string>();
-        try {
-          const pageIds = result.pages.map((p) => p.pageId);
-          const owners = await prisma.facebookPage.findMany({
-            where: { id: { in: pageIds } },
-            select: { id: true, userId: true },
-          });
-          for (const o of owners) ownerIds.add(o.userId);
-        } catch {
-          // bỏ qua — vẫn báo admin
-        }
-
         const errors = result.pages.filter((p) => p.error);
-        const summaryBody =
-          `Đã tạo ${result.created} bài` +
-          (result.skipped > 0 ? `, bỏ qua ${result.skipped} bài lỗi` : "") +
-          (errors.length > 0
-            ? ` — lỗi: ${errors.map((e) => `${e.pageName}: ${e.error}`).join("; ").slice(0, 200)}`
-            : "");
 
-        for (const ownerId of ownerIds) {
-          void notify(ownerId, {
-            type: "SYSTEM",
+        // Nhịp chỉ "bỏ qua" mà không tạo bài và không có lỗi → im lặng hoàn toàn.
+        if (result.created > 0 || errors.length > 0) {
+          // Tổng hợp kết quả từng Page → 1 tin cho chủ Page + 1 tin cho admin
+          let ownerIds: string[] = [];
+          try {
+            const pageIds = result.pages.map((p) => p.pageId);
+            const owners = await prisma.facebookPage.findMany({
+              where: { id: { in: pageIds } },
+              select: { userId: true },
+            });
+            ownerIds = [...new Set(owners.map((o) => o.userId))];
+          } catch {
+            // bỏ qua — vẫn báo admin
+          }
+
+          const summaryBody =
+            `Đã tạo ${result.created} bài` +
+            (result.skipped > 0 ? `, bỏ qua ${result.skipped} bài lỗi` : "") +
+            (errors.length > 0
+              ? ` — lỗi: ${errors.map((e) => `${e.pageName}: ${e.error}`).join("; ").slice(0, 200)}`
+              : "");
+
+          const payload = {
+            type: "SYSTEM" as const,
             title: errors.length > 0 ? "⚠️ AutoPilot hoàn tất (có lỗi)" : "✅ AutoPilot hoàn tất",
             body: summaryBody,
             link: "/autopilot",
-          });
+          };
+
+          // await thay cho `void notify(...)`: bản cũ bắn rồi quên nên thông báo
+          // cho chủ Page thường mất khi request/serverless kết thúc.
+          if (ownerIds.length > 0) {
+            if (errors.length > 0) {
+              // Lỗi dai dẳng: gộp tối đa 1 tin / 6 giờ cho mỗi người nhận
+              for (const ownerId of ownerIds) await notifyOncePer(ownerId, payload);
+            } else {
+              await notifyMany(ownerIds, payload);
+            }
+          }
+
+          if (errors.length > 0) {
+            await notifyAdminsOncePer(payload);
+          } else {
+            await notifyAdmins(payload);
+          }
         }
-        await notifyAdmins({
-          type: "SYSTEM",
-          title: errors.length > 0 ? "⚠️ AutoPilot hoàn tất (có lỗi)" : "✅ AutoPilot hoàn tất",
-          body: summaryBody,
-          link: "/autopilot",
-        });
       }
     } catch (err) {
       console.error(

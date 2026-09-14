@@ -25,6 +25,7 @@
     "test:e2e:week6": "node scripts/e2e-week6.mjs",
     "worker": "node scripts/worker.mjs",
     "test:plan": "node --experimental-strip-types --no-warnings scripts/test-autopilot-plan.mjs",
+    "test:brand-page": "node --experimental-strip-types --no-warnings scripts/test-brand-page-link.mjs",
     "test:readability": "node --experimental-strip-types --no-warnings scripts/test-readability.mjs",
     "test:e2e:optimize": "node scripts/e2e-autopilot-optimize.mjs",
     "test:e2e:autopilot": "node scripts/e2e-autopilot.mjs",
@@ -32,6 +33,7 @@
     "test:multi-workspace": "node scripts/test-multi-workspace.mjs",
     "db:seed-admin": "node scripts/seed-admin.mjs",
     "db:seed-docs": "node scripts/seed-docs.mjs",
+    "db:cleanup-notifications": "node scripts/cleanup-notifications.mjs",
     "test:admin": "node scripts/test-admin-flow.mjs"
   },
   "dependencies": {
