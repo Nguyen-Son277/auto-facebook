@@ -172,8 +172,8 @@ export default function FacebookAppsClient({
             <span className="mb-1 block font-medium text-gray-700">Graph API Version</span>
             <input
               name="graphVersion"
-              defaultValue={editing?.graphVersion ?? "v21.0"}
-              placeholder="v21.0"
+              defaultValue={editing?.graphVersion ?? "v25.0"}
+              placeholder="v25.0"
               className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
             />
           </label>

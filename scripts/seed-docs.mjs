@@ -78,7 +78,7 @@ Chào mừng bạn đến với **FB Marketing Auto** — hệ thống tự đ�
 ## Bước 2 — Thêm App vào hệ thống
 
 1. Vào trang [Facebook Apps](/facebook-apps) → **➕ Thêm Facebook App**.
-2. Nhập: tên gợi nhớ (ví dụ "App Shop Chính"), **App ID**, **App Secret**, Graph API Version (mặc định v21.0).
+2. Nhập: tên gợi nhớ (ví dụ "App Shop Chính"), **App ID**, **App Secret**, Graph API Version (mặc định v25.0).
 3. Bấm **Thêm App**.
 
 ## Bước 3 — Lấy User Access Token và đồng bộ Pages
