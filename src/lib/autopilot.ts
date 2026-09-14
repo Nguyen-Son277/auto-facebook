@@ -1,6 +1,7 @@
 import "server-only";
 
 import { prisma } from "./prisma";
+import { formatDateTime } from "./format-date";
 import { generatePostVariants, suggestMediaKeywords } from "./ai";
 import { notify, notifyOncePer } from "./notify";
 import { userHasAiConfig, userHasPexelsKey } from "./settings";
@@ -12,7 +13,9 @@ import {
 } from "./pexels";
 import { contentScopeForPage, loadBrandContext, resolvePageBrand } from "./brand";
 import {
+  addDays,
   decideMediaKind,
+  formatDateKey,
   formatHm,
   isoDayOf,
   parseDaysOfWeek,
@@ -309,8 +312,8 @@ export type PlanOutcome = {
 /** Đếm số bài tự động đã có của một ngày (mọi trạng thái trừ bài đã hủy). */
 async function countPlannedForDay(pageId: string, day: Date): Promise<number> {
   const from = startOfDay(day);
-  const to = new Date(from);
-  to.setDate(to.getDate() + 1);
+  // Cộng ngày theo LỊCH Việt Nam — không dùng setDate (phụ thuộc múi giờ máy chạy)
+  const to = addDays(from, 1);
 
   return prisma.post.count({
     where: {
@@ -443,7 +446,7 @@ async function createPlannedPost(input: {
     await notify(config.userId, {
       type: "ACTIVITY",
       title: "🕓 AutoPilot có bài mới chờ bạn duyệt",
-      body: `${variant.content.slice(0, 120)}… — hẹn lúc ${input.scheduledAt.toLocaleString("vi-VN")}`,
+      body: `${variant.content.slice(0, 120)}… — hẹn lúc ${formatDateTime(input.scheduledAt)}`,
       link: "/autopilot",
     });
   }
@@ -562,8 +565,7 @@ export async function planForAutoPilot(
   for (let offset = 0; offset < ahead; offset++) {
     if (budget.remaining <= 0) break;
 
-    const day = startOfDay(now);
-    day.setDate(day.getDate() + offset);
+    const day = addDays(startOfDay(now), offset);
 
     if (!days.includes(isoDayOf(day))) continue;
 
@@ -573,7 +575,7 @@ export async function planForAutoPilot(
 
     // Đếm video đã có trong ngày (từ những lượt lập kế hoạch trước) để
     // hạn ngạch tính cho đúng tổng ngày, không chỉ từng lượt chạy.
-    let videosUsed = videosUsedByDay.get(day.toDateString()) ?? 0;
+    let videosUsed = videosUsedByDay.get(formatDateKey(day)) ?? 0;
     if (existing > 0) {
       const videoCount = await prisma.post.count({
         where: {
@@ -648,7 +650,7 @@ export async function planForAutoPilot(
         }
         if (kind === "VIDEO") {
           videosUsed++;
-          videosUsedByDay.set(day.toDateString(), videosUsed);
+          videosUsedByDay.set(formatDateKey(day), videosUsed);
         }
         recentNames.unshift(pillar.name);
         // Ghi lại chủ đề vừa viết để lượt sau AI tránh lặp
@@ -778,8 +780,14 @@ export async function runAutopilotPlanner(
           totalPlanned: { increment: outcome.created },
         },
       })
-      .catch(() => {
-        // Không chặn luồng nếu không ghi được sổ theo dõi
+      .catch((err) => {
+        // Không chặn luồng nếu không ghi được sổ theo dõi — nhưng PHẢI log,
+        // vì nuốt lỗi im lặng từng làm totalPlanned/lastPlanCount sai lệch
+        // mà không ai biết (giao diện hiện "0 bài đã tạo" dù đã tạo thật).
+        console.error(
+          `[tự động] không ghi được sổ theo dõi cho Page ${config.pageId}: ` +
+            (err instanceof Error ? err.message : String(err))
+        );
       });
   }
 

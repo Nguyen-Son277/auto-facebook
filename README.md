@@ -657,6 +657,27 @@ curl -s -o /dev/null -D - -H "Cookie: session=..." https://<domain>/dashboard | 
 - `sin1::iad1::…` → **SAI**, function đang chạy ở Mỹ.
 - `sin1::sin1::…` → **ĐÚNG**, function chạy cạnh DB.
 
+### ⚠️ Múi giờ: mọi cột thời gian đều là `timestamptz`
+
+Vercel chạy **UTC**, máy dev ở Việt Nam chạy **+07**. Nếu cột thời gian là
+`timestamp` KHÔNG kèm múi giờ thì phép so sánh `scheduledAt <= now()` cho kết quả
+khác nhau tuỳ nơi chạy: bài hẹn 08:18 giờ VN (ghi từ máy +07) bị Vercel (UTC) coi là
+còn xa **7 tiếng**, nên không bao giờ tới giờ đăng.
+
+Quy ước bắt buộc từ nay:
+
+- **Mọi `DateTime` trong `prisma/schema.prisma` đều có `@db.Timestamptz(3)`** — lưu
+  mốc tuyệt đối nên ghi/đọc/so sánh giống nhau ở mọi múi giờ. Migration
+  `20260914074500_timestamptz` đã chuyển đổi, diễn giải dữ liệu cũ là **giờ Việt Nam**.
+- **Mọi phép quy đổi ngày/giờ đi qua `src/lib/autopilot-plan.ts`**: `startOfDay`,
+  `addDays`, `isoDayOf`, `formatDateKey`, `vnYearMonth`, `vnTime`. KHÔNG dùng
+  `getHours`/`setHours`/`getDay`/`new Date(y, m, d)` trực tiếp — chúng phụ thuộc
+  múi giờ của tiến trình đang chạy.
+- **Hiển thị** dùng `formatDate`/`formatDateTime` trong `src/lib/format-date.ts`
+  (đã chỉ định `timeZone: "Asia/Ho_Chi_Minh"`).
+- Kiểm chứng: `npm run test:timezone` chạy cùng một đoạn mã dưới `TZ=UTC` và
+  `TZ=Asia/Ho_Chi_Minh` rồi so sánh kết quả.
+
 ### Vì sao `SCHEDULER_IN_PROCESS=0`?
 
 Trên serverless, vòng lặp `setInterval` trong `src/instrumentation.ts` không đáng tin

@@ -5,6 +5,7 @@ import { requireCurrentUser } from "@/lib/dal";
 import { prisma } from "@/lib/prisma";
 import { retryPost } from "./publish";
 import { isSchedulerEnabled, runSchedulerTick, setSchedulerEnabled } from "@/lib/scheduler";
+import { formatDateTime } from "@/lib/format-date";
 
 // ============================================================
 // Server actions cho trang Lịch đăng (content calendar).
@@ -131,12 +132,11 @@ export async function reschedulePostAction(
 
   revalidateScheduleViews();
 
-  const p = (n: number) => String(n).padStart(2, "0");
   return {
     ok: true,
-    message: `Đã đổi lịch sang ${p(when.getHours())}:${p(when.getMinutes())} ngày ${p(
-      when.getDate()
-    )}/${p(when.getMonth() + 1)}/${when.getFullYear()}.`,
+    // formatDateTime chỉ định timeZone Việt Nam — getHours() trần sẽ lệch 7
+    // tiếng khi server chạy UTC (Vercel).
+    message: `Đã đổi lịch sang ${formatDateTime(when)}.`,
   };
 }
 

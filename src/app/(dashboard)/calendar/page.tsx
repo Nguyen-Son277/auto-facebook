@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { getSchedulerStatus } from "@/lib/scheduler";
 import PageHeader from "@/components/page-header";
 import CalendarBoard, { type CalendarPost } from "@/components/calendar-board";
+import { vnTime, vnYearMonth } from "@/lib/autopilot-plan";
 
 // ============================================================
 // Trang Lịch đăng — xem bài theo tháng, đổi lịch, hủy lịch, đăng ngay.
@@ -15,7 +16,9 @@ function parseMonth(raw?: string): { year: number; month: number } {
     const [y, m] = raw.split("-").map(Number);
     if (m >= 1 && m <= 12 && y >= 2000 && y <= 2100) return { year: y, month: m };
   }
-  return { year: now.getFullYear(), month: now.getMonth() + 1 };
+  // Tháng hiện tại theo LỊCH Việt Nam — Vercel chạy UTC nên getMonth() trần sẽ
+  // trả về tháng trước vào 7 giờ đầu ngày mùng 1.
+  return vnYearMonth(now);
 }
 
 export default async function CalendarPage({
@@ -27,13 +30,12 @@ export default async function CalendarPage({
   const sp = await searchParams;
   const { year, month } = parseMonth(sp.month);
 
-  // Biên của tháng, mở rộng thêm 7 ngày mỗi phía để lấp các ô của tuần liền kề
-  const monthStart = new Date(year, month - 1, 1, 0, 0, 0, 0);
-  const rangeStart = new Date(monthStart);
-  rangeStart.setDate(rangeStart.getDate() - 7);
-  const monthEnd = new Date(year, month, 0, 23, 59, 59, 999);
-  const rangeEnd = new Date(monthEnd);
-  rangeEnd.setDate(rangeEnd.getDate() + 7);
+  // Biên của tháng, mở rộng thêm 7 ngày mỗi phía để lấp các ô của tuần liền kề.
+  // Tính bằng giờ Việt Nam tường minh — `new Date(y, m, d)` phụ thuộc múi giờ
+  // máy chạy nên trên Vercel (UTC) sẽ lệch 7 tiếng và lấy sai khoảng bài.
+  const rangeStart = vnTime(year, month - 1, 1 - 7);
+  // 23:59:59.999 ngày cuối cùng của khoảng = 1ms trước mốc 00:00 kế tiếp
+  const rangeEnd = new Date(vnTime(year, month, 1 + 7).getTime() - 1);
 
   const [posts, status, pages] = await Promise.all([
     prisma.post.findMany({

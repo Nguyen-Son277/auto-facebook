@@ -15,8 +15,8 @@ model AppSetting {
   key       String   @id // ví dụ: "ai.baseUrl", "facebook.appId"
   value     String // đã mã hóa AES-256-GCM trước khi lưu
   group     String // "AI" | "PEXELS" | "FACEBOOK"
-  updatedAt DateTime @updatedAt
-  createdAt DateTime @default(now())
+  updatedAt DateTime @db.Timestamptz(3) @updatedAt
+  createdAt DateTime @db.Timestamptz(3) @default(now())
 }
 
 model User {
@@ -30,9 +30,9 @@ model User {
   status             String?
   /// Bật khi admin cấp mật khẩu tạm — buộc đổi mật khẩu ngay lần đăng nhập đầu.
   mustChangePassword Boolean  @default(false)
-  passwordChangedAt  DateTime?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  passwordChangedAt  DateTime? @db.Timestamptz(3)
+  createdAt DateTime @db.Timestamptz(3) @default(now())
+  updatedAt DateTime @db.Timestamptz(3) @updatedAt
 
   pages      FacebookPage[]
   posts      Post[]
@@ -71,8 +71,8 @@ model Workspace {
   /// ACTIVE | ARCHIVED
   status    String   @default("ACTIVE")
   ownerId   String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime @db.Timestamptz(3) @default(now())
+  updatedAt DateTime @db.Timestamptz(3) @updatedAt
 
   owner   User                 @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   members WorkspaceMember[]
@@ -92,7 +92,7 @@ model WorkspaceMember {
   userId      String
   /// OWNER | ADMIN | EDITOR | VIEWER
   role        String   @default("OWNER")
-  createdAt   DateTime @default(now())
+  createdAt   DateTime @db.Timestamptz(3) @default(now())
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -123,13 +123,13 @@ model FacebookConnection {
   graphVersion    String    @default("v21.0")
   /// ACTIVE | EXPIRED | ERROR | DISABLED
   status          String    @default("ACTIVE")
-  tokenExpiresAt  DateTime?
-  lastValidatedAt DateTime?
-  lastSyncedAt    DateTime?
+  tokenExpiresAt  DateTime? @db.Timestamptz(3)
+  lastValidatedAt DateTime? @db.Timestamptz(3)
+  lastSyncedAt    DateTime? @db.Timestamptz(3)
   lastError       String?
   createdById     String
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  createdAt       DateTime  @db.Timestamptz(3) @default(now())
+  updatedAt       DateTime  @db.Timestamptz(3) @updatedAt
 
   workspace Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   createdBy User           @relation(fields: [createdById], references: [id], onDelete: Cascade)
@@ -155,8 +155,8 @@ model Brand {
   /// ACTIVE | ARCHIVED
   status      String   @default("ACTIVE")
   description String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt   DateTime @db.Timestamptz(3) @default(now())
+  updatedAt   DateTime @db.Timestamptz(3) @updatedAt
 
   workspace Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   pages     FacebookPage[]
@@ -183,10 +183,10 @@ model FacebookPage {
   category       String?
   avatarUrl      String?
   accessToken    String // Page Access Token (long-lived, đã mã hóa khi lưu)
-  tokenExpiresAt DateTime? // ngày hết hạn token (nếu biết)
+  tokenExpiresAt DateTime? @db.Timestamptz(3) // ngày hết hạn token (nếu biết)
   isActive       Boolean   @default(true)
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  createdAt      DateTime  @db.Timestamptz(3) @default(now())
+  updatedAt      DateTime  @db.Timestamptz(3) @updatedAt
 
   user       User                @relation(fields: [userId], references: [id], onDelete: Cascade)
   workspace  Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
@@ -221,8 +221,8 @@ model Post {
   status       String    @default("DRAFT") // DRAFT | PENDING_REVIEW | SCHEDULED | PUBLISHING | PUBLISHED | FAILED
   errorMessage String? // lỗi khi đăng (nếu có)
   fbPostId     String? // ID bài đăng trên Facebook sau khi đăng thành công
-  scheduledAt  DateTime? // thời điểm hẹn đăng (Schedule tích hợp trong Post)
-  publishedAt  DateTime? // thời điểm đăng thực tế
+  scheduledAt  DateTime? @db.Timestamptz(3) // thời điểm hẹn đăng (Schedule tích hợp trong Post)
+  publishedAt  DateTime? @db.Timestamptz(3) // thời điểm đăng thực tế
 
   // ---- Nguồn gốc bài đăng ----
   origin     String  @default("MANUAL") // MANUAL (người dùng soạn) | AUTOPILOT (hệ thống tự tạo)
@@ -231,12 +231,12 @@ model Post {
 
   // ---- Trạng thái worker tự động đăng (Tuần 6) ----
   attempts      Int       @default(0) // số lần đã thử đăng
-  lastAttemptAt DateTime? // lần thử gần nhất
-  nextAttemptAt DateTime? // thời điểm thử lại sau lỗi (backoff)
-  lockedAt      DateTime? // worker đang giữ bài này (chống 2 worker đăng trùng)
+  lastAttemptAt DateTime? @db.Timestamptz(3) // lần thử gần nhất
+  nextAttemptAt DateTime? @db.Timestamptz(3) // thời điểm thử lại sau lỗi (backoff)
+  lockedAt      DateTime? @db.Timestamptz(3) // worker đang giữ bài này (chống 2 worker đăng trùng)
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime @db.Timestamptz(3) @default(now())
+  updatedAt DateTime @db.Timestamptz(3) @updatedAt
 
   user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   workspace Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
@@ -278,7 +278,7 @@ model Media {
   storageKey      String? // tên file trong thư mục uploads/<userId>/
   mimeType        String?
   sizeBytes       Int?
-  createdAt       DateTime @default(now())
+  createdAt       DateTime @db.Timestamptz(3) @default(now())
 
   post      Post?      @relation(fields: [postId], references: [id], onDelete: Cascade)
   user      User?      @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -323,8 +323,8 @@ model BrandProfile {
   baseHashtags String? // hashtag luôn dùng cho Page này
   samplePosts  String? // vài bài viết mẫu để AI bắt chước văn phong
   notes        String? // ghi chú thêm cho AI
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  createdAt    DateTime @db.Timestamptz(3) @default(now())
+  updatedAt    DateTime @db.Timestamptz(3) @updatedAt
 
   user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
   brand Brand @relation(fields: [brandId], references: [id], onDelete: Cascade)
@@ -345,8 +345,8 @@ model ContentPillar {
   weight      Int      @default(25) // tỉ trọng tương đối
   enabled     Boolean  @default(true)
   position    Int      @default(0)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt   DateTime @db.Timestamptz(3) @default(now())
+  updatedAt   DateTime @db.Timestamptz(3) @updatedAt
 
   user  User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   brand Brand         @relation(fields: [brandId], references: [id], onDelete: Cascade)
@@ -369,8 +369,8 @@ model KnowledgeDoc {
   kind      String   @default("OTHER") // PRODUCT|PRICE|FAQ|POLICY|STORY|OTHER
   content   String
   enabled   Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime @db.Timestamptz(3) @default(now())
+  updatedAt DateTime @db.Timestamptz(3) @updatedAt
 
   user  User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   brand Brand         @relation(fields: [brandId], references: [id], onDelete: Cascade)
@@ -427,13 +427,13 @@ model AutoPilot {
   planAheadDays Int     @default(2) // lên kế hoạch trước mấy ngày
 
   // ---- Sổ theo dõi để không lên kế hoạch trùng / không spam khi AI lỗi ----
-  lastPlannedAt DateTime?
+  lastPlannedAt DateTime? @db.Timestamptz(3)
   lastPlanError String?
   lastPlanCount Int       @default(0) // số bài tạo ra ở lần lập kế hoạch gần nhất
   totalPlanned  Int       @default(0) // tổng số bài đã tạo từ trước tới nay
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime @db.Timestamptz(3) @default(now())
+  updatedAt DateTime @db.Timestamptz(3) @updatedAt
 
   user User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   page FacebookPage @relation(fields: [pageId], references: [id], onDelete: Cascade)
@@ -456,7 +456,7 @@ model UsedMedia {
   /// ID ảnh/video trên Pexels
   providerId String
   type       String // IMAGE | VIDEO
-  usedAt     DateTime @default(now())
+  usedAt     DateTime @db.Timestamptz(3) @default(now())
 
   page FacebookPage @relation(fields: [pageId], references: [id], onDelete: Cascade)
 
@@ -485,7 +485,7 @@ model Notification {
   body      String?
   link      String? // URL nội bộ để bấm tới (/history, /change-password...)
   read      Boolean  @default(false)
-  createdAt DateTime @default(now())
+  createdAt DateTime @db.Timestamptz(3) @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -506,8 +506,8 @@ model UserSetting {
   key       String // "ai.baseUrl" | "ai.apiKey" | "ai.model" | "pexels.apiKey"
   value     String // đã mã hóa
   group     String // "AI" | "PEXELS"
-  updatedAt DateTime @updatedAt
-  createdAt DateTime @default(now())
+  updatedAt DateTime @db.Timestamptz(3) @updatedAt
+  createdAt DateTime @db.Timestamptz(3) @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -530,8 +530,8 @@ model Doc {
   /// Gửi thông báo cho mọi user khi publish?
   notifyOnPublish Boolean @default(false)
   authorId      String
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  createdAt     DateTime @db.Timestamptz(3) @default(now())
+  updatedAt     DateTime @db.Timestamptz(3) @updatedAt
 
   author User @relation(fields: [authorId], references: [id], onDelete: Cascade)
 
@@ -550,8 +550,8 @@ model FeedbackQuestion {
   /// false = ẩn khỏi trang /docs nhưng giữ lại dữ liệu
   active    Boolean  @default(true)
   authorId  String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime @db.Timestamptz(3) @default(now())
+  updatedAt DateTime @db.Timestamptz(3) @updatedAt
 
   author  User            @relation(fields: [authorId], references: [id], onDelete: Cascade)
   answers FeedbackAnswer[]
@@ -564,8 +564,8 @@ model FeedbackAnswer {
   questionId String
   userId     String
   body       String
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  createdAt  DateTime @db.Timestamptz(3) @default(now())
+  updatedAt  DateTime @db.Timestamptz(3) @updatedAt
 
   question FeedbackQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
   user     User             @relation(fields: [userId], references: [id], onDelete: Cascade)

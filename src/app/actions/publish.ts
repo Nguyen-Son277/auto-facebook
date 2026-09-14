@@ -5,6 +5,7 @@ import { requireCurrentUser } from "@/lib/dal";
 import { prisma } from "@/lib/prisma";
 import { buildMessage, deliverToFacebook } from "@/lib/deliver";
 import { notify } from "@/lib/notify";
+import { formatDateTime } from "@/lib/format-date";
 import type { GraphContext } from "@/lib/facebook";
 import {
   parseAttachments,
@@ -228,17 +229,9 @@ export async function schedulePost(
 
   return {
     ok: true,
-    message: `Đã hẹn đăng lúc ${formatVn(scheduledAt)}.`,
+    message: `Đã hẹn đăng lúc ${formatDateTime(scheduledAt)}.`,
     postId: post.id,
   };
-}
-
-/** Định dạng thời gian kiểu Việt Nam để hiện trong thông báo. */
-function formatVn(d: Date): string {
-  const p = (n: number) => String(n).padStart(2, "0");
-  return `${p(d.getHours())}:${p(d.getMinutes())} ngày ${p(d.getDate())}/${p(
-    d.getMonth() + 1
-  )}/${d.getFullYear()}`;
 }
 
 /**

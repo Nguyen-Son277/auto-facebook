@@ -36,9 +36,38 @@ export function formatHm(minutes: number): string {
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
 }
 
+// ============================================================
+// MÚI GIỜ NGHIỆP VỤ — khai báo TƯỜNG MINH, không dựa vào máy chạy.
+//
+// Vì sao: Vercel chạy UTC còn máy dev ở Việt Nam chạy +07. Trước đây các hàm
+// dưới dùng `getHours`/`setHours`/`getDay` (giờ tiến trình), nên cùng một cấu
+// hình "đăng lúc 07:00" lại cho ra hai mốc thời gian khác nhau tuỳ nơi chạy —
+// bài hẹn trên máy +07 bị Vercel coi là còn xa 7 tiếng và không đăng.
+//
+// Nay mọi phép quy đổi ngày/giờ đều tính bằng Date.UTC + độ lệch cố định,
+// nên kết quả GIỐNG HỆT nhau ở mọi múi giờ của tiến trình.
+// ============================================================
+
+/** Múi giờ nghiệp vụ của app: Việt Nam (UTC+7). */
+export const APP_UTC_OFFSET_MINUTES = 7 * 60;
+const OFFSET_MS = APP_UTC_OFFSET_MINUTES * 60 * 1000;
+
+/** Các thành phần lịch theo giờ Việt Nam của một mốc thời gian. */
+function vnParts(date: Date) {
+  const t = new Date(date.getTime() + OFFSET_MS);
+  return {
+    year: t.getUTCFullYear(),
+    month: t.getUTCMonth(), // 0-11
+    day: t.getUTCDate(),
+    weekday: t.getUTCDay(), // 0 = Chủ Nhật
+    hours: t.getUTCHours(),
+    minutes: t.getUTCMinutes(),
+  };
+}
+
 /** Thứ trong tuần theo chuẩn Việt Nam: 1 = Thứ Hai … 7 = Chủ Nhật. */
 export function isoDayOf(date: Date): number {
-  const d = date.getDay();
+  const d = vnParts(date).weekday;
   return d === 0 ? 7 : d;
 }
 
@@ -51,13 +80,51 @@ export function parseDaysOfWeek(raw: string): number[] {
   return days.length > 0 ? Array.from(new Set(days)).sort((a, b) => a - b) : [1, 2, 3, 4, 5, 6, 7];
 }
 
+/**
+ * Mốc thời gian của 00:00 giờ Việt Nam trong ngày chứa `date`.
+ *
+ * Trả về một instant tuyệt đối (không phải "nửa đêm theo máy chạy").
+ */
 export function startOfDay(date: Date): Date {
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0);
+  const p = vnParts(date);
+  return new Date(Date.UTC(p.year, p.month, p.day) - OFFSET_MS);
 }
 
+/** Cộng/trừ số ngày theo LỊCH Việt Nam (không phụ thuộc múi giờ máy chạy). */
+export function addDays(date: Date, days: number): Date {
+  const p = vnParts(date);
+  return new Date(Date.UTC(p.year, p.month, p.day + days) - OFFSET_MS);
+}
+
+/** Ngày theo lịch Việt Nam, dạng "2026-09-14" — dùng làm khoá gom nhóm. */
 export function formatDateKey(date: Date): string {
-  const p = (n: number) => String(n).padStart(2, "0");
-  return `${date.getFullYear()}-${p(date.getMonth() + 1)}-${p(date.getDate())}`;
+  const p = vnParts(date);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${p.year}-${pad(p.month + 1)}-${pad(p.day)}`;
+}
+
+/** Năm/tháng theo lịch Việt Nam của một mốc thời gian (month: 1-12). */
+export function vnYearMonth(date: Date): { year: number; month: number } {
+  const p = vnParts(date);
+  return { year: p.year, month: p.month + 1 };
+}
+
+/**
+ * Instant của một mốc giờ Việt Nam cho trước (monthIndex: 0-11).
+ * Dùng thay cho `new Date(y, m, d, ...)` — vốn phụ thuộc múi giờ máy chạy.
+ */
+export function vnTime(
+  year: number,
+  monthIndex: number,
+  day: number,
+  hours = 0,
+  minutes = 0,
+  seconds = 0,
+  ms = 0
+): Date {
+  return new Date(
+    Date.UTC(year, monthIndex, day, hours, minutes, seconds, ms) - OFFSET_MS
+  );
 }
 
 /**
@@ -108,9 +175,8 @@ export function planTimeSlots(
     if (slots[i] - slots[i - 1] < gap) slots[i] = slots[i - 1] + gap;
   }
 
-  // Đổi giờ của bài đã có sang "số phút trong ngày" để so sánh cùng đơn vị
-  const midnight = new Date(date);
-  midnight.setHours(0, 0, 0, 0);
+  // Đổi giờ của bài đã có sang "số phút trong ngày" (theo lịch VN) để so sánh
+  const midnight = startOfDay(date);
   const takenMinutes = takenMs
     .map((ms) => Math.round((ms - midnight.getTime()) / 60000))
     .filter((m) => m >= 0 && m <= 24 * 60);
@@ -125,9 +191,8 @@ export function planTimeSlots(
     // khi bộ lập kế hoạch chạy nhiều lượt cho cùng một ngày.
     if (used.some((t) => Math.abs(t - minutes) < gap)) continue;
 
-    const d = new Date(date);
-    d.setHours(0, 0, 0, 0);
-    d.setMinutes(minutes);
+    // 00:00 giờ VN + số phút trong ngày → instant tuyệt đối, giống nhau ở mọi máy
+    const d = new Date(midnight.getTime() + minutes * 60000);
     if (notBefore && d.getTime() < notBefore.getTime()) continue;
 
     used.push(minutes);
