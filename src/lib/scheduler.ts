@@ -396,12 +396,54 @@ export const PLANNER_INTERVAL_MS = Number(
 const PLANNER_CLOCK = "__marketingPlannerLastRunAt" as const;
 
 /**
+ * Thời hạn "thuê bao" lập kế hoạch (mặc định 10 phút).
+ *
+ * Cố ý LỚN HƠN nhịp cron khuyến nghị (5 phút): một lượt lập kế hoạch có thể gọi
+ * AI cho tới MAX_POSTS_PER_RUN bài nên mất vài phút. Nếu thuê bao hết hạn sớm
+ * hơn thời gian chạy thật thì nhịp cron kế tiếp sẽ chạy chồng.
+ */
+export const PLANNER_LEASE_MS = Number(
+  process.env.PLANNER_LEASE_MS ?? 10 * 60 * 1000
+);
+
+/** Khoá thuê bao lưu trong AppSetting — dùng chung cho MỌI tiến trình. */
+const PLANNER_LEASE_KEY = "scheduler.plannerLease";
+
+/**
+ * Giành thuê bao lập kế hoạch. `true` = được phép chạy.
+ *
+ * Vì sao cần lớp này: `PLANNER_CLOCK` (dưới) và `RUN_GUARD` trong autopilot.ts
+ * chỉ sống trong MỘT tiến trình. Trên Vercel mỗi lambda instance có globalThis
+ * riêng, nên 2 instance có thể cùng lập kế hoạch → cùng tính ra một bộ slot →
+ * tạo bài TRÙNG, vì Post không có ràng buộc duy nhất trên (pageId, scheduledAt).
+ */
+async function acquirePlannerLease(): Promise<boolean> {
+  const raw = await getSetting(PLANNER_LEASE_KEY).catch(() => null);
+  const last = raw ? Date.parse(raw) : NaN;
+  if (Number.isFinite(last) && Date.now() - last < PLANNER_LEASE_MS) return false;
+  // Ghi NGAY, trước khi gọi AI — để instance khác thấy khoá.
+  await setSetting(PLANNER_LEASE_KEY, new Date().toISOString()).catch(() => {});
+  return true;
+}
+
+/** Nhả thuê bao: ghi mốc đã cũ để lượt kế tiếp chạy được ngay. */
+async function releasePlannerLease(): Promise<void> {
+  await setSetting(
+    PLANNER_LEASE_KEY,
+    new Date(Date.now() - PLANNER_LEASE_MS).toISOString()
+  ).catch(() => {});
+}
+
+/**
  * Xin chạy bộ lập kế hoạch. KHÔNG chờ kết quả — trả về ngay.
  *
- * Gọi được từ cả vòng lặp trong app lẫn endpoint cron bên ngoài; lớp giãn
- * cách đảm bảo gọi dồn dập cũng chỉ chạy đúng một lần mỗi chu kỳ.
+ * Gọi được từ cả vòng lặp trong app lẫn endpoint cron bên ngoài; hai lớp bảo vệ
+ * đảm bảo gọi dồn dập cũng chỉ chạy đúng một lần mỗi chu kỳ:
+ *   1. Giãn cách trong tiến trình (nhanh, khỏi đụng DB mỗi nhịp).
+ *   2. Thuê bao trong DB (chặn 2 instance serverless chạy chồng).
  *
- * @param force bỏ qua giãn cách (dùng cho nút "Lên kế hoạch ngay")
+ * @param force bỏ qua lớp giãn cách (nút "Lên kế hoạch ngay"), NHƯNG vẫn tôn
+ *              trọng thuê bao — không chồng lên lượt nền đang chạy.
  */
 export function kickAutopilotPlanner(force = false): boolean {
   const g = globalThis as Record<string, unknown>;
@@ -412,6 +454,12 @@ export function kickAutopilotPlanner(force = false): boolean {
   g[PLANNER_CLOCK] = now;
 
   void (async () => {
+    if (!(await acquirePlannerLease())) {
+      console.log(
+        "[tự động] bỏ qua lượt lập kế hoạch — một tiến trình khác đang giữ thuê bao."
+      );
+      return;
+    }
     try {
       // KHÔNG gửi thông báo "AutoPilot bắt đầu chạy" nữa.
       //
@@ -485,6 +533,10 @@ export function kickAutopilotPlanner(force = false): boolean {
       console.error(
         `[tự động] lỗi khi lập kế hoạch: ${err instanceof Error ? err.message : String(err)}`
       );
+    } finally {
+      // Nhả thuê bao kể cả khi lỗi — nếu không, một lần chết giữa chừng sẽ
+      // chặn mọi lượt lập kế hoạch cho tới khi thuê bao hết hạn.
+      await releasePlannerLease();
     }
   })();
 

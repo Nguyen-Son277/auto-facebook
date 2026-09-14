@@ -329,3 +329,38 @@ export function decideMediaKind(
   // Cách này giữ đúng tỉ lệ tổng thể mà thứ tự vẫn ngẫu nhiên.
   return random() < remainingVideos / remainingPosts ? "VIDEO" : "IMAGE";
 }
+
+// ============================================================
+// THỨ TỰ ƯU TIÊN NGÀY & CHÍNH SÁCH KHI LỖI
+// ============================================================
+
+/** Số lỗi LIÊN TIẾP đủ để dừng lập kế hoạch cho cả Page trong lượt hiện tại. */
+export const MAX_CONSECUTIVE_SLOT_FAILURES = 2;
+
+/** Đã đủ lỗi liên tiếp để bỏ cả Page trong lượt này chưa. */
+export function shouldAbortPage(consecutiveFailures: number): boolean {
+  return consecutiveFailures >= MAX_CONSECUTIVE_SLOT_FAILURES;
+}
+
+/**
+ * Sắp xếp các ngày cần lập kế hoạch: ngày càng TRỐNG càng lên trước, bằng nhau
+ * thì theo thứ tự thời gian.
+ *
+ * Vì sao cần: sau khi người dùng xoá bài của một ngày, ngày đó phải được trám
+ * lại. Nếu cứ đi tuần tự theo thời gian, ngày trống sớm nhất luôn hứng lỗi AI
+ * đầu tiên (thường là timeout do model "nguội") rồi bị bỏ trắng, trong khi các
+ * ngày sau lại tạo được bình thường — đúng lỗi "xoá bài xong ngày đó không có
+ * nội dung mới".
+ */
+export function orderDaysByNeed<T extends { day: Date; existing: number }>(
+  items: T[],
+  postsPerDay: number
+): T[] {
+  const target = postsPerDay > 0 ? postsPerDay : 1;
+  return [...items].sort((a, b) => {
+    const ratioA = a.existing / target;
+    const ratioB = b.existing / target;
+    if (ratioA !== ratioB) return ratioA - ratioB;
+    return a.day.getTime() - b.day.getTime();
+  });
+}

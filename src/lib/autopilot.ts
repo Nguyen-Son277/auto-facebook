@@ -18,10 +18,12 @@ import {
   formatDateKey,
   formatHm,
   isoDayOf,
+  orderDaysByNeed,
   parseDaysOfWeek,
   parseHm,
   pickPillar,
   planTimeSlots,
+  shouldAbortPage,
   startOfDay,
   videoQuotaForDay,
   MAX_PLAN_AHEAD_DAYS,
@@ -103,6 +105,11 @@ export type AutoPilotConfig = {
   toneOverride: string | null;
   useHashtags: boolean;
   planAheadDays: number;
+  /**
+   * Mốc neo lập kế hoạch. `null` = bắt đầu từ hôm nay.
+   * Đặt ngày tương lai để hoãn, hoặc để bắt đầu lại từ một mốc sạch.
+   */
+  startDate: Date | null;
   lastPlannedAt: Date | null;
   lastPlanError: string | null;
   lastPlanCount: number;
@@ -361,9 +368,29 @@ async function createPlannedPost(input: {
   kind: "IMAGE" | "VIDEO";
 }): Promise<
   | { ok: true; topic: string; hook: string | null; mediaWarning?: string; kind: "IMAGE" | "VIDEO" }
-  | { ok: false; error: string }
+  | { ok: false; error: string; duplicate?: boolean }
 > {
   const { config, pillar } = input;
+
+  // Chống trùng: hai tiến trình (lambda instance, hoặc 2 nhịp cron chồng nhau)
+  // có thể cùng tính ra một slot. Kiểm tra NGAY từ đầu để vừa không tạo bài
+  // trùng, vừa không tốn một lượt gọi AI. Post không có ràng buộc duy nhất trên
+  // (pageId, scheduledAt) nên đây là chốt chặn ở tầng ứng dụng.
+  const duplicate = await prisma.post.findFirst({
+    where: {
+      pageId: input.pageId,
+      origin: "AUTOPILOT",
+      scheduledAt: input.scheduledAt,
+    },
+    select: { id: true },
+  });
+  if (duplicate) {
+    return {
+      ok: false,
+      duplicate: true,
+      error: "Slot này đã có bài AutoPilot — bỏ qua để tránh trùng.",
+    };
+  }
 
   const tone = (config.toneOverride ?? "") as Tone;
   const brand = await loadBrandContext(input.pageId, {
@@ -559,43 +586,71 @@ export async function planForAutoPilot(
 
   const leadCutoff = new Date(now.getTime() + MIN_LEAD_MS);
   let lastError: string | undefined;
+  // Số lỗi LIÊN TIẾP trong phạm vi cả Page — chỉ reset khi có bài tạo thành công
+  let consecutiveFailures = 0;
   // Số video đã dùng trong từng ngày — để chế độ MIXED không vượt hạn ngạch
   const videosUsedByDay = new Map<string, number>();
 
+  // ===== Mốc neo: hôm nay, hoặc startDate nếu người dùng đặt xa hơn =====
+  const todayStart = startOfDay(now);
+  const anchor =
+    config.startDate && config.startDate.getTime() > todayStart.getTime()
+      ? startOfDay(config.startDate)
+      : todayStart;
+
+  // ===== Bước 1: thu thập nhu cầu của từng ngày trong tầm kế hoạch =====
+  // Tính trước để biết ngày nào còn thiếu bao nhiêu bài, rồi mới sắp ưu tiên.
+  type DayPlan = { day: Date; existing: number; needed: number; isToday: boolean };
+  const dayPlans: DayPlan[] = [];
   for (let offset = 0; offset < ahead; offset++) {
-    if (budget.remaining <= 0) break;
-
-    const day = addDays(startOfDay(now), offset);
-
+    const day = addDays(anchor, offset);
     if (!days.includes(isoDayOf(day))) continue;
 
     const existing = await countPlannedForDay(config.pageId, day);
-    let needed = Math.min(config.postsPerDay, MAX_POSTS_PER_DAY) - existing;
+    const needed = Math.min(config.postsPerDay, MAX_POSTS_PER_DAY) - existing;
     if (needed <= 0) continue;
+
+    dayPlans.push({
+      day,
+      existing,
+      needed,
+      isToday: day.getTime() === todayStart.getTime(),
+    });
+  }
+
+  // ===== Bước 2: ngày càng TRỐNG càng được trám trước =====
+  // Nhờ vậy sau khi người dùng xoá bài của một ngày, ngày đó được lấp ngay ở
+  // lượt kế tiếp, thay vì bị các ngày khác "ăn" hết ngân sách hoặc hứng lỗi AI
+  // đầu tiên (model "nguội" hay timeout) rồi bị bỏ trắng.
+  const ordered = orderDaysByNeed(dayPlans, config.postsPerDay);
+
+  // ===== Bước 3: tạo bài theo thứ tự ưu tiên =====
+  for (const { day, existing, needed, isToday } of ordered) {
+    if (budget.remaining <= 0) break;
+
+    const dayEnd = addDays(day, 1);
 
     // Đếm video đã có trong ngày (từ những lượt lập kế hoạch trước) để
     // hạn ngạch tính cho đúng tổng ngày, không chỉ từng lượt chạy.
     let videosUsed = videosUsedByDay.get(formatDateKey(day)) ?? 0;
     if (existing > 0) {
-      const videoCount = await prisma.post.count({
+      videosUsed = await prisma.post.count({
         where: {
           pageId: config.pageId,
           origin: "AUTOPILOT",
           status: { in: ["PENDING_REVIEW", "SCHEDULED", "PUBLISHING", "PUBLISHED"] },
           OR: [
-            { scheduledAt: { gte: day, lt: new Date(day.getTime() + 24 * 60 * 60 * 1000) } },
-            { publishedAt: { gte: day, lt: new Date(day.getTime() + 24 * 60 * 60 * 1000) } },
+            { scheduledAt: { gte: day, lt: dayEnd } },
+            { publishedAt: { gte: day, lt: dayEnd } },
           ],
           media: { some: { type: "VIDEO" } },
         },
       });
-      videosUsed = videoCount;
     }
 
     // Giờ đăng của các bài ĐÃ có trong ngày — để slot mới không xếp sát chúng.
     // Không có bước này, lượt lập kế hoạch thứ hai sẽ chèn bài vào giữa các
     // bài của lượt đầu và phá vỡ khoảng cách tối thiểu người dùng đặt.
-    const dayEnd = new Date(day.getTime() + 24 * 60 * 60 * 1000);
     const takenRows = await prisma.post.findMany({
       where: {
         pageId: config.pageId,
@@ -609,14 +664,15 @@ export async function planForAutoPilot(
       .map((r) => r.scheduledAt?.getTime())
       .filter((t): t is number => typeof t === "number");
 
-    // Với hôm nay: chỉ xếp được slot còn đủ xa hiện tại
-    const notBefore = offset === 0 ? leadCutoff : null;
+    // Với HÔM NAY: chỉ xếp được slot còn đủ xa hiện tại. Ngày khác không bị
+    // giới hạn này — kể cả khi mốc neo là startDate trong tương lai.
+    const notBefore = isToday ? leadCutoff : null;
     const slots = planTimeSlots(config, day, notBefore, random, takenMs);
     if (slots.length === 0) continue;
 
-    needed = Math.min(needed, slots.length, budget.remaining);
+    const toCreate = Math.min(needed, slots.length, budget.remaining);
 
-    for (let i = 0; i < needed; i++) {
+    for (let i = 0; i < toCreate; i++) {
       const pillar = pickPillar(pillars, recentNames);
       if (!pillar) break;
 
@@ -642,6 +698,7 @@ export async function planForAutoPilot(
       });
 
       if (res.ok) {
+        consecutiveFailures = 0;
         outcome.created++;
         budget.remaining--;
         if (res.mediaWarning) {
@@ -656,13 +713,23 @@ export async function planForAutoPilot(
         // Ghi lại chủ đề vừa viết để lượt sau AI tránh lặp
         recentTopics.unshift(`${pillar.name} — ${res.topic}`);
         if (recentTopics.length > RECENT_TOPIC_LIMIT) recentTopics.pop();
-      } else {
-        outcome.skipped++;
-        lastError = res.error;
-        // Lỗi AI thường lặp lại ngay → dừng luôn cho Page này, thử lại sau
-        break;
+        continue;
       }
+
+      // Slot đã có bài (tiến trình khác vừa tạo) — không phải lỗi, thử slot kế.
+      if (res.duplicate) continue;
+
+      outcome.skipped++;
+      lastError = res.error;
+      consecutiveFailures++;
+
+      // MỘT lỗi thoáng qua (model timeout) KHÔNG được xoá trắng cả ngày: thử
+      // tiếp slot kế tiếp của cùng ngày. Chỉ dừng cả Page khi lỗi lặp lại
+      // liên tiếp, để không gọi AI vô hạn khi provider đang hỏng.
+      if (shouldAbortPage(consecutiveFailures)) break;
     }
+
+    if (shouldAbortPage(consecutiveFailures)) break;
   }
 
   if (lastError) outcome.error = lastError;

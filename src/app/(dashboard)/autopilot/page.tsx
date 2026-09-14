@@ -110,6 +110,7 @@ export default async function AutopilotPage({
                   toneOverride: config.toneOverride,
                   useHashtags: config.useHashtags,
                   planAheadDays: config.planAheadDays,
+                  startDate: config.startDate,
                   lastPlannedAt: config.lastPlannedAt?.toISOString() ?? null,
                   lastPlanError: config.lastPlanError,
                   totalPlanned: config.totalPlanned,

@@ -12,6 +12,8 @@ import {
   clampPostsPerDay,
   clampVideoPercent,
   decideMediaKind,
+  orderDaysByNeed,
+  shouldAbortPage,
   videoQuotaForDay,
   formatHm,
   isoDayOf,
@@ -20,6 +22,7 @@ import {
   pickPillar,
   planTimeSlots,
   startOfDay,
+  MAX_CONSECUTIVE_SLOT_FAILURES,
 } from "../src/lib/autopilot-plan.ts";
 
 let passed = 0;
@@ -372,6 +375,91 @@ check(
   }
   check("25% + 4 bài/ngày → ngày nào cũng đúng 1 video, không dồn cục", allOk);
 }
+
+// ============================================================
+// Thứ tự ưu tiên ngày + chính sách khi lỗi
+// ============================================================
+
+/** Ngày UTC để test thuần — giá trị tuyệt đối, không phụ thuộc máy chạy. */
+const utcDay = (iso) => new Date(`${iso}T00:00:00.000Z`);
+const dayOfMonth = (x) => x.day.toISOString().slice(8, 10);
+
+// Ngày càng TRỐNG càng lên trước — đây là cơ chế trám lại ngày đã bị xoá bài.
+{
+  const ordered = orderDaysByNeed(
+    [
+      { day: utcDay("2026-09-14"), existing: 2 },
+      { day: utcDay("2026-09-15"), existing: 0 },
+      { day: utcDay("2026-09-16"), existing: 1 },
+    ],
+    2
+  );
+  check(
+    "ngày trống nhất được trám trước",
+    ordered.map((x) => x.existing).join(",") === "0,1,2",
+    ordered.map((x) => x.existing).join(",")
+  );
+  check("không mất ngày nào khi sắp xếp", ordered.length === 3);
+}
+
+// Bằng nhau về mức thiếu → giữ thứ tự thời gian
+{
+  const ordered = orderDaysByNeed(
+    [
+      { day: utcDay("2026-09-16"), existing: 0 },
+      { day: utcDay("2026-09-14"), existing: 0 },
+      { day: utcDay("2026-09-15"), existing: 0 },
+    ],
+    2
+  );
+  check(
+    "hoà thì xếp theo thứ tự thời gian",
+    ordered.map(dayOfMonth).join(",") === "14,15,16",
+    ordered.map(dayOfMonth).join(",")
+  );
+}
+
+// Nhờ "trám trước", ngày bị xoá trắng không còn bị ngày khác chiếm lượt
+{
+  const ordered = orderDaysByNeed(
+    [
+      { day: utcDay("2026-09-14"), existing: 2 },
+      { day: utcDay("2026-09-15"), existing: 2 },
+      { day: utcDay("2026-09-16"), existing: 0 },
+    ],
+    2
+  );
+  check("ngày bị xoá hết bài (16/09) lên đầu hàng đợi", dayOfMonth(ordered[0]) === "16");
+}
+
+// Không sửa mảng gốc, và giữ nguyên các trường phụ
+{
+  const src = [
+    { day: utcDay("2026-09-14"), existing: 2, needed: 0, isToday: true },
+    { day: utcDay("2026-09-15"), existing: 0, needed: 2, isToday: false },
+  ];
+  const ordered = orderDaysByNeed(src, 2);
+  check("không sửa mảng gốc", src[0].existing === 2);
+  check("giữ nguyên trường phụ (needed, isToday)", ordered[0].needed === 2 && ordered[0].isToday === false);
+}
+
+// postsPerDay = 0 không được gây chia cho 0
+{
+  const ordered = orderDaysByNeed(
+    [
+      { day: utcDay("2026-09-14"), existing: 3 },
+      { day: utcDay("2026-09-15"), existing: 1 },
+    ],
+    0
+  );
+  check("postsPerDay = 0 vẫn sắp xếp được (không chia cho 0)", ordered.length === 2);
+}
+
+// Chính sách lỗi: 1 lỗi thoáng qua KHÔNG được bỏ cả ngày
+check("0 lỗi → chưa bỏ Page", shouldAbortPage(0) === false);
+check("1 lỗi → vẫn thử tiếp (không xoá trắng ngày)", shouldAbortPage(1) === false);
+check("2 lỗi liên tiếp → bỏ Page trong lượt này", shouldAbortPage(2) === true);
+check("ngưỡng bỏ Page đúng bằng 2", MAX_CONSECUTIVE_SLOT_FAILURES === 2);
 
 // ============================================================
 console.log(`\n${"=".repeat(52)}`);

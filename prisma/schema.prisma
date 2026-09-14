@@ -425,6 +425,9 @@ model AutoPilot {
   toneOverride  String? // để trống = dùng giọng điệu của hồ sơ thương hiệu
   useHashtags   Boolean @default(true)
   planAheadDays Int     @default(2) // lên kế hoạch trước mấy ngày
+  /// Mốc neo lập kế hoạch. null = bắt đầu từ hôm nay. Đặt ngày tương lai để
+  /// hoãn, hoặc để bắt đầu lại từ một mốc sạch sau khi xoá bài cũ.
+  startDate     DateTime? @db.Timestamptz(3)
 
   // ---- Sổ theo dõi để không lên kế hoạch trùng / không spam khi AI lỗi ----
   lastPlannedAt DateTime? @db.Timestamptz(3)

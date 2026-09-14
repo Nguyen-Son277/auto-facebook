@@ -3,7 +3,7 @@
 import { APP_TIME_ZONE } from "@/lib/format-date";
 
 import Link from "next/link";
-import { useActionState, useState, useTransition } from "react";
+import { useActionState, useEffect, useRef, useState, useTransition } from "react";
 import {
   approveAllPlanned,
   approvePlannedPost,
@@ -15,7 +15,8 @@ import {
   type AutoPilotState,
 } from "@/app/actions/autopilot";
 import { TONES } from "@/lib/ai-prompts";
-import { videoQuotaForDay } from "@/lib/autopilot-plan";
+import { formatDateKey, videoQuotaForDay } from "@/lib/autopilot-plan";
+import { pushToast } from "./toast-provider";
 import { statusBadgeOf } from "@/lib/posts";
 
 // ============================================================
@@ -62,6 +63,8 @@ export type AutoPilotConfigView = {
   toneOverride: string | null;
   useHashtags: boolean;
   planAheadDays: number;
+  /** Mốc neo lập kế hoạch — null = bắt đầu từ hôm nay. */
+  startDate: Date | null;
   lastPlannedAt: string | null;
   lastPlanError: string | null;
   totalPlanned: number;
@@ -91,6 +94,22 @@ function Alert({ state, testId }: { state: AutoPilotState; testId?: string }) {
   );
 }
 
+/**
+ * Đẩy kết quả một server action lên toast thay vì khối chữ inline.
+ *
+ * Vì sao: trang Tự động đăng từng có nhiều khối thông báo thường trú chiếm chỗ.
+ * Toast hiện ngay tại góc dưới phải rồi tự ẩn, còn thông báo hệ thống vẫn nằm
+ * trong chuông. `testId` giữ nguyên selector mà test E2E đang dùng.
+ */
+function showResultToast(state: AutoPilotState, testId: string) {
+  if (!state || (!state.ok && !state.error)) return;
+  pushToast({
+    kind: state.error ? "error" : "ok",
+    title: state.error ?? state.message ?? "Đã xong.",
+    testId,
+  });
+}
+
 function formatWhen(iso: string): string {
   if (!iso) return "—";
   return new Date(iso).toLocaleString("vi-VN", {
@@ -116,7 +135,6 @@ function PowerSwitch({
   enabled: boolean;
   hasConfig: boolean;
 }) {
-  const [notice, setNotice] = useState<AutoPilotState>(null);
   const [pending, startTransition] = useTransition();
 
   return (
@@ -147,7 +165,10 @@ function PowerSwitch({
           disabled={pending || !hasConfig}
           onClick={() =>
             startTransition(async () => {
-              setNotice(await toggleAutoPilot(pageId, !enabled));
+              showResultToast(
+                await toggleAutoPilot(pageId, !enabled),
+                "autopilot-toggle-notice"
+              );
             })
           }
           className={`rounded-lg px-5 py-2.5 text-sm font-semibold text-white transition disabled:opacity-60 ${
@@ -157,12 +178,6 @@ function PowerSwitch({
           {pending ? "Đang xử lý…" : enabled ? "Tắt tự động" : "Bật tự động"}
         </button>
       </div>
-
-      {notice ? (
-        <div className="mt-3">
-          <Alert state={notice} testId="autopilot-toggle-notice" />
-        </div>
-      ) : null}
     </div>
   );
 }
@@ -479,6 +494,24 @@ function SettingsForm({
             </div>
 
             <div>
+              <label className={labelCls} htmlFor="ap-startDate">
+                Bắt đầu lên lịch từ ngày
+              </label>
+              <input
+                id="ap-startDate"
+                name="startDate"
+                type="date"
+                data-testid="ap-startDate"
+                defaultValue={config?.startDate ? formatDateKey(config.startDate) : ""}
+                className={`${inputCls} mt-1`}
+              />
+              <p className={hintCls}>
+                Để trống = bắt đầu từ hôm nay. Đặt ngày tương lai để hoãn, hoặc để
+                lên lại kế hoạch từ một mốc sạch sau khi xoá bài cũ.
+              </p>
+            </div>
+
+            <div>
               <label className={labelCls} htmlFor="ap-length">
                 Độ dài bài
               </label>
@@ -549,12 +582,11 @@ function PlanPreview({
   enabled: boolean;
   pendingReview: number;
 }) {
-  const [notice, setNotice] = useState<AutoPilotState>(null);
   const [pending, startTransition] = useTransition();
 
   const run = (fn: () => Promise<AutoPilotState>) =>
     startTransition(async () => {
-      setNotice(await fn());
+      showResultToast(await fn(), "ap-plan-notice");
     });
 
   return (
@@ -610,12 +642,6 @@ function PlanPreview({
           ) : null}
         </div>
       </div>
-
-      {notice ? (
-        <div className="mt-3">
-          <Alert state={notice} testId="ap-plan-notice" />
-        </div>
-      ) : null}
 
       {posts.length === 0 ? (
         <p className="mt-4 rounded-lg border border-dashed border-gray-300 p-6 text-center text-sm text-gray-500">
@@ -723,6 +749,27 @@ export default function AutopilotDashboard({
   // Cảnh báo sớm: hết quota Pexels thì bài sẽ ra không có ảnh
   const quotaLow = quota.remaining <= 20;
 
+  // Lỗi lập kế hoạch gần nhất: hiện MỘT toast rồi thôi, thay cho khối chữ đỏ
+  // thường trú trên trang. Nội dung vẫn nằm trong chuông (scheduler gửi kèm
+  // tổng kết "AutoPilot hoàn tất"). `shownRef` chặn toast lặp khi re-render.
+  const lastPlanError = config?.lastPlanError ?? null;
+  const shownErrorRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!lastPlanError || shownErrorRef.current === lastPlanError) return;
+    shownErrorRef.current = lastPlanError;
+    const onlyMedia = lastPlanError.includes("không tìm được ảnh");
+    pushToast({
+      kind: onlyMedia ? "info" : "error",
+      title: onlyMedia
+        ? "Lần lập kế hoạch gần nhất thiếu ảnh"
+        : "Lần lập kế hoạch gần nhất bị lỗi",
+      body: onlyMedia
+        ? `${lastPlanError} — bài vẫn được tạo dạng chỉ có chữ. Kiểm tra Pexels API Key ở trang Cài đặt.`
+        : lastPlanError,
+      testId: "ap-last-error",
+    });
+  }, [lastPlanError]);
+
   return (
     <div className="space-y-5">
       {!readiness.hasBrand ? (
@@ -797,33 +844,6 @@ export default function AutopilotDashboard({
             <span className="ml-1 text-xs opacity-70">(ước lượng)</span>
           ) : null}
         </div>
-      ) : null}
-
-      {config?.lastPlanError ? (
-        // Thiếu ảnh là cảnh báo (bài vẫn tạo được), khác với lỗi chặn
-        (() => {
-          const onlyMedia = config.lastPlanError.includes("không tìm được ảnh");
-          return (
-            <div
-              className={`rounded-lg px-4 py-3 text-sm ${
-                onlyMedia ? "bg-amber-50 text-amber-800" : "bg-red-50 text-red-700"
-              }`}
-              data-testid="ap-last-error"
-            >
-              <p className="font-medium">
-                {onlyMedia
-                  ? "⚠ Lần lập kế hoạch gần nhất thiếu ảnh:"
-                  : "Lần lập kế hoạch gần nhất bị lỗi:"}
-              </p>
-              <p className="mt-1 text-xs">{config.lastPlanError}</p>
-              {onlyMedia ? (
-                <p className="mt-1 text-xs">
-                  Bài vẫn được tạo (dạng chỉ có chữ). Kiểm tra Pexels API Key ở trang Cài đặt.
-                </p>
-              ) : null}
-            </div>
-          );
-        })()
       ) : null}
 
       <PlanPreview

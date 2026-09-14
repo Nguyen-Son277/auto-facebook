@@ -1,9 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useState, useTransition } from "react";
+import { useTransition } from "react";
 import { toggleAllAutoPilots, toggleAutoPilot, type AutoPilotState } from "@/app/actions/autopilot";
 import type { AutoPilotConfigRow } from "@/lib/autopilot";
+import { pushToast } from "@/components/toast-provider";
 
 const DAYS_SHORT = ["CN", "T2", "T3", "T4", "T5", "T6", "T7"];
 
@@ -25,27 +26,22 @@ export default function AutopilotListClient({
   configs: AutoPilotConfigRow[];
 }) {
   const [pending, startTransition] = useTransition();
-  const [message, setMessage] = useState<AutoPilotState>(null);
 
+  // Kết quả thao tác đi thẳng ra toast — trang không còn khối chữ inline.
   const run = (fn: () => Promise<AutoPilotState>) => {
     startTransition(async () => {
       const res = await fn();
-      setMessage(res);
+      if (!res || (!res.ok && !res.error)) return;
+      pushToast({
+        kind: res.error ? "error" : "ok",
+        title: res.error ?? res.message ?? "Đã xong.",
+        testId: "ap-list-alert",
+      });
     });
   };
 
   return (
     <div className="space-y-4">
-      {message && (message.ok || message.error) ? (
-        <div
-          data-testid="ap-list-alert"
-          className={`rounded-lg px-3 py-2 text-sm ${
-            message.error ? "bg-red-50 text-red-700" : "bg-emerald-50 text-emerald-700"
-          }`}
-        >
-          {message.error ? `✗ ${message.error}` : `✓ ${message.message}`}
-        </div>
-      ) : null}
 
       <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white">
         <table className="w-full text-sm" data-testid="ap-config-table">

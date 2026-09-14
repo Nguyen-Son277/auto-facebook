@@ -4,6 +4,7 @@ import { logout } from "@/app/actions/auth";
 import SidebarNav from "@/components/sidebar-nav";
 import NotificationBell from "@/components/notification-bell";
 import NotificationToast from "@/components/notification-toast";
+import { ToastHost } from "@/components/toast-provider";
 
 export default async function DashboardLayout({
   children,
@@ -88,7 +89,9 @@ export default async function DashboardLayout({
         <main className="flex-1 p-4 md:p-8">{children}</main>
        </div>
 
-      {/* Toast thông báo — popup nhỏ góc dưới trái, mọi trang dashboard */}
+      {/* Toast dùng chung — popup nhỏ góc dưới phải, mọi trang dashboard.
+          NotificationToast chỉ là producer (poll DB), ToastHost lo hiển thị. */}
+      <ToastHost />
       <NotificationToast />
     </div>
   );

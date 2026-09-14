@@ -9,10 +9,14 @@ import { kickAutopilotPlanner } from "@/lib/scheduler";
 import { runAutopilotPlanner, type PlannerRunResult } from "@/lib/autopilot";
 import { getPageReadiness, readinessProblem } from "@/lib/brand";
 import {
+  addDays,
   clampPlanAheadDays,
   clampPostsPerDay,
+  formatDateKey,
   parseDaysOfWeek,
   parseHm,
+  startOfDay,
+  vnTime,
 } from "@/lib/autopilot-plan";
 
 // ============================================================
@@ -31,6 +35,9 @@ export type AutoPilotState = {
 
 const str = (fd: FormData, key: string) => String(fd.get(key) ?? "").trim();
 const bool = (fd: FormData, key: string) => str(fd, key) === "1" || str(fd, key) === "on";
+
+/** Ngày bắt đầu lên lịch xa nhất được phép — chặn giá trị vô lý. */
+const MAX_START_DATE_DAYS = 90;
 
 async function assertOwnedPage(userId: string, pageId: string) {
   if (!pageId) return null;
@@ -114,6 +121,30 @@ export async function saveAutoPilot(
           ? "VIDEO"
           : "IMAGE";
 
+  // Mốc neo lập kế hoạch: "YYYY-MM-DD" → instant 00:00 giờ Việt Nam.
+  // Trống, ở quá khứ, hoặc là hôm nay → null (bắt đầu từ hôm nay).
+  const startDateRaw = str(formData, "startDate");
+  let startDate: Date | null = null;
+  if (startDateRaw) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(startDateRaw);
+    if (!m) {
+      return { ok: false, error: "Ngày bắt đầu không hợp lệ — dùng định dạng YYYY-MM-DD." };
+    }
+    const picked = vnTime(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+    // vnTime tự cuộn ngày không tồn tại (31/02 → 03/03) nên phải so lại
+    if (formatDateKey(picked) !== startDateRaw) {
+      return { ok: false, error: "Ngày bắt đầu không tồn tại." };
+    }
+    const today = startOfDay(new Date());
+    if (picked.getTime() > addDays(today, MAX_START_DATE_DAYS).getTime()) {
+      return {
+        ok: false,
+        error: `Ngày bắt đầu quá xa — tối đa ${MAX_START_DATE_DAYS} ngày kể từ hôm nay.`,
+      };
+    }
+    startDate = picked.getTime() > today.getTime() ? picked : null;
+  }
+
   const data = {
     mode: str(formData, "mode") === "AUTO" ? "AUTO" : "REVIEW",
     postsPerDay,
@@ -132,6 +163,7 @@ export async function saveAutoPilot(
     toneOverride: str(formData, "toneOverride") || null,
     useHashtags: bool(formData, "useHashtags"),
     planAheadDays: clampPlanAheadDays(Number(str(formData, "planAheadDays"))),
+    startDate,
   };
 
   await prisma.autoPilot.upsert({
