@@ -135,6 +135,7 @@ export default async function BrandPage({
             driveConnected={driveStatus.connected}
             pickerReady={driveStatus.pickerReady}
             pickerApiKey={process.env.GOOGLE_PICKER_API_KEY ?? ""}
+            fullDriveRead={driveStatus.fullDriveRead}
           />
 
           <BrandEditor

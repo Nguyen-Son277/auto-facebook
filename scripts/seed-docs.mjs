@@ -274,23 +274,47 @@ Cần một **OAuth Client** trên Google Cloud:
 
 Vào [Cài đặt](/settings) → mục **Google Drive cá nhân** → bấm **Kết nối Google Drive** và đồng ý cấp quyền. Mỗi người dùng dùng Drive của chính mình; ảnh không đi qua dung lượng của hệ thống.
 
-## 3. Gắn thư mục cho từng thương hiệu
+## 3. Hai chế độ lấy ảnh Drive
 
-Vào [Thương hiệu](/brand) → chọn thương hiệu → mở khối **Ảnh/video từ Google Drive** → **Chọn thư mục trên Drive**.
+Tuỳ quyền đã cấp mà app lấy ảnh theo một trong hai cách. Xem chế độ hiện tại ở
+[Cài đặt](/settings) → **Google Drive cá nhân** → **Chế độ quyền**.
 
-Tạo trên Drive một thư mục cho mỗi thương hiệu, ví dụ \`Ảnh — Cửa hàng A\`, rồi chọn đúng thư mục đó. Hệ thống lấy ảnh **trực tiếp trong thư mục đó**.
+### Chế độ A — chỉ quyền \`drive.file\` (mặc định)
 
-> Vì App chỉ được cấp quyền với tệp do bạn chọn, bước chọn thư mục là **bắt buộc** — không có cách nào khác để app biết dùng ảnh nào.
+App chỉ đọc được **tệp bạn chọn tường minh**, và **không đọc được nội dung thư mục**.
+Google trả danh sách rỗng mà không báo lỗi, nên gắn thư mục sẽ luôn hiện trống.
+
+Cách dùng: **📷 Chọn ảnh/video từ Drive** → đi vào thư mục → giữ **Ctrl/Cmd** để chọn
+nhiều tấm. App ghi nhớ đúng những ảnh bạn chọn nên chúng dùng được ngay.
+
+### Chế độ B — quyền đọc toàn Drive (chọn cả thư mục)
+
+Làm được **"gắn một thư mục rồi để AI tự lấy ảnh trong đó"**. Cần 2 bước của quản trị viên:
+
+1. Google Cloud Console → *OAuth consent screen* → *Data access* → thêm scope:
+   \`https://www.googleapis.com/auth/drive.readonly\`
+2. Thêm \`GOOGLE_DRIVE_FULL_READ="1"\` vào \`.env\` rồi khởi động lại app.
+3. Vào [Cài đặt](/settings) → **Cấp quyền lại** và tick ô quyền Drive ở màn hình đồng ý.
+
+Sau đó vào [Thương hiệu](/brand) → **Gắn cả thư mục (nâng cao)** → chọn thư mục.
+App đọc và ghi nhớ toàn bộ ảnh trong thư mục, và AutoPilot **chỉ lấy ảnh thuộc thư mục đó**.
+
+> ⚠️ \`drive.readonly\` là scope **hạn chế**. Dùng ngay được ở chế độ Testing (dưới 100
+> người dùng). Muốn mở cho công chúng thì Google **bắt buộc** xác minh restricted scope
+> + đánh giá bảo mật CASA hằng năm. Nếu chưa muốn qua quy trình đó, dùng chế độ A.
 
 ## 4. Dùng trong bài đăng
 
-- **Soạn bài thủ công**: bấm **📁 Chọn từ Google Drive** để chọn ảnh/video, hoặc vào [Thư viện Media](/media) → tab **Google Drive** để xem thư mục và **Lưu vào thư viện**.
+- **Soạn bài thủ công**: bấm **📁 Chọn từ Google Drive** để chọn ảnh/video, hoặc vào [Thư viện Media](/media) → tab **Google Drive**.
 - **Trộn nguồn**: trong cùng một bài bạn có thể dùng 2 ảnh Drive + 2 ảnh Pexels. Facebook chỉ cấm trộn ảnh với video, không cấm trộn nguồn.
 - **AutoPilot**: ở trang [Tự động đăng](/autopilot), mục **Lấy ảnh/video từ đâu?** chọn 📁 Google Drive; tick **Nếu nguồn chính hết ảnh thì lấy từ nguồn còn lại** để Drive trống thì tự chuyển sang Pexels (khuyến nghị bật).
+- Gắn thư mục rồi mà vẫn không thấy ảnh? Vào [Thương hiệu](/brand) → **Chẩn đoán thư mục** — công cụ này nói rõ đang thiếu quyền, thư mục trống thật, hay ảnh nằm trong thư mục con.
 
 ## 5. Giới hạn cần biết
 
-- **Video trên Drive tối đa 50MB** (giới hạn kho tạm của hệ thống). Video dài/nặng nên nén lại trước.
+- **Video trên Drive tối đa 50MB** (giới hạn kho tạm của hệ thống). Video dài/nặng nén lại trước.
+- **Đồng bộ tối đa 100 tệp mỗi lần** gắn thư mục. Thư mục lớn hơn thì bấm gắn lại để đồng bộ tiếp.
+- **Ảnh trong thư mục con không được lấy** — chỉ lấy ảnh trực tiếp trong thư mục đã chọn. Chẩn đoán sẽ đếm riêng số ảnh trong thư mục con để bạn biết.
 - Drive hết dung lượng thì hệ thống báo rõ và **không tự xoá gì** của bạn.
 - Ảnh/video đi qua máy chủ để gửi lên Facebook (Facebook không đọc được link Drive riêng tư), nên nên dùng ảnh đã tối ưu, không cần ảnh gốc quá lớn.
 - Nếu ngắt kết nối Drive, các Page đang dùng nguồn Drive sẽ **tự chuyển về Pexels** và bật dự phòng, để bài không bị thiếu ảnh.`,

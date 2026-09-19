@@ -419,6 +419,58 @@ try {
   const fullAccess = await json(await fetch(listUrl.toString(), { headers: auth }));
   check("cùng folderId, khi có quyền nội dung thì thấy 2 ảnh", (fullAccess?.files ?? []).length === 2);
 
+  // ============================================================
+  section("13. drive.readonly: đọc được NỘI DUNG thư mục (chọn cả thư mục)");
+  // ============================================================
+
+  // Đây là khác biệt cốt lõi quyết định tính năng "chọn cả thư mục":
+  //   drive.file      → files.list trong thư mục trả RỖNG (không kèm lỗi)
+  //   drive.readonly  → files.list trả đủ ảnh
+  const listInFolder = new URL(`${BASE}/drive/v3/files`);
+  listInFolder.searchParams.set(
+    "q",
+    `'${FOLDER_ID}' in parents and trashed = false and (mimeType = 'image/jpeg' or mimeType = 'image/webp')`
+  );
+  listInFolder.searchParams.set("fields", "files(id,name,mimeType)");
+
+  await setVariant("NO_FOLDER_ACCESS");
+  const fileOnly = await json(await fetch(listInFolder.toString(), { headers: auth }));
+  check(
+    "chỉ drive.file → liệt kê thư mục trả RỖNG",
+    (fileOnly?.files ?? []).length === 0,
+    JSON.stringify(fileOnly)
+  );
+
+  await setVariant("READONLY");
+  const withReadonly = await json(await fetch(listInFolder.toString(), { headers: auth }));
+  check(
+    "sau khi nâng readonly → liệt kê thư mục trả đủ ảnh",
+    (withReadonly?.files ?? []).length === 2,
+    JSON.stringify(withReadonly?.files?.map((f) => f.id))
+  );
+  check(
+    "readonly KHÔNG trả tệp không phải ảnh/video (PDF bị lọc)",
+    (withReadonly?.files ?? []).every((f) => f.mimeType.startsWith("image/")),
+    JSON.stringify(withReadonly?.files?.map((f) => f.mimeType))
+  );
+
+  // Truy vấn video trong thư mục — AutoPilot cần khi brand cho phép video
+  const videoInFolder = new URL(`${BASE}/drive/v3/files`);
+  videoInFolder.searchParams.set(
+    "q",
+    `'${FOLDER_ID}' in parents and trashed = false and (mimeType = 'video/mp4')`
+  );
+  const vids = await json(await fetch(videoInFolder.toString(), { headers: auth }));
+  check("readonly: lọc được video trong thư mục", (vids?.files ?? []).length === 1);
+
+  const emptyReadonly = await (async () => {
+    await setVariant("EMPTY");
+    const r = await json(await fetch(listInFolder.toString(), { headers: auth }));
+    await setVariant("READONLY");
+    return r;
+  })();
+  check("readonly + thư mục thật sự trống → 0 tệp (phân biệt được với thiếu quyền)", (emptyReadonly?.files ?? []).length === 0);
+
   await fetch(`${BASE}/__control`, { method: "DELETE" });
 } finally {
   stopMock();

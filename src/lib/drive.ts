@@ -2,6 +2,7 @@ import "server-only";
 
 import { prisma } from "./prisma";
 import { decryptValue, encryptValue } from "./settings";
+import { driveScopes } from "./drive-scope";
 import {
   IMAGE_MIMES,
   VIDEO_MIMES,
@@ -44,16 +45,18 @@ export type { DriveFile, DriveFilePage } from "./drive-files";
 // (BrandDriveFolder) thay vì app tự quét cả Drive.
 // ============================================================
 
-/** Scope tối thiểu: đọc/ghi file do người dùng chọn cho app. */
-export const DRIVE_FILE_SCOPE = "https://www.googleapis.com/auth/drive.file";
+// ============================================================
+// Phần THUẦN về scope/quyền nằm ở drive-scope.ts để test độc lập
+// (file này import prisma nên không chạy được trong test unit).
+// ============================================================
 
-/** Scope đầy đủ của app — email để hiển thị "đang nối tài khoản nào". */
-export const DRIVE_SCOPES = [
-  "openid",
-  "email",
-  "profile",
+export {
   DRIVE_FILE_SCOPE,
-].join(" ");
+  DRIVE_READONLY_SCOPE,
+  driveScopes,
+  hasFullDriveRead,
+  isFullDriveReadEnabled,
+} from "./drive-scope";
 
 /** Endpoint ghi đè được để test E2E (giống FB_GRAPH_BASE_URL, PEXELS_BASE_URL). */
 const AUTH_URL = () =>
@@ -300,7 +303,7 @@ export function buildDriveAuthUrl(state: string, origin?: string): string {
   url.searchParams.set("client_id", clientId);
   url.searchParams.set("redirect_uri", driveRedirectUri(origin));
   url.searchParams.set("response_type", "code");
-  url.searchParams.set("scope", DRIVE_SCOPES);
+  url.searchParams.set("scope", driveScopes());
   url.searchParams.set("state", state);
   // offline + consent: bắt buộc để Google trả refresh token (kể cả lần cấp lại)
   url.searchParams.set("access_type", "offline");

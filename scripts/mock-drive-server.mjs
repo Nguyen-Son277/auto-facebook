@@ -104,9 +104,14 @@ function filesForVariant(q = "") {
       files = [];
       break;
     case "NO_FOLDER_ACCESS":
-      // App không đọc được NỘI DUNG THƯ MỤC (quyền cấp theo từng tệp), nhưng
-      // vẫn đọc được tệp ở truy vấn toàn Drive.
+      // Ca thật: scope `drive.file` — app không đọc được NỘI DUNG THƯ MỤC (quyền
+      // cấp theo từng tệp), nhưng vẫn đọc được tệp ở truy vấn toàn Drive.
       files = q.includes("in parents") ? [] : [...IMAGE_FILES, ...JUNK_FILES];
+      break;
+    case "READONLY":
+      // Ca sau khi nâng lên `drive.readonly`: đọc được cả nội dung thư mục.
+      // Đây là thứ làm "chọn cả thư mục rồi để AI tự lấy ảnh" chạy được.
+      files = [...IMAGE_FILES, ...VIDEO_FILES, ...JUNK_FILES];
       break;
     case "MIXED":
       files = [...IMAGE_FILES, ...VIDEO_FILES, ...JUNK_FILES];
@@ -176,7 +181,15 @@ createServer(async (req, res) => {
     if (req.method === "POST") {
       const next = url.searchParams.get("variant");
       if (
-        !["IMAGES", "MIXED", "EMPTY", "REVOKED", "QUOTA", "NO_FOLDER_ACCESS"].includes(next ?? "")
+        ![
+          "IMAGES",
+          "MIXED",
+          "EMPTY",
+          "REVOKED",
+          "QUOTA",
+          "NO_FOLDER_ACCESS",
+          "READONLY",
+        ].includes(next ?? "")
       ) {
         return json(res, 400, { ok: false, error: "variant không hợp lệ" });
       }

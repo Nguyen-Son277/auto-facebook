@@ -188,6 +188,89 @@ check(
 );
 
 // ============================================================
+section("Thư mục Drive: đếm theo ĐÚNG phạm vi mà AutoPilot sẽ chọn");
+// ============================================================
+
+// Ca thật đã gặp: gắn thư mục nhưng nội dung không đọc được (thiếu quyền rộng)
+// → số ảnh theo thư mục = 0. Nếu code đếm toàn cục thì sẽ tưởng "có ảnh" rồi
+// tạo bài không ảnh kèm cảnh báo sai.
+check(
+  "Gắn thư mục nhưng thư mục rỗng → loại DRIVE, rơi sang Pexels",
+  JSON.stringify(
+    mediaCandidates(
+      cfg({
+        mediaPrimary: "DRIVE",
+        drive: { folderId: "folder-1", connectionStatus: "ACTIVE" },
+        driveFileCount: 0,
+      })
+    )
+  ) === '["PEXELS"]',
+  JSON.stringify(
+    mediaCandidates(
+      cfg({
+        mediaPrimary: "DRIVE",
+        drive: { folderId: "folder-1", connectionStatus: "ACTIVE" },
+        driveFileCount: 0,
+      })
+    )
+  )
+);
+
+check(
+  "Gắn thư mục VÀ có ảnh trong thư mục → DRIVE đứng đầu",
+  JSON.stringify(
+    mediaCandidates(
+      cfg({
+        mediaPrimary: "DRIVE",
+        drive: { folderId: "folder-1", connectionStatus: "ACTIVE" },
+        driveFileCount: 12,
+      })
+    )
+  ) === '["DRIVE","PEXELS"]'
+);
+
+check(
+  "Thư mục rỗng + tắt dự phòng + không có Pexels key → không nguồn nào",
+  mediaCandidates(
+    cfg({
+      mediaPrimary: "DRIVE",
+      mediaFallback: false,
+      pexelsReady: false,
+      drive: { folderId: "folder-1", connectionStatus: "ACTIVE" },
+      driveFileCount: 0,
+    })
+  ).length === 0
+);
+
+check(
+  "Lý do khi thư mục rỗng nhắc đúng việc cần làm (chọn ảnh từ Drive)",
+  noSourceReason(
+    cfg({
+      mediaPrimary: "DRIVE",
+      mediaFallback: false,
+      drive: { folderId: "folder-1", connectionStatus: "ACTIVE" },
+      driveFileCount: 0,
+    })
+  ).includes("Chọn ảnh/video từ Drive") ||
+    noSourceReason(
+      cfg({
+        mediaPrimary: "DRIVE",
+        mediaFallback: false,
+        drive: { folderId: "folder-1", connectionStatus: "ACTIVE" },
+        driveFileCount: 0,
+      })
+    ).includes("Chưa có ảnh/video Drive"),
+  noSourceReason(
+    cfg({
+      mediaPrimary: "DRIVE",
+      mediaFallback: false,
+      drive: { folderId: "folder-1", connectionStatus: "ACTIVE" },
+      driveFileCount: 0,
+    })
+  )
+);
+
+// ============================================================
 section("Nguồn chính dùng được nhưng tắt dự phòng ⇒ cảnh báo đúng");
 // ============================================================
 

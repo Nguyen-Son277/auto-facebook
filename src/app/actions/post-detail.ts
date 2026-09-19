@@ -9,6 +9,7 @@ import {
   validateAttachments,
 } from "@/lib/posts";
 import { pickMediaForContent } from "@/lib/autopilot";
+import { countDriveFilesForBrand } from "./drive";
 import { loadBrandContext } from "@/lib/brand";
 import { generatePostVariants } from "@/lib/ai";
 import { GOALS, LENGTHS, TONES, type Goal, type PostLength, type Tone } from "@/lib/ai-prompts";
@@ -204,19 +205,16 @@ export async function regeneratePostMedia(postId: string): Promise<PostEditState
   const config = await prisma.autoPilot.findUnique({ where: { pageId: post.pageId } });
 
   // Trạng thái Drive của Brand để nút "tìm lại ảnh" cũng tôn trọng nguồn đã chọn.
-  // `driveFileCount` = số ảnh Drive người dùng đã chọn qua Picker — đây mới là
-  // thứ quyết định nguồn Drive dùng được hay không (xem lib/media-source.ts).
-  const [brandFolder, driveFileCount] = await Promise.all([
-    post.brandId
-      ? prisma.brandDriveFolder.findUnique({
-          where: { brandId: post.brandId },
-          select: { folderId: true, allowVideo: true },
-        })
-      : Promise.resolve(null),
-    prisma.media.count({
-      where: { userId: user.id, source: "DRIVE", providerId: { not: null } },
-    }),
-  ]);
+  // `driveFileCount` PHẢI cùng phạm vi với lúc chọn ảnh (theo thư mục nếu Brand
+  // có gắn) — dùng chung hàm countDriveFilesForBrand để không lệch.
+  const brandFolder = post.brandId
+    ? await prisma.brandDriveFolder.findUnique({
+        where: { brandId: post.brandId },
+        select: { folderId: true, allowVideo: true },
+      })
+    : null;
+
+  const driveFileCount = await countDriveFilesForBrand(user.id, post.brandId);
 
   const driveConn = await prisma.driveConnection.findUnique({
     where: { userId: user.id },

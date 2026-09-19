@@ -9,12 +9,15 @@ import {
   ensureFolderAccess,
   getAccessToken,
   getFile,
+  hasFullDriveRead,
   isDriveConfigured,
+  isFullDriveReadEnabled,
   isImageMime,
   isPickerConfigured,
   isVideoMime,
   listFolderMedia,
   needsReauth,
+  type DriveFile,
 } from "@/lib/drive";
 import { parseDriveFileLink, parseDriveFolderLink } from "@/lib/drive-links";
 
@@ -173,6 +176,10 @@ export type DriveStatus = {
   lastError: string | null;
   lastRefreshedAt: string | null;
   rootFolderId: string | null;
+  /** Kết nối đang có quyền đọc TOÀN BỘ Drive (chọn cả thư mục được). */
+  fullDriveRead: boolean;
+  /** Quản trị viên đã bật xin scope rộng ở máy chủ chưa. */
+  fullDriveAvailable: boolean;
 };
 
 export async function getDriveStatus(): Promise<DriveStatus> {
@@ -188,6 +195,8 @@ export async function getDriveStatus(): Promise<DriveStatus> {
     lastError: conn?.lastError ?? null,
     lastRefreshedAt: conn?.lastRefreshedAt?.toISOString() ?? null,
     rootFolderId: conn?.rootFolderId ?? null,
+    fullDriveRead: hasFullDriveRead(conn?.scope ?? null),
+    fullDriveAvailable: isFullDriveReadEnabled(),
   };
 }
 
@@ -261,6 +270,83 @@ export async function disconnectDrive(): Promise<void> {
 }
 
 /**
+ * Ghi nhớ một loạt DriveFile thành bản ghi Media (nguồn DRIVE).
+ *
+ * Dùng chung cho HAI đường:
+ *  1. Người dùng chọn tệp qua Picker  → rememberPickedDriveFiles()
+ *  2. Người dùng gắn CẢ THƯ MỤC       → linkBrandFolder() đồng bộ luôn nội dung
+ *
+ * Nhờ vậy "chọn cả thư mục rồi để AI tự lấy ảnh" chạy được: danh sách ảnh được
+ * lưu lại, AutoPilot đọc từ bản ghi thay vì phải gọi Drive mỗi lần lập kế hoạch.
+ * Chống trùng theo (userId, providerId).
+ */
+async function rememberDriveFilesInternal(
+  userId: string,
+  brandId: string | null,
+  files: DriveFile[],
+  /** Thư mục Drive chứa các tệp này (null = tệp chọn lẻ, không thuộc thư mục nào). */
+  driveFolderId: string | null
+): Promise<number> {
+  let workspaceId: string | null = null;
+  if (brandId) {
+    const page = await prisma.facebookPage.findFirst({
+      where: { brandId },
+      select: { workspaceId: true },
+    });
+    workspaceId = page?.workspaceId ?? null;
+  }
+
+  let saved = 0;
+  for (const file of files) {
+    const existing = await prisma.media.findFirst({
+      where: { userId, postId: null, providerId: file.id, source: "DRIVE" },
+      select: { id: true },
+    });
+    if (existing) {
+      // Đã có bản ghi: cập nhật thư mục nếu lần này biết rõ hơn (ví dụ trước đó
+      // người dùng chọn tệp lẻ, giờ đồng bộ cả thư mục).
+      if (driveFolderId) {
+        await prisma.media
+          .update({ where: { id: existing.id }, data: { driveFolderId } })
+          .catch(() => {});
+      }
+      continue;
+    }
+
+    await prisma.media
+      .create({
+        data: {
+          userId,
+          postId: null,
+          workspaceId,
+          type: isVideoMime(file.mimeType) ? "VIDEO" : "IMAGE",
+          source: "DRIVE",
+          remoteUrl: `/api/drive/${file.id}`,
+          previewUrl: `/api/drive/${file.id}`,
+          providerId: file.id,
+          mimeType: file.mimeType,
+          sizeBytes: file.size,
+          width: file.width,
+          height: file.height,
+          duration: file.duration,
+          alt: file.name,
+          // Ghi thư mục để AutoPilot lọc được "ảnh thuộc thương hiệu này"
+          // mà không phải gọi Drive lại mỗi lần lập kế hoạch.
+          driveFolderId,
+        },
+      })
+      .then(() => {
+        saved++;
+      })
+      .catch(() => {
+        // Một tệp lỗi không được làm hỏng cả lô
+      });
+  }
+
+  return saved;
+}
+
+/**
  * Ghi nhớ NHIỀU tệp vừa chọn qua Google Picker.
  *
  * ═══ VÌ SAO HÀM NÀY LÀ MẤU CHỐT ═══
@@ -294,75 +380,53 @@ export async function rememberPickedDriveFiles(
 
   // brandId chỉ dùng để gắn ảnh vào đúng workspace/thương hiệu — không chặn nếu
   // thương hiệu không hợp lệ, vì ảnh vẫn có ích cho thư viện cá nhân.
-  let workspaceId: string | null = null;
   let validBrandId: string | null = null;
   if (brandId) {
     const brand = await ownedBrand(user.id, brandId);
-    if (brand) {
-      validBrandId = brand.id;
-      const page = await prisma.facebookPage.findFirst({
-        where: { brandId: brand.id },
-        select: { workspaceId: true },
-      });
-      workspaceId = page?.workspaceId ?? null;
-    }
+    if (brand) validBrandId = brand.id;
   }
+
+  // Nếu thương hiệu đã gắn thư mục thì ảnh chọn tay cũng được tính vào thư mục
+  // đó — nhờ vậy AutoPilot lọc theo thư mục vẫn thấy chúng.
+  const brandFolder = validBrandId
+    ? await prisma.brandDriveFolder.findUnique({
+        where: { brandId: validBrandId },
+        select: { folderId: true },
+      })
+    : null;
 
   const unique = Array.from(new Set(fileIds.map((f) => String(f ?? "").trim()).filter(Boolean)));
   if (unique.length === 0) return { error: "Không có tệp nào được chọn." };
 
-  let saved = 0;
-  let failed = 0;
+  // Với mỗi fileId: gọi `files.get` (bước xác lập quyền phía Google — cần cho
+  // scope `drive.file`) rồi ghi nhớ. Một tệp lỗi không làm hỏng cả lô.
+  const accepted: DriveFile[] = [];
   const errors: string[] = [];
 
   for (const fileId of unique.slice(0, 50)) {
-    // Đã có trong thư viện thì bỏ qua (chống trùng theo fileId)
-    const existing = await prisma.media.findFirst({
-      where: { userId: user.id, postId: null, providerId: fileId, source: "DRIVE" },
-      select: { id: true },
-    });
-    if (existing) {
-      saved++;
-      continue;
-    }
-
     try {
       const file = await getFile(conn.id, fileId);
       if (file.mimeType === "application/vnd.google-apps.folder") {
-        failed++;
         errors.push(`“${file.name}”: là thư mục, không phải tệp.`);
         continue;
       }
       if (!isImageMime(file.mimeType) && !isVideoMime(file.mimeType)) {
-        failed++;
         errors.push(`“${file.name}”: không phải ảnh/video (${file.mimeType}).`);
         continue;
       }
-
-      await prisma.media.create({
-        data: {
-          userId: user.id,
-          postId: null,
-          workspaceId,
-          type: isVideoMime(file.mimeType) ? "VIDEO" : "IMAGE",
-          source: "DRIVE",
-          remoteUrl: `/api/drive/${file.id}`,
-          previewUrl: `/api/drive/${file.id}`,
-          providerId: file.id,
-          mimeType: file.mimeType,
-          sizeBytes: file.size,
-          width: file.width,
-          height: file.height,
-          duration: file.duration,
-          alt: file.name,
-        },
-      });
-      saved++;
+      accepted.push(file);
     } catch (err) {
-      failed++;
       errors.push(`Một tệp lỗi: ${driveErrorMessage(err)}`);
     }
   }
+
+  const saved = await rememberDriveFilesInternal(
+    user.id,
+    validBrandId,
+    accepted,
+    brandFolder?.folderId ?? null
+  );
+  const failed = errors.length;
 
   if (saved > 0) {
     revalidatePath("/media");
@@ -388,11 +452,38 @@ export async function rememberPickedDriveFiles(
   };
 }
 
-/** Số ảnh/video Drive người dùng đã ghi nhớ (đã được cấp quyền). */
-export async function countRememberedDriveFiles(): Promise<number> {
-  const user = await requireCurrentUser();
+/**
+ * Số ảnh/video Drive đã ghi nhớ — đếm theo ĐÚNG phạm vi mà AutoPilot sẽ chọn.
+ *
+ * ⚠️ VÌ SAO PHẢI DÙNG CHUNG HÀM NÀY
+ * Con số này quyết định nguồn DRIVE "có dùng được" hay không (xem
+ * lib/media-source.ts). Nếu chỗ đếm và chỗ chọn ảnh lệch phạm vi — ví dụ đếm
+ * toàn cục nhưng chọn theo thư mục — hệ thống báo "có ảnh" trong khi chọn ra
+ * rỗng, planner tạo bài không ảnh và báo cảnh báo sai cho người dùng.
+ *
+ * Có thư mục thì đếm theo thư mục; không thì đếm toàn bộ kho ảnh Drive.
+ */
+export async function countDriveFilesForBrand(
+  userId: string,
+  brandId: string | null
+): Promise<number> {
+  const folderId = brandId
+    ? ((
+        await prisma.brandDriveFolder.findUnique({
+          where: { brandId },
+          select: { folderId: true },
+        })
+      )?.folderId ?? null)
+    : null;
+
   return prisma.media.count({
-    where: { userId: user.id, postId: null, source: "DRIVE" },
+    where: {
+      userId,
+      postId: null,
+      source: "DRIVE",
+      providerId: { not: null },
+      ...(folderId ? { driveFolderId: folderId } : {}),
+    },
   });
 }
 
@@ -524,12 +615,14 @@ export async function diagnoseDriveFolder(brandId: string, url?: string): Promis
 
   const conn = await prisma.driveConnection.findUnique({
     where: { userId: user.id },
-    select: { id: true, status: true },
+    select: { id: true, status: true, scope: true, googleEmail: true },
   });
   if (!conn) return { error: "Chưa kết nối Google Drive — vào Cài đặt để kết nối trước." };
   if (conn.status !== "ACTIVE") {
     return { error: "Kết nối Google Drive cần cấp quyền lại hoặc đang bị tắt." };
   }
+
+  const fullRead = hasFullDriveRead(conn.scope);
 
   let folderId: string | null = null;
   if (url && url.trim()) {
@@ -598,6 +691,19 @@ export async function diagnoseDriveFolder(brandId: string, url?: string): Promis
       verdict =
         `⚠ Thư mục “${d.folderName}” chỉ có thư mục con, không có tệp trực tiếp.\nThư mục con:\n${folderList}\n` +
         `Cách xử lý: gắn một thư mục con cho thương hiệu.`;
+    } else if (!fullRead) {
+      // THIẾU QUYỀN ĐỌC TOÀN DRIVE — ca phổ biến nhất và cũng khó đoán nhất.
+      // `drive.file` đọc được TÊN thư mục nhưng không đọc được NỘI DUNG, và Drive
+      // trả mảng rỗng KHÔNG kèm lỗi nên rất dễ kết luận sai là "thư mục trống".
+      verdict =
+        `✗ Kết nối Google Drive hiện CHỈ có quyền \`drive.file\` — quyền này đọc được TÊN thư mục ` +
+        `nhưng KHÔNG đọc được NỘI DUNG thư mục. Google trả danh sách rỗng mà không báo lỗi, ` +
+        `nên không thể kết luận thư mục trống.\n` +
+        `Tài khoản đang nối: ${conn.googleEmail ?? "(không rõ)"}\n` +
+        `Cách sửa — quản trị viên làm 2 bước rồi Cấp quyền lại:\n` +
+        `  ① Thêm scope https://www.googleapis.com/auth/drive.readonly vào OAuth consent screen\n` +
+        `  ② Thêm GOOGLE_DRIVE_FULL_READ="1" vào .env và khởi động lại app\n` +
+        `Sau đó vào Cài đặt → “Cấp quyền lại”. Khi đó gắn cả thư mục sẽ chạy.`;
     } else if (d.driveWideCount > 0) {
       // Đây là ca "drive.file cấp quyền theo TỪNG tệp": app đọc được tệp nhưng
       // KHÔNG đọc được nội dung thư mục này. Dán link không cấp quyền mới.
@@ -618,6 +724,8 @@ export async function diagnoseDriveFolder(brandId: string, url?: string): Promis
       ok: d.mediaFiles.length > 0,
       message:
         `${verdict}\n\n` +
+        `— Chế độ quyền: ${fullRead ? "đọc toàn Drive (drive.readonly)" : "chỉ drive.file"}\n` +
+        `— Tài khoản Google: ${conn.googleEmail ?? "(không rõ)"}\n` +
         `— Thư mục đang xét: “${d.folderName}” (${tênLoại(d.folderMime)})\n` +
         `— Tổng tệp trực tiếp: ${d.directFiles.length} · thư mục con: ${d.subfolders.length} · ảnh/video dùng được: ${d.mediaFiles.length}\n` +
         `— Tệp ảnh/video app đọc được trên TOÀN Drive: ${d.driveWideCount}\n` +
@@ -667,7 +775,7 @@ export async function linkBrandFolder(
 
   const conn = await prisma.driveConnection.findUnique({
     where: { userId: user.id },
-    select: { id: true, status: true },
+    select: { id: true, status: true, scope: true },
   });
   if (!conn) return { error: "Chưa kết nối Google Drive — vào Cài đặt để kết nối trước." };
   if (conn.status === "NEEDS_REAUTH") {
@@ -675,8 +783,65 @@ export async function linkBrandFolder(
   }
   if (conn.status === "DISABLED") return { error: "Kết nối Google Drive đang bị tắt." };
 
+  const fullRead = hasFullDriveRead(conn.scope);
+
   try {
     const meta = await ensureFolderAccess(conn.id, folder);
+
+    // KIỂM TRA THẬT khả năng đọc NỘI DUNG thư mục ngay lúc gắn.
+    //
+    // Vì sao bắt buộc: với scope `drive.file`, `files.get(folderId)` thành công
+    // (đọc được tên) nhưng `files.list` bên trong trả RỖNG không kèm lỗi. Nếu chỉ
+    // kiểm tra tên thì người dùng thấy "Đã gắn" mà mãi không có ảnh — đúng lỗi đã
+    // gặp. Nên đếm thật số tệp và TỪ CHỐI gắn khi không đọc được nội dung.
+    let fileCount = 0;
+    let listError: string | null = null;
+    try {
+      const page = await listFolderMedia(conn.id, folder, { pageSize: 100 });
+      fileCount = page.files.length;
+    } catch (listErr) {
+      listError = driveErrorMessage(listErr);
+    }
+
+    if (listError) {
+      await prisma.brandDriveFolder
+        .upsert({
+          where: { brandId },
+          create: { brandId, connectionId: conn.id, folderId: folder, lastError: listError },
+          update: { connectionId: conn.id, folderId: folder, lastError: listError },
+        })
+        .catch(() => {});
+      return { error: `Không đọc được nội dung thư mục.\n${listError}` };
+    }
+
+    if (fileCount === 0) {
+      const hint = fullRead
+        ? "Thư mục này không có ảnh/video trực tiếp, hoặc ảnh nằm trong thư mục con. " +
+          "Hãy chọn đúng thư mục chứa ảnh (ảnh trong thư mục con thì chọn thư mục con đó)."
+        : "Kết nối hiện tại chỉ có quyền `drive.file` — Google KHÔNG cho app đọc nội dung thư mục, " +
+          "dù vẫn đọc được tên thư mục. Muốn chọn cả thư mục rồi để AI tự lấy ảnh bên trong, " +
+          "quản trị viên cần bật quyền đọc toàn Drive (xem hướng dẫn ở Cài đặt) rồi bấm “Cấp quyền lại”.";
+      await prisma.brandDriveFolder
+        .upsert({
+          where: { brandId },
+          create: {
+            brandId,
+            connectionId: conn.id,
+            folderId: meta.id,
+            folderName: meta.name,
+            lastError: hint,
+          },
+          update: {
+            connectionId: conn.id,
+            folderId: meta.id,
+            folderName: meta.name,
+            lastError: hint,
+          },
+        })
+        .catch(() => {});
+      return { error: hint };
+    }
+
     await prisma.brandDriveFolder.upsert({
       where: { brandId },
       create: {
@@ -685,14 +850,35 @@ export async function linkBrandFolder(
         folderId: meta.id,
         folderName: meta.name,
         lastError: null,
+        lastSyncedAt: new Date(),
       },
       update: {
         connectionId: conn.id,
         folderId: meta.id,
         folderName: meta.name,
         lastError: null,
+        lastSyncedAt: new Date(),
       },
     });
+
+    // GHI NHỚ ảnh trong thư mục thành bản ghi Media.
+    //
+    // Nhờ vậy "chọn cả thư mục rồi để AI tự lấy ảnh" chạy như người dùng mong:
+    // danh sách ảnh được lưu lại, AutoPilot đọc từ đó (không phụ thuộc việc gọi
+    // Drive lại mỗi lần lập kế hoạch), và route xem trước /api/drive/[fileId]
+    // kiểm quyền được qua bản ghi Media.
+    const page = await listFolderMedia(conn.id, folder, { pageSize: 100 });
+    const synced = await rememberDriveFilesInternal(user.id, brand.id, page.files, meta.id);
+
+    revalidatePath("/brand");
+    revalidatePath("/autopilot");
+    revalidatePath("/media");
+    return {
+      ok: true,
+      message:
+        `Đã gắn thư mục “${meta.name}” — đọc được ${fileCount} ảnh/video` +
+        (synced > 0 ? `, đã ghi nhớ ${synced} tệp cho AutoPilot dùng.` : "."),
+    };
   } catch (err) {
     const message = driveErrorMessage(err);
     await prisma.brandDriveFolder
@@ -704,10 +890,6 @@ export async function linkBrandFolder(
       .catch(() => {});
     return { error: message };
   }
-
-  revalidatePath("/brand");
-  revalidatePath("/autopilot");
-  return { ok: true, message: "Đã gắn thư mục Google Drive cho thương hiệu." };
 }
 
 /**
@@ -860,8 +1042,8 @@ export async function getBrandDriveFolder(brandId: string): Promise<{
       if (fileCount === 0) {
         contentWarning =
           "Đọc được thư mục nhưng bên trong không có ảnh/video mà app đọc được. " +
-          "Bấm “Chẩn đoán thư mục” để biết nguyên nhân (ảnh nằm trong thư mục con, " +
-          "định dạng lạ, hoặc app chưa được cấp quyền với nội dung).";
+          "Bấm “Chẩn đoán thư mục” để biết nguyên nhân (thiếu quyền đọc toàn Drive, " +
+          "ảnh nằm trong thư mục con, hoặc định dạng lạ).";
       }
     } catch (err) {
       contentWarning = `Không đọc được nội dung thư mục: ${driveErrorMessage(err)}`;

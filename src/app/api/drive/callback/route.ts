@@ -6,6 +6,8 @@ import {
   driveErrorMessage,
   emailFromIdToken,
   exchangeDriveCode,
+  hasFullDriveRead,
+  isFullDriveReadEnabled,
   markConnectionError,
 } from "@/lib/drive";
 import { STATE_COOKIE, verifyState } from "@/lib/drive-state";
@@ -95,15 +97,33 @@ export async function GET(request: Request) {
       });
     }
 
+    const grantedScope = tokens.scope ?? "";
+
+    // Kiểm tra quyền đọc toàn Drive có thật sự được cấp không.
+    //
+    // VÌ SAO CẦN: quản trị viên có thể đã đặt GOOGLE_DRIVE_FULL_READ=1 nhưng quên
+    // thêm scope `.../auth/drive.readonly` vào OAuth consent screen. Khi đó Google
+    // vẫn trả token (chỉ với scope cũ) và app im lặng chạy ở chế độ hạn chế —
+    // người dùng tưởng đã nâng cấp, rồi lại gặp cảnh "thư mục trống" khó hiểu.
+    // Nói thẳng ra ngay lúc kết nối để không mất thời gian đoán.
+    let scopeWarning: string | null = null;
+    if (isFullDriveReadEnabled() && !hasFullDriveRead(grantedScope)) {
+      scopeWarning =
+        "Google KHÔNG cấp quyền đọc toàn Drive. Hãy kiểm tra: " +
+        "(1) đã thêm scope https://www.googleapis.com/auth/drive.readonly vào " +
+        "OAuth consent screen chưa, và (2) khi đồng ý quyền có tick ô quyền Drive không. " +
+        "Hiện tại app chỉ dùng được quyền chọn từng tệp (drive.file).";
+    }
+
     const data = {
       googleEmail: email,
-      scope: tokens.scope ?? "",
+      scope: grantedScope,
       refreshToken,
       accessToken: encryptValue(tokens.accessToken),
       accessTokenExpiresAt: expiresAt,
       lastRefreshedAt: new Date(),
       status: "ACTIVE",
-      lastError: null,
+      lastError: scopeWarning,
     };
 
     await prisma.driveConnection.upsert({
@@ -112,7 +132,10 @@ export async function GET(request: Request) {
       update: data,
     });
 
-    return back({ drive: "connected" });
+    return back({
+      drive: "connected",
+      ...(scopeWarning ? { msg: scopeWarning } : {}),
+    });
   } catch (err) {
     // Ghi lỗi lên connection (nếu đã có) để card Cài đặt cảnh báo được
     const existing = await prisma.driveConnection.findUnique({

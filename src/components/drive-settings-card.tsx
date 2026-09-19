@@ -127,21 +127,73 @@ export default function DriveSettingsCard({
       <dl className="mt-4 grid grid-cols-1 gap-2 text-sm sm:grid-cols-2">
         <div>
           <dt className="text-xs text-gray-500">Tài khoản Google</dt>
-          <dd className="text-gray-900">{status.googleEmail ?? "—"}</dd>
+          <dd className="font-medium text-gray-900">{status.googleEmail ?? "—"}</dd>
         </div>
         <div>
-          <dt className="text-xs text-gray-500">Quyền đã cấp</dt>
+          <dt className="text-xs text-gray-500">Chế độ quyền</dt>
           <dd className="text-gray-900">
-            {status.connected || needsReauth ? "Chỉ tệp do bạn chọn (drive.file)" : "—"}
+            {!status.connected && !needsReauth
+              ? "—"
+              : status.fullDriveRead
+                ? "Đọc toàn bộ Drive (drive.readonly)"
+                : "Chỉ tệp bạn chọn (drive.file)"}
           </dd>
         </div>
       </dl>
 
-      <p className="mt-3 text-xs text-gray-500">
-        App chỉ xin quyền <span className="font-mono">drive.file</span> — chỉ đọc được tệp bạn
-        chọn. Vì vậy sau khi kết nối, vào trang <strong>Thương hiệu</strong> để chọn thư mục cho
-        từng thương hiệu.
-      </p>
+      {/* ===== Chế độ quyền Drive =====
+          Đây là chỗ quyết định có "chọn cả thư mục" được hay không. Hiện rõ 3 trạng
+          thái để người dùng không phải đoán vì sao thư mục luôn trống. */}
+      <div className="mt-4 rounded-xl border border-gray-200 bg-gray-50 p-3">
+        <p className="text-sm font-medium text-gray-800">Chọn cả thư mục Drive</p>
+
+        {status.fullDriveRead ? (
+          <p className="mt-1 text-xs text-emerald-700" data-testid="drive-mode-full">
+            ✓ Đang có quyền đọc toàn bộ Drive — gắn cả thư mục và để AutoPilot tự lấy ảnh trong
+            thư mục đó.
+          </p>
+        ) : !status.fullDriveAvailable ? (
+          <div className="mt-1 space-y-1 text-xs text-gray-700">
+            <p>
+              Muốn gắn <strong>cả thư mục</strong> rồi để AI tự lấy ảnh bên trong, cần quyền đọc
+              toàn Drive. Hiện app chỉ có quyền <span className="font-mono">drive.file</span> —
+              quyền này <strong>không đọc được nội dung thư mục</strong> (dù vẫn đọc được tên),
+              nên thư mục luôn hiện trống.
+            </p>
+            <p className="pt-1 font-medium">Quản trị viên làm 2 bước:</p>
+            <ol className="ml-4 list-decimal space-y-0.5">
+              <li>
+                Google Cloud Console → <em>OAuth consent screen</em> → <em>Data access</em> → thêm
+                scope{" "}
+                <span className="break-all font-mono">
+                  https://www.googleapis.com/auth/drive.readonly
+                </span>
+              </li>
+              <li>
+                Thêm <span className="font-mono">GOOGLE_DRIVE_FULL_READ=&quot;1&quot;</span> vào{" "}
+                <span className="font-mono">.env</span> rồi khởi động lại app
+              </li>
+            </ol>
+            <p className="pt-1">
+              Sau đó quay lại đây bấm <strong>Cấp quyền lại</strong>.
+            </p>
+            <p className="pt-1 text-amber-700">
+              Lưu ý: <span className="font-mono">drive.readonly</span> là scope{" "}
+              <strong>hạn chế</strong> — dùng ngay được ở chế độ Testing (dưới 100 người dùng),
+              nhưng muốn mở cho công chúng thì Google bắt buộc xác minh restricted scope + đánh giá
+              bảo mật CASA hằng năm.
+            </p>
+          </div>
+        ) : (
+          <div className="mt-1 space-y-1 text-xs text-amber-800">
+            <p>
+              Máy chủ đã bật quyền đọc toàn Drive nhưng <strong>kết nối này chưa được cấp</strong>.
+              Bấm <strong>Cấp quyền lại</strong> bên dưới và tick ô quyền Drive ở màn hình đồng ý.
+            </p>
+            {status.lastError ? <p className="break-words opacity-80">{status.lastError}</p> : null}
+          </div>
+        )}
+      </div>
 
       {!status.configured ? (
         <p className="mt-4 rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-600">

@@ -21,6 +21,12 @@ import {
   safeFileName,
 } from "../src/lib/drive-files.ts";
 import { parseDriveFileLink, parseDriveFolderLink } from "../src/lib/drive-links.ts";
+import {
+  DRIVE_FILE_SCOPE,
+  DRIVE_READONLY_SCOPE,
+  hasFullDriveRead,
+  isFullDriveReadEnabled,
+} from "../src/lib/drive-scope.ts";
 
 let passed = 0;
 let failed = 0;
@@ -265,6 +271,47 @@ check(
   folderAsFile.error ?? ""
 );
 check("link tệp rỗng → báo lỗi", parseDriveFileLink("").ok === false);
+
+// ============================================================
+section("Phân biệt quyền drive.file vs đọc toàn Drive");
+// ============================================================
+
+// Đây là chỗ QUYẾT ĐỊNH vì sao "chọn cả thư mục" chạy được hay không:
+// `drive.file` đọc được tên thư mục nhưng không đọc được nội dung.
+check(
+  "scope có drive.readonly → đọc toàn Drive",
+  hasFullDriveRead(
+    "openid email https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.readonly"
+  ) === true
+);
+check(
+  "chỉ có drive.file → KHÔNG đọc toàn Drive",
+  hasFullDriveRead(
+    "openid email https://www.googleapis.com/auth/drive.file"
+  ) === false
+);
+check(
+  "scope đầy đủ auth/drive cũng tính là đọc toàn Drive",
+  hasFullDriveRead("https://www.googleapis.com/auth/drive") === true
+);
+check(
+  "auth/drive.file KHÔNG bị nhận nhầm là auth/drive",
+  hasFullDriveRead("https://www.googleapis.com/auth/drive.file") === false
+);
+check("scope null → không có quyền rộng", hasFullDriveRead(null) === false);
+check("scope rỗng → không có quyền rộng", hasFullDriveRead("") === false);
+check(
+  "scope lưu trong DB thật (thứ tự Google trả về) vẫn nhận đúng",
+  hasFullDriveRead(
+    "https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email openid https://www.googleapis.com/auth/drive.readonly"
+  ) === true
+);
+check("hằng số scope đúng chuỗi Google yêu cầu", DRIVE_FILE_SCOPE === "https://www.googleapis.com/auth/drive.file");
+check("hằng số readonly đúng", DRIVE_READONLY_SCOPE === "https://www.googleapis.com/auth/drive.readonly");
+check(
+  "mặc định KHÔNG bật đọc toàn Drive khi chưa đặt env",
+  isFullDriveReadEnabled() === false || process.env.GOOGLE_DRIVE_FULL_READ !== undefined
+);
 
 // ============================================================
 console.log(`\n${"=".repeat(52)}`);

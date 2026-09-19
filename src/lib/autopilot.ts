@@ -450,19 +450,29 @@ async function pickDriveMedia(
   if (conn.status === "NEEDS_REAUTH") return { media: [], error: blockerMessage("DRIVE_NEEDS_REAUTH") };
   if (conn.status === "DISABLED") return { media: [], error: blockerMessage("DRIVE_DISABLED") };
 
-  // ═══ NGUỒN ẢNH DRIVE = KHO ẢNH ĐÃ CHỌN QUA PICKER ═══
+  // ═══ NGUỒN ẢNH DRIVE ═══
   //
-  // KHÔNG đọc nội dung thư mục nữa. Lý do đã kiểm chứng: scope `drive.file` cấp
-  // quyền theo TỪNG tài nguyên người dùng chọn, nên dù gắn được thư mục
-  // (`files.get` trả 200) thì `files.list` bên trong vẫn có thể trả RỖNG mà
-  // không kèm lỗi. Mọi tệp người dùng chọn qua Picker đã được ghi thành bản ghi
-  // Media (source = DRIVE) — đó là nguồn đáng tin duy nhất.
+  // Hai chế độ, chọn theo việc Brand có gắn thư mục hay không:
+  //
+  //  A. CÓ thư mục (cần quyền đọc toàn Drive để đọc nội dung): lọc theo
+  //     `driveFolderId` → CHỈ ảnh nằm trong thư mục của thương hiệu này. Đây là
+  //     yêu cầu "chọn cả thư mục rồi để AI tự lấy ảnh trong đó".
+  //
+  //  B. KHÔNG có thư mục: dùng toàn bộ kho ảnh Drive người dùng đã chọn qua
+  //     Picker (scope `drive.file` không đọc được nội dung thư mục).
+  //
+  // Ảnh trong thư mục được ghi thành bản ghi Media lúc gắn thư mục, nên không
+  // phải gọi Drive lại mỗi lần lập kế hoạch.
+  const folderId = input.drive?.folderId ?? null;
+
   const rows = await prisma.media.findMany({
     where: {
       userId,
       source: "DRIVE",
       providerId: { not: null },
       type: input.kind === "VIDEO" ? "VIDEO" : "IMAGE",
+      // Có thư mục thì chỉ lấy ảnh thuộc thư mục đó
+      ...(folderId ? { driveFolderId: folderId } : {}),
     },
     orderBy: { createdAt: "asc" },
     select: {
@@ -481,7 +491,13 @@ async function pickDriveMedia(
   });
 
   if (rows.length === 0) {
-    return { media: [], error: blockerMessage("DRIVE_NO_FILES") };
+    return {
+      media: [],
+      error: folderId
+        ? "Thư mục Google Drive đã gắn chưa có ảnh/video nào cho thương hiệu này. " +
+          "Vào trang Thương hiệu → “Gắn cả thư mục (nâng cao)” để đồng bộ lại, hoặc chọn thêm ảnh."
+        : blockerMessage("DRIVE_NO_FILES"),
+    };
   }
 
   const used = input.pageId ? await loadUsedProviderIds(input.pageId) : new Set<string>();
@@ -802,29 +818,37 @@ export async function planForAutoPilot(
   // Nguồn DRIVE: kết nối của người dùng + thư mục đã gắn cho Brand + số ảnh đã
   // ghi nhớ. Lấy MỘT lần cho cả lượt lập kế hoạch thay vì hỏi lại ở từng slot.
   //
-  // `driveFileCount` mới là thứ quyết định nguồn Drive có dùng được hay không:
-  // scope `drive.file` cấp quyền theo từng tài nguyên người dùng chọn, nên đọc
-  // nội dung thư mục không đáng tin (xem media-source.ts).
-  const [brandDrive, driveConn, driveFileCount] = await Promise.all([
-    brandId
-      ? prisma.brandDriveFolder.findUnique({
-          where: { brandId },
-          select: { folderId: true, allowVideo: true },
-        })
-      : Promise.resolve(null),
+  // ⚠️ `driveFileCount` PHẢI đếm CÙNG PHẠM VI với lúc chọn ảnh trong
+  // pickDriveMedia(): có thư mục thì đếm theo thư mục, không thì đếm toàn cục.
+  // Nếu lệch, `sourceBlocker` báo "có ảnh" trong khi chọn ra rỗng → planner tạo
+  // bài không ảnh và báo cảnh báo sai.
+  const brandDrive = brandId
+    ? await prisma.brandDriveFolder.findUnique({
+        where: { brandId },
+        select: { folderId: true, allowVideo: true },
+      })
+    : null;
+  const brandFolderId = brandDrive?.folderId ?? null;
+
+  const [driveConn, driveFileCount] = await Promise.all([
     prisma.driveConnection.findUnique({
       where: { userId: config.userId },
       select: { status: true },
     }),
     prisma.media.count({
-      where: { userId: config.userId, source: "DRIVE", providerId: { not: null } },
+      where: {
+        userId: config.userId,
+        source: "DRIVE",
+        providerId: { not: null },
+        ...(brandFolderId ? { driveFolderId: brandFolderId } : {}),
+      },
     }),
   ]);
 
   // Không cứng nhắc theo brandDrive: user có thể đã chọn ảnh qua Picker mà chưa
   // gắn thư mục — trường hợp đó vẫn phải dùng được DRIVE.
   const drive: DriveAvailability = driveConn
-    ? { folderId: brandDrive?.folderId ?? null, connectionStatus: driveConn.status }
+    ? { folderId: brandFolderId, connectionStatus: driveConn.status }
     : null;
   const driveAllowVideo = brandDrive?.allowVideo ?? true;
 

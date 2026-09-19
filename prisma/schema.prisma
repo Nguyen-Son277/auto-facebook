@@ -286,6 +286,10 @@ model Media {
   storageKey      String? // tên file trong thư mục uploads/<userId>/
   mimeType        String?
   sizeBytes       Int?
+  /// Với source = DRIVE: thư mục Drive chứa tệp này.
+  /// Dùng để lọc "ảnh thuộc thư mục của thương hiệu" khi AutoPilot chọn ảnh —
+  /// không phải gọi Drive lại mỗi lần lập kế hoạch.
+  driveFolderId   String?
   createdAt       DateTime @db.Timestamptz(3) @default(now())
 
   post      Post?      @relation(fields: [postId], references: [id], onDelete: Cascade)

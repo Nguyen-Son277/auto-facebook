@@ -5,7 +5,7 @@ import { getAutoPilotOverview, listAutoPilotConfigs } from "@/lib/autopilot";
 import { getPageReadiness, readinessProblem } from "@/lib/brand";
 import { getPexelsQuota } from "@/lib/pexels";
 import { getPexelsKeyForUser } from "@/lib/settings";
-import { getDriveStatus } from "@/app/actions/drive";
+import { countDriveFilesForBrand, getDriveStatus } from "@/app/actions/drive";
 import PageHeader from "@/components/page-header";
 import AutopilotDashboard from "@/components/autopilot-dashboard";
 import AutopilotListClient from "./autopilot-list-client";
@@ -81,11 +81,13 @@ export default async function AutopilotPage({
         })
       : null;
 
-    // Số ảnh Drive người dùng đã chọn qua Picker — điều kiện quyết định nguồn
-    // Drive có dùng được hay không (xem lib/media-source.ts).
-    const driveFileCount = await prisma.media.count({
-      where: { userId: user.id, source: "DRIVE", providerId: { not: null } },
-    });
+    // Số ảnh Drive đã ghi nhớ — PHẢI cùng phạm vi với lúc AutoPilot chọn ảnh
+    // (theo thư mục nếu Brand có gắn, toàn cục nếu không). Dùng chung hàm để
+    // không lệch phạm vi giữa chỗ đếm và chỗ chọn.
+    const driveFileCount = await countDriveFilesForBrand(
+      user.id,
+      readinessState?.brandId ?? null
+    );
 
     return (
       <div>

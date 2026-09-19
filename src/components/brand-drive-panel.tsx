@@ -42,6 +42,7 @@ export default function BrandDrivePanel({
   driveConnected,
   pickerReady,
   pickerApiKey,
+  fullDriveRead,
 }: {
   brandId: string;
   state: BrandDriveState;
@@ -50,6 +51,14 @@ export default function BrandDrivePanel({
   /** Máy chủ đã có GOOGLE_PICKER_API_KEY chưa. */
   pickerReady: boolean;
   pickerApiKey: string;
+  /**
+   * Kết nối Drive đang có quyền đọc TOÀN BỘ Drive chưa.
+   *
+   * Chỉ khi có quyền này thì `files.list` trong thư mục mới trả về ảnh — nên
+   * nút "Gắn cả thư mục" bị vô hiệu hoá kèm giải thích khi còn thiếu, thay vì
+   * để người dùng bấm rồi nhận lỗi "không tìm thấy" khó hiểu.
+   */
+  fullDriveRead: boolean;
 }) {
   const router = useRouter();
   const picker = useDrivePicker();
@@ -203,22 +212,32 @@ export default function BrandDrivePanel({
           thương hiệu vẫn dùng được Pexels hoặc tải tệp từ máy.
         </p>
 
-        {/* CẢNH BÁO THẬT — rút ra từ ca thực tế: gắn được thư mục nhưng không đọc được nội dung.
-            Scope `drive.file` cấp quyền theo TỪNG tài nguyên, nên có thư mục đọc được
-            tên mà danh sách tệp vẫn rỗng. Nói trước để người dùng không mất thời gian. */}
-        <div className="mt-3 rounded-lg bg-blue-50 px-3 py-2 text-xs text-blue-900">
-          <p className="font-medium">Cách chắc chắn hoạt động: chọn ẢNH trực tiếp</p>
-          <p className="mt-1">
-            Vào trang <strong>Thư viện Media</strong> → tab <strong>📁 Google Drive</strong> (hoặc nút
-            “Chọn từ Google Drive” khi soạn bài) → mở thư mục trong hộp Picker rồi{" "}
-            <strong>chọn các tấm ảnh</strong> (giữ Ctrl/Cmd để chọn nhiều). App ghi nhớ đúng những
-            ảnh bạn chọn nên chúng dùng được ngay, không phụ thuộc việc đọc lại thư mục.
-          </p>
-          <p className="mt-1">
-            Gắn <em>thư mục</em> ở dưới là cách tiện hơn nhưng Google có thể không cho app đọc
-            nội dung thư mục — nếu gặp, hãy bấm <strong>Chẩn đoán thư mục</strong> để xem lý do.
-          </p>
-        </div>
+        {/* Nói rõ chế độ quyền quyết định việc gắn cả thư mục có chạy được hay không.
+            `drive.file` đọc được TÊN thư mục nhưng không đọc được NỘI DUNG, nên
+            người dùng phải biết trước thay vì bấm rồi thấy "thư mục trống". */}
+        {fullDriveRead ? (
+          <div className="mt-3 rounded-lg bg-emerald-50 px-3 py-2 text-xs text-emerald-900">
+            <p className="font-medium">Đang có quyền đọc toàn Drive</p>
+            <p className="mt-1">
+              Bấm <strong>Gắn cả thư mục</strong> để chọn một thư mục trên Drive — app sẽ đọc và
+              ghi nhớ ảnh trong đó, AutoPilot chỉ lấy ảnh thuộc thư mục này.
+            </p>
+          </div>
+        ) : (
+          <div className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900">
+            <p className="font-medium">Chưa thể gắn cả thư mục</p>
+            <p className="mt-1">
+              Kết nối hiện chỉ có quyền <span className="font-mono">drive.file</span> — quyền này{" "}
+              <strong>không đọc được nội dung thư mục</strong> (dù đọc được tên), nên gắn thư mục
+              sẽ luôn hiện trống. Quản trị viên cần bật quyền đọc toàn Drive: xem hướng dẫn 2 bước
+              trong <strong>Cài đặt → Google Drive cá nhân → Chọn cả thư mục Drive</strong>.
+            </p>
+            <p className="mt-1">
+              Trong lúc đó vẫn dùng được nút <strong>📷 Chọn ảnh/video từ Drive</strong> ở trên
+              (chọn nhiều tấm một lúc).
+            </p>
+          </div>
+        )}
 
         {!driveConnected ? (
           <div className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">
@@ -289,7 +308,12 @@ export default function BrandDrivePanel({
           <button
             type="button"
             onClick={onChooseFolder}
-            disabled={pending || picker.loading || !driveConnected || !pickerReady}
+            disabled={pending || picker.loading || !driveConnected || !pickerReady || !fullDriveRead}
+            title={
+              fullDriveRead
+                ? "Chọn một thư mục để AutoPilot tự lấy ảnh trong đó"
+                : "Cần quyền đọc toàn Drive — xem hướng dẫn ở trang Cài đặt"
+            }
             data-testid="brand-drive-choose"
             className="rounded-lg border border-blue-300 bg-white px-4 py-2 text-sm font-medium text-blue-700 transition hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-60"
           >

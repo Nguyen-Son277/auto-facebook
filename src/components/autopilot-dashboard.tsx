@@ -996,8 +996,16 @@ export default function AutopilotDashboard({
           <span className="font-medium">Nguồn ảnh/video: Google Drive — </span>
           {driveReady ? (
             <>
-              <strong>{media.driveFileCount}</strong> ảnh/video bạn đã chọn qua Google Picker
-              {config.mediaFallback ? " (có dự phòng Pexels khi hết ảnh chưa dùng)" : ""}
+              {media.driveFolderName ? (
+                <>
+                  thư mục <strong>{media.driveFolderName}</strong> ({media.driveFileCount} ảnh/video)
+                </>
+              ) : (
+                <>
+                  <strong>{media.driveFileCount}</strong> ảnh/video bạn đã chọn
+                </>
+              )}
+              {config.mediaFallback ? " · dự phòng Pexels khi hết ảnh chưa dùng" : ""}
             </>
           ) : !media.driveConnected ? (
             <span>
@@ -1008,9 +1016,9 @@ export default function AutopilotDashboard({
             </span>
           ) : (
             <span>
-              chưa chọn ảnh nào.{" "}
+              chưa có ảnh nào.{" "}
               <Link href="/brand" className="font-medium underline">
-                Chọn ảnh từ Drive →
+                Gắn thư mục hoặc chọn ảnh từ Drive →
               </Link>
             </span>
           )}

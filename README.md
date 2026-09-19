@@ -444,9 +444,25 @@ nhưng trộn *nguồn* thì được (ví dụ 2 ảnh Drive + 2 ảnh Pexels).
 **Vì sao**: ảnh thật của shop thắng ảnh stock, mà dung lượng Drive tính theo tài khoản của
 từng người dùng — không đè lên hạn mức 1 GB của hệ thống.
 
-**Scope `drive.file`**: app chỉ xin quyền `drive.file` (loại *không nhạy cảm*, **không cần Google
-xác minh**) — nghĩa là app chỉ đọc được tệp do chính nó tạo hoặc do người dùng **chọn tường minh**
-qua Google Picker. Đó là lý do mỗi thương hiệu phải được gắn một thư mục cụ thể.
+**Hai chế độ quyền** — chọn theo nhu cầu, xem `Chế độ quyền` ở `/settings`:
+
+| Chế độ | Scope | Đọc được gì | Đánh đổi |
+|---|---|---|---|
+| A (mặc định) | `drive.file` | Chỉ **tệp người dùng chọn** qua Picker | Không cần Google xác minh. **Không đọc được nội dung thư mục** |
+| B (tuỳ chọn) | `drive.readonly` | **Cả thư mục** — chọn thư mục rồi AI tự lấy ảnh trong đó | Scope **hạn chế**: phải xác minh restricted + CASA khi mở cho công chúng |
+
+Điểm quan trọng đã kiểm chứng thực tế: với `drive.file`, `files.get(folderId)` trả **200**
+(đọc được *tên* thư mục) nhưng `files.list("<folderId> in parents")` trả **mảng rỗng KHÔNG kèm
+lỗi**. Vì không có lỗi, app rất dễ kết luận sai là "thư mục trống". Đó là lý do chế độ A không
+thể "gắn cả thư mục" và phải chọn từng tệp.
+
+**Bật chế độ B**: thêm scope `https://www.googleapis.com/auth/drive.readonly` vào OAuth consent
+screen → đặt `GOOGLE_DRIVE_FULL_READ="1"` trong `.env` → khởi động lại app → `/settings` →
+**Cấp quyền lại**. Sau đó vào `/brand` → **Gắn cả thư mục (nâng cao)**.
+
+**Nguồn ảnh cho AutoPilot**: khi có thư mục đã gắn, AutoPilot **chỉ lấy ảnh có
+`driveFolderId` = thư mục đó** (cột `Media.driveFolderId`, ghi lúc đồng bộ). Khi chưa gắn thư mục,
+AutoPilot dùng toàn bộ ảnh Drive người dùng đã chọn qua Picker.
 
 **Cấu hình (quản trị viên, một lần)** — chi tiết từng bước ở trang `/docs`:
 
@@ -685,7 +701,7 @@ Không bắt buộc: `AI_*`, `PEXELS_API_KEY`, `FACEBOOK_*` — người dùng n
 và được lưu (mã hoá AES-256-GCM) trong DB.
 
 Không bắt buộc: `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`,
-`GOOGLE_OAUTH_REDIRECT_URI`, `GOOGLE_PICKER_API_KEY` — chỉ cần khi muốn dùng
+`GOOGLE_OAUTH_REDIRECT_URI`, `GOOGLE_PICKER_API_KEY`, `GOOGLE_DRIVE_FULL_READ` — chỉ cần khi muốn dùng
 **nguồn ảnh/video Google Drive cá nhân**; thiếu chúng thì app vẫn chạy đủ với
 Pexels + tải từ máy (card Drive ở `/settings` hiện “Máy chủ chưa cấu hình”).
 Xem hướng dẫn tạo OAuth client ở mục *Ba nguồn ảnh/video* phía trên.
