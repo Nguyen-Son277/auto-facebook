@@ -203,13 +203,25 @@ export async function regeneratePostMedia(postId: string): Promise<PostEditState
   // Dùng đúng cấu hình tự động của Page để ảnh mới nhất quán với các bài khác
   const config = await prisma.autoPilot.findUnique({ where: { pageId: post.pageId } });
 
-  // Trạng thái Drive của Brand để nút "tìm lại ảnh" cũng tôn trọng nguồn đã chọn
-  const brandFolder = post.brandId
-    ? await prisma.brandDriveFolder.findUnique({
-        where: { brandId: post.brandId },
-        include: { connection: { select: { status: true } } },
-      })
-    : null;
+  // Trạng thái Drive của Brand để nút "tìm lại ảnh" cũng tôn trọng nguồn đã chọn.
+  // `driveFileCount` = số ảnh Drive người dùng đã chọn qua Picker — đây mới là
+  // thứ quyết định nguồn Drive dùng được hay không (xem lib/media-source.ts).
+  const [brandFolder, driveFileCount] = await Promise.all([
+    post.brandId
+      ? prisma.brandDriveFolder.findUnique({
+          where: { brandId: post.brandId },
+          select: { folderId: true, allowVideo: true },
+        })
+      : Promise.resolve(null),
+    prisma.media.count({
+      where: { userId: user.id, source: "DRIVE", providerId: { not: null } },
+    }),
+  ]);
+
+  const driveConn = await prisma.driveConnection.findUnique({
+    where: { userId: user.id },
+    select: { status: true },
+  });
 
   const picked = await pickMediaForContent(user.id, post.content, {
     mediaKind: config?.mediaKind ?? "IMAGE",
@@ -218,12 +230,10 @@ export async function regeneratePostMedia(postId: string): Promise<PostEditState
     autoMedia: config?.autoMedia ?? true,
     mediaPrimary: config?.mediaPrimary ?? "PEXELS",
     mediaFallback: config?.mediaFallback ?? true,
-    drive: brandFolder
-      ? {
-          folderId: brandFolder.folderId,
-          connectionStatus: brandFolder.connection?.status ?? null,
-        }
+    drive: driveConn
+      ? { folderId: brandFolder?.folderId ?? null, connectionStatus: driveConn.status }
       : null,
+    driveFileCount,
     driveAllowVideo: brandFolder?.allowVideo ?? true,
   });
 

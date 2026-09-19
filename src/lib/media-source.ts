@@ -40,7 +40,7 @@ export function isAutopilotSource(value: string): value is "DRIVE" | "PEXELS" {
   return value === "DRIVE" || value === "PEXELS";
 }
 
-/** Tình trạng kết nối + thư mục Drive của thương hiệu đang xét. */
+/** Tình trạng kết nối Drive của người dùng + thư mục đã gắn cho thương hiệu. */
 export type DriveAvailability = {
   /** Thư mục Drive đã gắn cho Brand chưa (null = chưa gắn). */
   folderId: string | null;
@@ -59,6 +59,15 @@ export type MediaCandidatesInput = {
   drive: DriveAvailability;
   /** Người dùng sở hữu bài đã có Pexels API key chưa. */
   pexelsReady: boolean;
+  /**
+   * Số ảnh/video Drive đã GHI NHỚ trong thư viện (đã được Picker cấp quyền).
+   *
+   * VÌ SAO ĐÂY MỚI LÀ ĐIỀU KIỆN QUYẾT ĐỊNH: scope `drive.file` cấp quyền theo
+   * TỪNG tài nguyên người dùng chọn. Thực tế: gắn được thư mục (đọc được tên)
+   * nhưng `files.list` bên trong trả RỖNG, không kèm lỗi. Nên nguồn Drive dùng
+   * được khi có tệp đã chọn — KHÔNG phụ thuộc việc gắn thư mục.
+   */
+  driveFileCount: number;
 };
 
 /** Vì sao một nguồn không dùng được — dùng để viết thông báo cho người dùng. */
@@ -66,6 +75,7 @@ export type SourceBlocker =
   | "AUTO_MEDIA_OFF"
   | "DRIVE_NOT_CONNECTED"
   | "DRIVE_NO_FOLDER"
+  | "DRIVE_NO_FILES"
   | "DRIVE_NEEDS_REAUTH"
   | "DRIVE_DISABLED"
   | "PEXELS_NO_KEY";
@@ -78,7 +88,7 @@ export type SourceBlocker =
  */
 export function sourceBlocker(
   source: "DRIVE" | "PEXELS",
-  input: Pick<MediaCandidatesInput, "drive" | "pexelsReady">
+  input: Pick<MediaCandidatesInput, "drive" | "pexelsReady" | "driveFileCount">
 ): SourceBlocker | null {
   if (source === "PEXELS") {
     return input.pexelsReady ? null : "PEXELS_NO_KEY";
@@ -88,7 +98,11 @@ export function sourceBlocker(
   if (!drive || !drive.connectionStatus) return "DRIVE_NOT_CONNECTED";
   if (drive.connectionStatus === "NEEDS_REAUTH") return "DRIVE_NEEDS_REAUTH";
   if (drive.connectionStatus === "DISABLED") return "DRIVE_DISABLED";
-  if (!drive.folderId) return "DRIVE_NO_FOLDER";
+
+  // Thư mục KHÔNG còn là điều kiện bắt buộc: nguồn Drive chạy được bằng "kho
+  // ảnh đã chọn qua Picker" (driveFileCount > 0). Đây là hệ quả của việc
+  // `drive.file` không cho app đọc nội dung thư mục một cách đáng tin.
+  if ((input.driveFileCount ?? 0) <= 0) return "DRIVE_NO_FILES";
   return null;
 }
 
@@ -101,6 +115,8 @@ export function blockerMessage(blocker: SourceBlocker): string {
       return "Chưa kết nối Google Drive — vào Cài đặt để kết nối.";
     case "DRIVE_NO_FOLDER":
       return "Thương hiệu chưa gắn thư mục Drive — vào trang Thương hiệu để chọn thư mục.";
+    case "DRIVE_NO_FILES":
+      return "Chưa có ảnh/video Drive nào được chọn. Vào trang Thương hiệu → “📷 Chọn ảnh/video từ Drive” để chọn ảnh (giữ Ctrl/Cmd để chọn nhiều).";
     case "DRIVE_NEEDS_REAUTH":
       return "Kết nối Google Drive cần cấp quyền lại — vào Cài đặt rồi bấm “Cấp quyền lại”.";
     case "DRIVE_DISABLED":

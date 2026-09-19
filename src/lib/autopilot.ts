@@ -19,13 +19,6 @@ import {
   type DriveAvailability,
   type MediaSource,
 } from "./media-source";
-import {
-  driveErrorMessage,
-  isImageMime,
-  isVideoMime,
-  listFolderMedia,
-  type DriveFile,
-} from "./drive";
 import { contentScopeForPage, loadBrandContext, resolvePageBrand } from "./brand";
 import {
   addDays,
@@ -236,6 +229,8 @@ export async function pickMediaForContent(
     mediaPrimary?: string;
     mediaFallback?: boolean;
     drive?: DriveAvailability;
+    /** Số ảnh/video Drive đã ghi nhớ (đã được Picker cấp quyền). */
+    driveFileCount?: number;
     driveAllowVideo?: boolean;
     /** Số thứ tự bài trong ngày — dùng để luân phiên tệp Drive. */
     rotation?: number;
@@ -252,6 +247,7 @@ export async function pickMediaForContent(
     mediaFallback: config.mediaFallback ?? true,
     drive: config.drive ?? null,
     pexelsReady: hasPexelsBudget(userId),
+    driveFileCount: config.driveFileCount ?? 0,
   };
 
   const candidates = mediaCandidates(sourceInput);
@@ -268,6 +264,7 @@ export async function pickMediaForContent(
         wanted,
         pageId: config.pageId,
         drive: config.drive ?? null,
+        driveFileCount: config.driveFileCount ?? 0,
         allowVideo: config.driveAllowVideo ?? true,
         rotation: config.rotation ?? 0,
       });
@@ -410,26 +407,15 @@ async function pickPexelsMedia(
 }
 
 // ============================================================
-// Nguồn DRIVE — đọc ảnh/video trong thư mục của thương hiệu
+// Nguồn DRIVE — KHO ẢNH ĐÃ CHỌN QUA PICKER
+//
+// Lịch sử: ban đầu AutoPilot đọc trực tiếp nội dung thư mục Drive của thương
+// hiệu. Cách đó KHÔNG chạy được trên thực tế: scope `drive.file` cấp quyền theo
+// từng tài nguyên người dùng chọn, nên `files.get(folderId)` trả 200 (đọc được
+// tên thư mục) mà `files.list` bên trong trả RỖNG, không kèm lỗi — app tưởng
+// thư mục trống. Đã bỏ hẳn; giờ nguồn Drive = các bản ghi Media người dùng đã
+// chọn qua Picker (xem rememberPickedDriveFiles trong app/actions/drive.ts).
 // ============================================================
-
-/** Cache danh sách tệp của thư mục trong 5 phút (một lượt chạy hay hỏi lại). */
-const folderMediaCache = new Map<string, { at: number; files: DriveFile[] }>();
-const FOLDER_MEDIA_TTL_MS = 5 * 60 * 1000;
-
-async function loadDriveFolderFiles(
-  connectionId: string,
-  folderId: string,
-  allowVideo: boolean
-): Promise<DriveFile[]> {
-  const key = `${connectionId}|${folderId}|${allowVideo ? "av" : "img"}`;
-  const hit = folderMediaCache.get(key);
-  if (hit && Date.now() - hit.at < FOLDER_MEDIA_TTL_MS) return hit.files;
-
-  const page = await listFolderMedia(connectionId, folderId, { allowVideo, pageSize: 200 });
-  folderMediaCache.set(key, { at: Date.now(), files: page.files });
-  return page.files;
-}
 
 /**
  * Chọn ảnh/video từ thư mục Drive của thương hiệu.
@@ -448,14 +434,12 @@ async function pickDriveMedia(
     wanted: number;
     pageId?: string;
     drive: DriveAvailability;
+    /** Số ảnh/video Drive đã ghi nhớ — nguồn thật của nguồn DRIVE. */
+    driveFileCount: number;
     allowVideo: boolean;
     rotation: number;
   }
 ): Promise<{ media: AttachedMedia[]; error?: string }> {
-  if (!input.drive?.folderId) {
-    return { media: [], error: blockerMessage("DRIVE_NO_FOLDER") };
-  }
-
   // Tra connection đúng của NGƯỜI DÙNG đang chạy — không dùng connection của
   // thành viên khác trong workspace.
   const conn = await prisma.driveConnection.findUnique({
@@ -466,83 +450,74 @@ async function pickDriveMedia(
   if (conn.status === "NEEDS_REAUTH") return { media: [], error: blockerMessage("DRIVE_NEEDS_REAUTH") };
   if (conn.status === "DISABLED") return { media: [], error: blockerMessage("DRIVE_DISABLED") };
 
-  const allowVideo = input.allowVideo && input.kind !== "IMAGE";
-  let files: DriveFile[];
-  try {
-    files = await loadDriveFolderFiles(conn.id, input.drive.folderId, allowVideo);
-  } catch (err) {
-    const message = driveErrorMessage(err);
-    await prisma.brandDriveFolder
-      .updateMany({
-        where: { folderId: input.drive.folderId },
-        data: { lastError: message },
-      })
-      .catch(() => {});
-    return { media: [], error: message };
-  }
+  // ═══ NGUỒN ẢNH DRIVE = KHO ẢNH ĐÃ CHỌN QUA PICKER ═══
+  //
+  // KHÔNG đọc nội dung thư mục nữa. Lý do đã kiểm chứng: scope `drive.file` cấp
+  // quyền theo TỪNG tài nguyên người dùng chọn, nên dù gắn được thư mục
+  // (`files.get` trả 200) thì `files.list` bên trong vẫn có thể trả RỖNG mà
+  // không kèm lỗi. Mọi tệp người dùng chọn qua Picker đã được ghi thành bản ghi
+  // Media (source = DRIVE) — đó là nguồn đáng tin duy nhất.
+  const rows = await prisma.media.findMany({
+    where: {
+      userId,
+      source: "DRIVE",
+      providerId: { not: null },
+      type: input.kind === "VIDEO" ? "VIDEO" : "IMAGE",
+    },
+    orderBy: { createdAt: "asc" },
+    select: {
+      id: true,
+      type: true,
+      remoteUrl: true,
+      previewUrl: true,
+      providerId: true,
+      mimeType: true,
+      sizeBytes: true,
+      width: true,
+      height: true,
+      duration: true,
+      alt: true,
+    },
+  });
 
-  await prisma.brandDriveFolder
-    .updateMany({
-      where: { folderId: input.drive.folderId },
-      data: { lastError: null, lastSyncedAt: new Date() },
-    })
-    .catch(() => {});
-
-  const wantedKind = input.kind;
-  const matching = files.filter((f) =>
-    wantedKind === "VIDEO" ? isVideoMime(f.mimeType) : isImageMime(f.mimeType)
-  );
-
-  if (matching.length === 0) {
-    return {
-      media: [],
-      error:
-        wantedKind === "VIDEO"
-          ? "Thư mục Google Drive của thương hiệu chưa có video nào."
-          : "Thư mục Google Drive của thương hiệu chưa có ảnh nào.",
-    };
+  if (rows.length === 0) {
+    return { media: [], error: blockerMessage("DRIVE_NO_FILES") };
   }
 
   const used = input.pageId ? await loadUsedProviderIds(input.pageId) : new Set<string>();
 
   // Ưu tiên tệp chưa dùng; xoay vòng theo `rotation` để các bài khác nhau.
-  const fresh = matching.filter((f) => !used.has(f.id));
-  const pool = fresh.length > 0 ? fresh : matching;
+  const fresh = rows.filter((r) => r.providerId && !used.has(r.providerId));
+  const pool = fresh.length > 0 ? fresh : rows;
   const start = pool.length > 0 ? input.rotation % pool.length : 0;
   const ordered = [...pool.slice(start), ...pool.slice(0, start)];
 
   const picked: AttachedMedia[] = [];
-  for (const file of ordered) {
+  for (const row of ordered) {
     if (picked.length >= input.wanted) break;
-    picked.push(driveFileToAttached(file));
+    picked.push({
+      remoteUrl: `/api/drive/${row.providerId}`,
+      previewUrl: row.previewUrl ?? `/api/drive/${row.providerId}`,
+      type: row.type === "VIDEO" ? "VIDEO" : "IMAGE",
+      source: "DRIVE",
+      // providerId = fileId để UsedMedia + thư viện chống trùng hoạt động
+      providerId: row.providerId ?? undefined,
+      driveFileId: row.providerId ?? undefined,
+      mimeType: row.mimeType ?? undefined,
+      sizeBytes: row.sizeBytes ?? undefined,
+      alt: row.alt ?? undefined,
+      width: row.width ?? undefined,
+      height: row.height ?? undefined,
+      duration: row.duration ?? undefined,
+    });
   }
 
   if (picked.length === 0) {
-    return { media: [], error: "Không chọn được tệp nào trong thư mục Google Drive." };
+    return { media: [], error: "Không chọn được tệp Drive nào từ kho ảnh đã lưu." };
   }
 
   if (input.pageId) await rememberUsedMedia(input.pageId, picked);
   return { media: picked };
-}
-
-/** Chuyển một tệp Drive thành AttachedMedia (remoteUrl là route nội bộ có kiểm quyền). */
-function driveFileToAttached(file: DriveFile): AttachedMedia {
-  const type: "IMAGE" | "VIDEO" = isVideoMime(file.mimeType) ? "VIDEO" : "IMAGE";
-  return {
-    remoteUrl: `/api/drive/${file.id}`,
-    previewUrl: file.thumbnailLink ?? undefined,
-    type,
-    source: "DRIVE",
-    // providerId = fileId để UsedMedia + thư viện chống trùng hoạt động
-    providerId: file.id,
-    driveFileId: file.id,
-    mimeType: file.mimeType,
-    sizeBytes: file.size ?? undefined,
-    alt: file.name,
-    width: file.width ?? undefined,
-    height: file.height ?? undefined,
-    duration: file.duration ?? undefined,
-  };
 }
 
 // ============================================================
@@ -614,6 +589,8 @@ async function createPlannedPost(input: {
   kind: "IMAGE" | "VIDEO";
   /** Trạng thái Drive của Brand — quyết định nguồn DRIVE có dùng được không. */
   drive: DriveAvailability;
+  /** Số ảnh/video Drive đã ghi nhớ (đã được Picker cấp quyền). */
+  driveFileCount: number;
   /** Brand có cho phép AutoPilot dùng video trong thư mục Drive không. */
   driveAllowVideo: boolean;
   /** Số thứ tự bài trong ngày — dùng để xoay vòng tệp Drive. */
@@ -716,6 +693,7 @@ async function createPlannedPost(input: {
       mediaPrimary: config.mediaPrimary,
       mediaFallback: config.mediaFallback,
       drive: input.drive,
+      driveFileCount: input.driveFileCount,
       driveAllowVideo: input.driveAllowVideo,
       rotation: input.rotation,
     });
@@ -821,19 +799,32 @@ export async function planForAutoPilot(
   const pageForBrand = await resolvePageBrand(config.pageId);
   const brandId = pageForBrand?.brandId ?? null;
 
-  // Nguồn DRIVE: thư mục + trạng thái connection của thương hiệu. Lấy MỘT lần
-  // cho cả lượt lập kế hoạch thay vì hỏi lại ở từng slot.
-  const brandDrive = brandId
-    ? await prisma.brandDriveFolder.findUnique({
-        where: { brandId },
-        include: { connection: { select: { status: true } } },
-      })
-    : null;
-  const drive: DriveAvailability = brandDrive
-    ? {
-        folderId: brandDrive.folderId,
-        connectionStatus: brandDrive.connection?.status ?? null,
-      }
+  // Nguồn DRIVE: kết nối của người dùng + thư mục đã gắn cho Brand + số ảnh đã
+  // ghi nhớ. Lấy MỘT lần cho cả lượt lập kế hoạch thay vì hỏi lại ở từng slot.
+  //
+  // `driveFileCount` mới là thứ quyết định nguồn Drive có dùng được hay không:
+  // scope `drive.file` cấp quyền theo từng tài nguyên người dùng chọn, nên đọc
+  // nội dung thư mục không đáng tin (xem media-source.ts).
+  const [brandDrive, driveConn, driveFileCount] = await Promise.all([
+    brandId
+      ? prisma.brandDriveFolder.findUnique({
+          where: { brandId },
+          select: { folderId: true, allowVideo: true },
+        })
+      : Promise.resolve(null),
+    prisma.driveConnection.findUnique({
+      where: { userId: config.userId },
+      select: { status: true },
+    }),
+    prisma.media.count({
+      where: { userId: config.userId, source: "DRIVE", providerId: { not: null } },
+    }),
+  ]);
+
+  // Không cứng nhắc theo brandDrive: user có thể đã chọn ảnh qua Picker mà chưa
+  // gắn thư mục — trường hợp đó vẫn phải dùng được DRIVE.
+  const drive: DriveAvailability = driveConn
+    ? { folderId: brandDrive?.folderId ?? null, connectionStatus: driveConn.status }
     : null;
   const driveAllowVideo = brandDrive?.allowVideo ?? true;
 
@@ -977,6 +968,7 @@ export async function planForAutoPilot(
         recentTopics,
         kind,
         drive,
+        driveFileCount,
         driveAllowVideo,
         // Xoay vòng tệp trong thư mục Drive theo thứ tự bài trong ngày
         rotation: dayStartIndex + i,

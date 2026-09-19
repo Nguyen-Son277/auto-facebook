@@ -38,8 +38,10 @@ export default function MediaLibrary({
   /** Trạng thái Google Drive + danh sách brand đã gắn thư mục Drive. */
   drive: {
     connected: boolean;
-    /** Brand (trong workspace của user) đã có thư mục Drive. */
+    /** Brand (trong workspace của user) để gán ảnh Drive vào. */
     folders: DriveFolderOption[];
+    /** Google Picker API key (server truyền xuống, không nhúng vào bundle). */
+    pickerApiKey: string;
   };
 }) {
   const router = useRouter();
@@ -129,7 +131,7 @@ export default function MediaLibrary({
         </div>
       ) : tab === "drive" ? (
         <div className="rounded-2xl border border-gray-200 bg-white p-5">
-          <DriveLibraryPanel folders={drive.folders} />
+          <DriveLibraryPanel folders={drive.folders} pickerApiKey={drive.pickerApiKey} />
         </div>
       ) : (
         <div className="rounded-2xl border border-gray-200 bg-white p-5">

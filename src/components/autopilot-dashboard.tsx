@@ -82,6 +82,14 @@ export type MediaSourceInfo = {
   driveStatus: string | null;
   /** Thư mục Drive đã gắn cho thương hiệu của Page này (null = chưa). */
   driveFolderName: string | null;
+  /**
+   * Số ảnh/video Drive người dùng đã CHỌN qua Picker (đã ghi nhớ).
+   *
+   * Đây mới là điều kiện quyết định nguồn Drive dùng được: scope `drive.file`
+   * cấp quyền theo từng tài nguyên, nên gắn thư mục không bảo đảm đọc được nội
+   * dung thư mục.
+   */
+  driveFileCount: number;
   /** Người dùng đã có Pexels API Key chưa. */
   pexelsReady: boolean;
 };
@@ -221,11 +229,15 @@ function SettingsForm({
   // Điều khiển được để hiện ngay dòng xem trước "mỗi ngày mấy bài video"
   const [postsPerDay, setPostsPerDay] = useState(config?.postsPerDay ?? 2);
 
+  // Nguồn Drive dùng được khi: đã kết nối + connection ACTIVE + ĐÃ CHỌN ảnh qua
+  // Picker (driveFileCount > 0). Thư mục đã gắn chỉ là thông tin thêm — vì
+  // `drive.file` không bảo đảm app đọc được nội dung thư mục.
   const driveReady =
     media.driveConnected &&
     media.driveStatus === "ACTIVE" &&
-    Boolean(media.driveFolderName);
-  const driveFolderMissing = media.driveConnected && !media.driveFolderName;
+    media.driveFileCount > 0;
+  /** Đã kết nối nhưng chưa chọn ảnh nào qua Picker. */
+  const driveNoFiles = media.driveConnected && media.driveFileCount === 0;
 
   // Dùng đúng hàm mà bộ lập kế hoạch dùng → con số xem trước khớp thực tế
   const videoCount = videoQuotaForDay(postsPerDay, videoPercent);
@@ -393,8 +405,8 @@ function SettingsForm({
                 >
                   {driveReady ? (
                     <>
-                      ✓ Đang dùng thư mục Drive:{" "}
-                      <strong>{media.driveFolderName}</strong>
+                      ✓ Đang dùng <strong>{media.driveFileCount}</strong> ảnh/video Drive bạn đã chọn
+                      {media.driveFolderName ? <> · thư mục “{media.driveFolderName}”</> : null}
                     </>
                   ) : !media.driveConnected ? (
                     <>
@@ -410,12 +422,13 @@ function SettingsForm({
                         Cấp quyền lại
                       </button>
                     </>
-                  ) : driveFolderMissing ? (
+                  ) : driveNoFiles ? (
                     <>
-                      ⚠ Thương hiệu chưa gắn thư mục Drive.{" "}
-                      <a href="/brand" className="font-medium underline">
-                        Chọn thư mục →
-                      </a>
+                      ⚠ Chưa chọn ảnh/video Drive nào.{" "}
+                      <Link href="/brand" className="font-medium underline">
+                        Chọn ảnh từ Drive →
+                      </Link>{" "}
+                      (giữ Ctrl/Cmd để chọn nhiều tấm)
                     </>
                   ) : (
                     <>⚠ Kết nối Drive đang bị tắt.</>
@@ -865,11 +878,12 @@ export default function AutopilotDashboard({
 }) {
   const enabled = config?.enabled ?? false;
 
-  // Nguồn Drive đã sẵn sàng chưa: đã kết nối + connection ACTIVE + đã gắn thư mục
+  // Nguồn Drive đã sẵn sàng chưa: đã kết nối + connection ACTIVE + đã CHỌN ảnh
+  // qua Picker. Thư mục đã gắn không bảo đảm đọc được nội dung (scope drive.file).
   const driveReady =
     media.driveConnected &&
     media.driveStatus === "ACTIVE" &&
-    Boolean(media.driveFolderName);
+    media.driveFileCount > 0;
 
   // Cảnh báo sớm: hết quota Pexels thì bài sẽ ra không có ảnh
   const quotaLow = quota.remaining <= 20;
@@ -982,8 +996,8 @@ export default function AutopilotDashboard({
           <span className="font-medium">Nguồn ảnh/video: Google Drive — </span>
           {driveReady ? (
             <>
-              thư mục <strong>{media.driveFolderName}</strong>
-              {config.mediaFallback ? " (có dự phòng Pexels khi thư mục trống)" : ""}
+              <strong>{media.driveFileCount}</strong> ảnh/video bạn đã chọn qua Google Picker
+              {config.mediaFallback ? " (có dự phòng Pexels khi hết ảnh chưa dùng)" : ""}
             </>
           ) : !media.driveConnected ? (
             <span>
@@ -994,10 +1008,10 @@ export default function AutopilotDashboard({
             </span>
           ) : (
             <span>
-              thương hiệu chưa gắn thư mục.{" "}
-              <a href="/brand" className="font-medium underline">
-                Chọn thư mục trên Drive →
-              </a>
+              chưa chọn ảnh nào.{" "}
+              <Link href="/brand" className="font-medium underline">
+                Chọn ảnh từ Drive →
+              </Link>
             </span>
           )}
         </div>

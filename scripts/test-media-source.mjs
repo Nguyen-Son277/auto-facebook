@@ -42,6 +42,8 @@ function cfg(overrides = {}) {
     mediaFallback: true,
     drive: { folderId: "folder-1", connectionStatus: "ACTIVE" },
     pexelsReady: true,
+    // Nguồn DRIVE chạy được bằng "kho ảnh đã chọn qua Picker", không cần thư mục
+    driveFileCount: 5,
     ...overrides,
   };
 }
@@ -106,13 +108,39 @@ check(
   mediaCandidates(cfg({ mediaPrimary: "DRIVE", drive: null, mediaFallback: false })).length === 0
 );
 
+// QUAN TRỌNG: thư mục KHÔNG còn là điều kiện bắt buộc. Scope `drive.file` cấp
+// quyền theo từng tài nguyên người dùng chọn, nên nguồn Drive dùng được chỉ cần
+// đã chọn ảnh qua Picker (driveFileCount > 0).
 check(
-  "Brand chưa gắn thư mục Drive → loại Drive, giữ Pexels",
+  "Chưa gắn thư mục NHƯNG đã chọn ảnh qua Picker → vẫn dùng được Drive",
   JSON.stringify(
     mediaCandidates(
       cfg({
         mediaPrimary: "DRIVE",
         drive: { folderId: null, connectionStatus: "ACTIVE" },
+        driveFileCount: 5,
+      })
+    )
+  ) === '["DRIVE","PEXELS"]',
+  JSON.stringify(
+    mediaCandidates(
+      cfg({
+        mediaPrimary: "DRIVE",
+        drive: { folderId: null, connectionStatus: "ACTIVE" },
+        driveFileCount: 5,
+      })
+    )
+  )
+);
+
+check(
+  "Chưa chọn ảnh Drive nào → loại Drive, giữ Pexels",
+  JSON.stringify(
+    mediaCandidates(
+      cfg({
+        mediaPrimary: "DRIVE",
+        drive: { folderId: "folder-1", connectionStatus: "ACTIVE" },
+        driveFileCount: 0,
       })
     )
   ) === '["PEXELS"]'
@@ -132,7 +160,7 @@ check(
 
 check(
   "Drive bị tắt (DISABLED) → loại Drive",
-  sourceBlocker("DRIVE", { drive: { folderId: "f1", connectionStatus: "DISABLED" }, pexelsReady: true }) ===
+  sourceBlocker("DRIVE", { drive: { folderId: "f1", connectionStatus: "DISABLED" }, pexelsReady: true, driveFileCount: 5 }) ===
     "DRIVE_DISABLED"
 );
 
@@ -147,16 +175,16 @@ check(
 check(
   "Không nguồn nào khả dụng → []",
   mediaCandidates(
-    cfg({ mediaPrimary: "DRIVE", pexelsReady: false, drive: null })
+    cfg({ mediaPrimary: "DRIVE", pexelsReady: false, drive: null, driveFileCount: 0 })
   ).length === 0
 );
 
 check(
   "Không nguồn nào → lý do nói về Drive (nguồn chính)",
-  noSourceReason(cfg({ mediaPrimary: "DRIVE", pexelsReady: false, drive: null })).includes(
+  noSourceReason(cfg({ mediaPrimary: "DRIVE", pexelsReady: false, drive: null, driveFileCount: 0 })).includes(
     "Chưa kết nối Google Drive"
   ),
-  noSourceReason(cfg({ mediaPrimary: "DRIVE", pexelsReady: false, drive: null }))
+  noSourceReason(cfg({ mediaPrimary: "DRIVE", pexelsReady: false, drive: null, driveFileCount: 0 }))
 );
 
 // ============================================================
@@ -164,7 +192,7 @@ section("Nguồn chính dùng được nhưng tắt dự phòng ⇒ cảnh báo 
 // ============================================================
 
 const offFallbackReason = noSourceReason(
-  cfg({ mediaPrimary: "DRIVE", mediaFallback: false, drive: null })
+  cfg({ mediaPrimary: "DRIVE", mediaFallback: false, drive: null, driveFileCount: 0 })
 );
 check(
   "Tắt dự phòng + Drive không dùng được → lý do nhắc tới Drive",

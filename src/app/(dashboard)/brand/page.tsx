@@ -56,6 +56,8 @@ export default async function BrandPage({
           folderName: null,
           lastError: null,
           connectionStatus: null,
+          fileCount: null,
+          contentWarning: null,
         }),
   ]);
 

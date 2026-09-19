@@ -32,22 +32,21 @@ export default async function MediaPage() {
     getDriveStatus(),
   ]);
 
-  // Thư mục Drive của các thương hiệu thuộc workspace mà user là thành viên.
-  // Đây là dữ liệu để tab "Google Drive" biết duyệt thư mục nào.
+  // Workspace user là thành viên — dùng để lấy danh sách thương hiệu.
   const memberships = await prisma.workspaceMember.findMany({
     where: { userId: user.id },
     select: { workspaceId: true },
   });
+
+  // Thương hiệu trong các workspace của user — để gán ảnh Drive đã chọn.
+  // KHÔNG còn phụ thuộc thư mục Drive: scope `drive.file` cấp quyền theo từng
+  // tệp người dùng chọn, nên thư mục đã gắn không bảo đảm đọc được nội dung.
   const driveFolders =
     drive.connected && memberships.length > 0
-      ? await prisma.brandDriveFolder.findMany({
-          where: { brand: { workspaceId: { in: memberships.map((m) => m.workspaceId) } } },
+      ? await prisma.brand.findMany({
+          where: { workspaceId: { in: memberships.map((m) => m.workspaceId) } },
           orderBy: { createdAt: "asc" },
-          select: {
-            brandId: true,
-            folderName: true,
-            brand: { select: { name: true } },
-          },
+          select: { id: true, name: true },
         })
       : [];
 
@@ -86,11 +85,12 @@ export default async function MediaPage() {
         initialResult={initialResult}
         drive={{
           connected: drive.connected,
-          folders: driveFolders.map((f) => ({
-            brandId: f.brandId,
-            brandName: f.brand.name,
-            folderName: f.folderName,
+          folders: driveFolders.map((b) => ({
+            brandId: b.id,
+            brandName: b.name,
+            folderName: null,
           })),
+          pickerApiKey: process.env.GOOGLE_PICKER_API_KEY ?? "",
         }}
       />
     </div>

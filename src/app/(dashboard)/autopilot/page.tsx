@@ -81,6 +81,12 @@ export default async function AutopilotPage({
         })
       : null;
 
+    // Số ảnh Drive người dùng đã chọn qua Picker — điều kiện quyết định nguồn
+    // Drive có dùng được hay không (xem lib/media-source.ts).
+    const driveFileCount = await prisma.media.count({
+      where: { userId: user.id, source: "DRIVE", providerId: { not: null } },
+    });
+
     return (
       <div>
         <PageHeader
@@ -141,6 +147,7 @@ export default async function AutopilotPage({
             driveConnected: drive.connected,
             driveStatus: drive.status,
             driveFolderName: brandFolder?.folderName ?? brandFolder?.folderId ?? null,
+            driveFileCount,
             pexelsReady: Boolean(pexelsKey),
           }}
           readiness={{
