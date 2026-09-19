@@ -276,6 +276,18 @@ export function useDrivePicker() {
               }
             });
 
+          // CHỌN NHIỀU: chỉ bật ở chế độ chọn ảnh/video.
+          //
+          // VÌ SAO QUAN TRỌNG: scope `drive.file` cấp quyền theo TỪNG tài nguyên
+          // mà người dùng chọn tường minh. Chọn được nhiều tệp một lúc nghĩa là
+          // một lần mở Picker lấy được cả bộ ảnh, thay vì mở lại cho từng tấm.
+          //
+          // KHÔNG bật cho chế độ chọn thư mục: chọn 1 thư mục là đủ, và trộn
+          // nhiều thư mục vào một liên kết thương hiệu không có ý nghĩa.
+          if (mode === "media") {
+            builder.enableFeature(picker.Feature.MULTISELECT_ENABLED);
+          }
+
           builder.build().setVisible(true);
         });
       } catch (err) {

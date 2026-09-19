@@ -356,6 +356,69 @@ try {
   const restored = await json(await fetch(listUrl.toString(), { headers: auth }));
   check("đổi lại IMAGES thì thư mục có ảnh trở lại", (restored?.files ?? []).length === 2);
 
+  // ============================================================
+  section("11. Chọn TỆP qua Picker (đường chắc chắn hoạt động)");
+  // ============================================================
+
+  // `rememberPickedDriveFiles` chỉ nhận fileId do Picker trả về (KHÔNG đọc thư
+  // mục), rồi gọi `files.get` cho từng tệp — đây chính là bước xác lập quyền
+  // phía Google. Vì vậy e2e kiểm đúng chuỗi đó.
+  await setVariant("IMAGES");
+
+  const pickedIds = ["file-anh-1", "file-anh-2", "file-pdf-1", "file-khong-ton-tai"];
+
+  const results = [];
+  for (const id of pickedIds) {
+    const r = await fetch(`${BASE}/drive/v3/files/${id}`, { headers: auth });
+    if (!r.ok) {
+      results.push({ id, kind: "LOI" });
+      continue;
+    }
+    const meta = await json(r);
+    const mime = meta?.mimeType ?? "";
+    const kind = mime.startsWith("image/") ? "IMAGE" : mime.startsWith("video/") ? "VIDEO" : "BO_QUA";
+    results.push({ id, kind });
+  }
+
+  const accepted = results.filter((r) => r.kind === "IMAGE" || r.kind === "VIDEO");
+  const skipped = results.filter((r) => r.kind === "BO_QUA" || r.kind === "LOI");
+
+  check(
+    "chọn tệp: nhận đúng 2 ảnh đã cấp quyền",
+    accepted.length === 2,
+    JSON.stringify(results)
+  );
+  check(
+    "chọn tệp: bỏ qua PDF (không phải ảnh/video)",
+    skipped.some((r) => r.id === "file-pdf-1" && r.kind === "BO_QUA"),
+    JSON.stringify(results)
+  );
+  check(
+    "chọn tệp: bỏ qua tệp chưa cấp quyền (404), KHÔNG làm hỏng cả lô",
+    skipped.some((r) => r.id === "file-khong-ton-tai" && r.kind === "LOI"),
+    JSON.stringify(results)
+  );
+
+  // Một tệp lỗi không được chặn các tệp còn lại — đây là hành vi có chủ đích
+  check(
+    "một tệp lỗi vẫn ghi nhớ được các tệp tốt",
+    accepted.length > 0 && skipped.length > 0,
+    `nhận ${accepted.length}, bỏ ${skipped.length}`
+  );
+
+  // ============================================================
+  section("12. Thư mục: quyền nội dung KHÁC quyền đọc tên");
+  // ============================================================
+
+  await setVariant("NO_FOLDER_ACCESS");
+  const nameOnly = await fetch(`${BASE}/drive/v3/files/${FOLDER_ID}`, { headers: auth });
+  const nameOnlyList = await json(await fetch(listUrl.toString(), { headers: auth }));
+  check("đọc được TÊN thư mục (200) nhưng NỘI DUNG rỗng", nameOnly.ok === true && (nameOnlyList?.files ?? []).length === 0, `get=${nameOnly.status}, files=${(nameOnlyList?.files ?? []).length}`);
+
+  await setVariant("IMAGES");
+  const fullAccess = await json(await fetch(listUrl.toString(), { headers: auth }));
+  check("cùng folderId, khi có quyền nội dung thì thấy 2 ảnh", (fullAccess?.files ?? []).length === 2);
+
   await fetch(`${BASE}/__control`, { method: "DELETE" });
 } finally {
   stopMock();

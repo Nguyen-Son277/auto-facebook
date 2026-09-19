@@ -11,7 +11,7 @@ import {
   submitPost,
 } from "@/app/actions/composer";
 import { searchPexelsMedia, suggestKeywords } from "@/app/actions/media";
-import { attachDriveFileByUrl } from "@/app/actions/drive";
+import { attachDriveFileByUrl, rememberPickedDriveFiles } from "@/app/actions/drive";
 import { GOALS, LENGTHS, TONES } from "@/lib/ai-prompts";
 import {
   countChars,
@@ -345,8 +345,19 @@ export default function ComposerStudio({
     }
 
     addMedia(items);
+
+    // GHI NHỚ ngay vào thư viện: scope `drive.file` chỉ cấp quyền cho tệp người
+    // dùng chọn tường minh, nên lưu lại là cách duy nhất để ảnh dùng lại được ở
+    // bài khác / cho AutoPilot. Lỗi ở bước này không làm hỏng việc gắn ảnh.
+    const remembered = await rememberPickedDriveFiles(
+      brandId,
+      items.map((m) => m.driveFileId).filter((id): id is string => Boolean(id))
+    ).catch(() => null);
+
     setMediaNotice(
-      `Đã thêm ${items.length} tệp từ Google Drive. Có thể trộn với ảnh Pexels hoặc ảnh tải từ máy.`
+      remembered?.ok
+        ? `Đã thêm ${items.length} tệp từ Google Drive và ghi nhớ vào thư viện (${remembered.saved}). Có thể trộn với ảnh Pexels hoặc ảnh tải từ máy.`
+        : `Đã thêm ${items.length} tệp từ Google Drive. Có thể trộn với ảnh Pexels hoặc ảnh tải từ máy.`
     );
   }
 

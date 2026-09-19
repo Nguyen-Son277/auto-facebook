@@ -261,6 +261,142 @@ export async function disconnectDrive(): Promise<void> {
 }
 
 /**
+ * Ghi nhớ NHIỀU tệp vừa chọn qua Google Picker.
+ *
+ * ═══ VÌ SAO HÀM NÀY LÀ MẤU CHỐT ═══
+ * Scope `drive.file` cấp quyền theo TỪNG tài nguyên người dùng chọn tường minh.
+ * Thực tế đã gặp: gắn được THƯ MỤC (đọc được tên) nhưng `files.list` trong thư
+ * mục trả RỖNG — Drive không lan quyền từ thư mục xuống nội dung trong mọi
+ * trường hợp. Vì vậy cách CHẮC CHẮN hoạt động là chọn từng TỆP.
+ *
+ * Hàm này biến "đã chọn tệp" thành quyền được GHI NHỚ trong DB: với mỗi fileId
+ * gọi `files.get` (đây chính là bước xác lập quyền phía Google), rồi lưu bản ghi
+ * Media. Nhờ vậy ảnh dùng lại được nhiều lần, và AutoPilot có nguồn ảnh Drive
+ * thật sự hoạt động.
+ *
+ * Trả về số tệp ghi nhớ được + lý do của những tệp lỗi (không ném lỗi để một
+ * tệp hỏng không làm mất cả lô).
+ */
+export async function rememberPickedDriveFiles(
+  brandId: string,
+  fileIds: string[]
+): Promise<DriveState & { saved?: number; failed?: number }> {
+  const user = await requireCurrentUser();
+
+  const conn = await prisma.driveConnection.findUnique({
+    where: { userId: user.id },
+    select: { id: true, status: true },
+  });
+  if (!conn) return { error: "Chưa kết nối Google Drive — vào Cài đặt để kết nối trước." };
+  if (conn.status !== "ACTIVE") {
+    return { error: "Kết nối Google Drive cần cấp quyền lại hoặc đang bị tắt." };
+  }
+
+  // brandId chỉ dùng để gắn ảnh vào đúng workspace/thương hiệu — không chặn nếu
+  // thương hiệu không hợp lệ, vì ảnh vẫn có ích cho thư viện cá nhân.
+  let workspaceId: string | null = null;
+  let validBrandId: string | null = null;
+  if (brandId) {
+    const brand = await ownedBrand(user.id, brandId);
+    if (brand) {
+      validBrandId = brand.id;
+      const page = await prisma.facebookPage.findFirst({
+        where: { brandId: brand.id },
+        select: { workspaceId: true },
+      });
+      workspaceId = page?.workspaceId ?? null;
+    }
+  }
+
+  const unique = Array.from(new Set(fileIds.map((f) => String(f ?? "").trim()).filter(Boolean)));
+  if (unique.length === 0) return { error: "Không có tệp nào được chọn." };
+
+  let saved = 0;
+  let failed = 0;
+  const errors: string[] = [];
+
+  for (const fileId of unique.slice(0, 50)) {
+    // Đã có trong thư viện thì bỏ qua (chống trùng theo fileId)
+    const existing = await prisma.media.findFirst({
+      where: { userId: user.id, postId: null, providerId: fileId, source: "DRIVE" },
+      select: { id: true },
+    });
+    if (existing) {
+      saved++;
+      continue;
+    }
+
+    try {
+      const file = await getFile(conn.id, fileId);
+      if (file.mimeType === "application/vnd.google-apps.folder") {
+        failed++;
+        errors.push(`“${file.name}”: là thư mục, không phải tệp.`);
+        continue;
+      }
+      if (!isImageMime(file.mimeType) && !isVideoMime(file.mimeType)) {
+        failed++;
+        errors.push(`“${file.name}”: không phải ảnh/video (${file.mimeType}).`);
+        continue;
+      }
+
+      await prisma.media.create({
+        data: {
+          userId: user.id,
+          postId: null,
+          workspaceId,
+          type: isVideoMime(file.mimeType) ? "VIDEO" : "IMAGE",
+          source: "DRIVE",
+          remoteUrl: `/api/drive/${file.id}`,
+          previewUrl: `/api/drive/${file.id}`,
+          providerId: file.id,
+          mimeType: file.mimeType,
+          sizeBytes: file.size,
+          width: file.width,
+          height: file.height,
+          duration: file.duration,
+          alt: file.name,
+        },
+      });
+      saved++;
+    } catch (err) {
+      failed++;
+      errors.push(`Một tệp lỗi: ${driveErrorMessage(err)}`);
+    }
+  }
+
+  if (saved > 0) {
+    revalidatePath("/media");
+    revalidatePath("/composer");
+    revalidatePath("/autopilot");
+    revalidatePath("/brand");
+  }
+
+  if (saved === 0 && failed > 0) {
+    return { error: `Không ghi nhớ được tệp nào.\n${errors.slice(0, 3).join("\n")}` };
+  }
+
+  return {
+    ok: true,
+    saved,
+    failed,
+    message:
+      `Đã ghi nhớ ${saved} tệp Drive — dùng được ở Thư viện Media, khi soạn bài và cho AutoPilot.` +
+      (failed > 0 ? `\n${failed} tệp bỏ qua:\n${errors.slice(0, 3).join("\n")}` : "") +
+      (validBrandId
+        ? ""
+        : "\n(Lưu ý: chưa gắn thương hiệu nên ảnh chỉ nằm trong thư viện cá nhân.)"),
+  };
+}
+
+/** Số ảnh/video Drive người dùng đã ghi nhớ (đã được cấp quyền). */
+export async function countRememberedDriveFiles(): Promise<number> {
+  const user = await requireCurrentUser();
+  return prisma.media.count({
+    where: { userId: user.id, postId: null, source: "DRIVE" },
+  });
+}
+
+/**
  * Gắn thư mục Drive cho thương hiệu bằng LINK do người dùng dán.
  *
  * Dùng khi Google Picker không chạy được (script bị chặn, Picker API lỗi).

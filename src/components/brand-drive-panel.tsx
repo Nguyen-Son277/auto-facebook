@@ -6,6 +6,7 @@ import {
   diagnoseDriveFolder,
   linkBrandFolder,
   linkBrandFolderByUrl,
+  rememberPickedDriveFiles,
   unlinkBrandFolder,
 } from "@/app/actions/drive";
 import { useDrivePicker } from "@/components/drive-picker";
@@ -58,6 +59,36 @@ export default function BrandDrivePanel({
   const [url, setUrl] = useState("");
   const [showManual, setShowManual] = useState(false);
 
+  /**
+   * Chọn NHIỀU ảnh/video trực tiếp qua Picker rồi ghi nhớ vào thư viện.
+   *
+   * Đây là đường CHẮC CHẮN hoạt động: `drive.file` cấp quyền theo từng tệp người
+   * dùng chọn, nên chọn tệp là chắc ăn hơn chọn thư mục rồi trông chờ Drive cho
+   * đọc nội dung.
+   */
+  async function onPickImages() {
+    setMessage(null);
+    const docs = await picker.open("media", pickerApiKey);
+    if (docs.length === 0) return;
+
+    const ids = docs.map((d) => d.id).filter((id): id is string => Boolean(id));
+    if (ids.length === 0) {
+      setMessage({ ok: false, text: "Google Picker không trả về tệp nào." });
+      return;
+    }
+
+    startTransition(async () => {
+      const res = await rememberPickedDriveFiles(brandId, ids);
+      if (res?.ok) {
+        setMessage({ ok: true, text: res.message ?? `Đã ghi nhớ ${ids.length} tệp.` });
+        router.refresh();
+      } else {
+        setMessage({ ok: false, text: res?.error ?? "Không ghi nhớ được tệp." });
+      }
+    });
+  }
+
+  /** Người dùng bấm "Chọn thư mục trên Drive". */
   async function onChooseFolder() {
     setMessage(null);
     const docs = await picker.open("folder", pickerApiKey);
@@ -172,6 +203,23 @@ export default function BrandDrivePanel({
           thương hiệu vẫn dùng được Pexels hoặc tải tệp từ máy.
         </p>
 
+        {/* CẢNH BÁO THẬT — rút ra từ ca thực tế: gắn được thư mục nhưng không đọc được nội dung.
+            Scope `drive.file` cấp quyền theo TỪNG tài nguyên, nên có thư mục đọc được
+            tên mà danh sách tệp vẫn rỗng. Nói trước để người dùng không mất thời gian. */}
+        <div className="mt-3 rounded-lg bg-blue-50 px-3 py-2 text-xs text-blue-900">
+          <p className="font-medium">Cách chắc chắn hoạt động: chọn ẢNH trực tiếp</p>
+          <p className="mt-1">
+            Vào trang <strong>Thư viện Media</strong> → tab <strong>📁 Google Drive</strong> (hoặc nút
+            “Chọn từ Google Drive” khi soạn bài) → mở thư mục trong hộp Picker rồi{" "}
+            <strong>chọn các tấm ảnh</strong> (giữ Ctrl/Cmd để chọn nhiều). App ghi nhớ đúng những
+            ảnh bạn chọn nên chúng dùng được ngay, không phụ thuộc việc đọc lại thư mục.
+          </p>
+          <p className="mt-1">
+            Gắn <em>thư mục</em> ở dưới là cách tiện hơn nhưng Google có thể không cho app đọc
+            nội dung thư mục — nếu gặp, hãy bấm <strong>Chẩn đoán thư mục</strong> để xem lý do.
+          </p>
+        </div>
+
         {!driveConnected ? (
           <div className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">
             Bạn chưa kết nối Google Drive.{" "}
@@ -227,18 +275,25 @@ export default function BrandDrivePanel({
         ) : null}
 
         <div className="mt-4 flex flex-wrap gap-2">
+          {/* Đường chắc chắn hoạt động: chọn ảnh trực tiếp */}
+          <button
+            type="button"
+            onClick={onPickImages}
+            disabled={pending || picker.loading || !driveConnected || !pickerReady}
+            data-testid="brand-drive-pick-images"
+            className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {picker.loading ? "Đang mở Google Picker..." : "📷 Chọn ảnh/video từ Drive"}
+          </button>
+
           <button
             type="button"
             onClick={onChooseFolder}
             disabled={pending || picker.loading || !driveConnected || !pickerReady}
             data-testid="brand-drive-choose"
-            className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+            className="rounded-lg border border-blue-300 bg-white px-4 py-2 text-sm font-medium text-blue-700 transition hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {picker.loading
-              ? "Đang mở Google Picker..."
-              : state.linked
-                ? "Đổi thư mục khác"
-                : "Chọn thư mục trên Drive"}
+            Gắn cả thư mục (nâng cao)
           </button>
 
           <button
