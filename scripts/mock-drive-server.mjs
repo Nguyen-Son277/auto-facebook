@@ -91,12 +91,22 @@ const log = [];
  * Mock này TÔN TRỌNG bộ lọc MIME trong `q` giống Drive thật — nhờ vậy e2e
  * kiểm được rằng app không tự lọc lại (nếu app lọc lại thì đây là lớp dư
  * thừa, còn nếu Drive trả thừa mà app không lọc thì PDF sẽ lọt vào bài đăng).
+ *
+ * Hỗ trợ 2 dạng truy vấn mà app thực sự gửi:
+ *   "'<folderId>' in parents and trashed = false and (<mime…>)"  → theo thư mục
+ *   "trashed = false and (<mime…>)"                              → toàn Drive
+ * Dạng thứ hai dùng cho chẩn đoán "app đọc được tệp nào?".
  */
 function filesForVariant(q = "") {
   let files;
   switch (variant) {
     case "EMPTY":
       files = [];
+      break;
+    case "NO_FOLDER_ACCESS":
+      // App không đọc được NỘI DUNG THƯ MỤC (quyền cấp theo từng tệp), nhưng
+      // vẫn đọc được tệp ở truy vấn toàn Drive.
+      files = q.includes("in parents") ? [] : [...IMAGE_FILES, ...JUNK_FILES];
       break;
     case "MIXED":
       files = [...IMAGE_FILES, ...VIDEO_FILES, ...JUNK_FILES];
@@ -106,6 +116,10 @@ function filesForVariant(q = "") {
       files = [...IMAGE_FILES, ...JUNK_FILES];
       break;
   }
+
+  // Truy vấn theo thư mục cụ thể: mock chỉ có 1 thư mục được cấp quyền.
+  const inParents = /'([^']+)'\s+in\s+parents/.exec(q);
+  if (inParents && inParents[1] !== FOLDER_ID) return [];
 
   const wanted = [];
   if (q.includes("image/jpeg")) wanted.push("image/jpeg");
@@ -161,7 +175,9 @@ createServer(async (req, res) => {
     }
     if (req.method === "POST") {
       const next = url.searchParams.get("variant");
-      if (!["IMAGES", "MIXED", "EMPTY", "REVOKED", "QUOTA"].includes(next ?? "")) {
+      if (
+        !["IMAGES", "MIXED", "EMPTY", "REVOKED", "QUOTA", "NO_FOLDER_ACCESS"].includes(next ?? "")
+      ) {
         return json(res, 400, { ok: false, error: "variant không hợp lệ" });
       }
       variant = next;
@@ -272,17 +288,36 @@ createServer(async (req, res) => {
       return json(res, 200, found);
     }
 
-    // GET /drive/v3/files?q='<folder>' in parents ...  → danh sách trong thư mục
+    // GET /drive/v3/files?q=…  → hai dạng truy vấn app thực sự gửi
     if (path === "/drive/v3/files") {
       const q = url.searchParams.get("q") ?? "";
-      if (!q.includes(FOLDER_ID)) {
-        console.log("drive: 403 thư mục không được cấp quyền");
-        return json(res, 403, {
-          error: { code: 403, message: "The user has not granted the app access" },
-        });
+      const inParents = /'([^']+)'\s+in\s+parents/.exec(q);
+
+      if (inParents) {
+        // Truy vấn theo thư mục: thư mục khác FOLDER_ID coi như chưa được cấp quyền
+        if (inParents[1] !== FOLDER_ID) {
+          console.log("drive: 403 thư mục không được cấp quyền");
+          return json(res, 403, {
+            error: { code: 403, message: "The user has not granted the app access" },
+          });
+        }
+        const files = filesForVariant(q);
+        console.log(`drive: liệt kê thư mục → ${files.length} tệp (variant=${variant})`);
+        return json(res, 200, { files });
       }
+
+      // Truy vấn toàn Drive (không có `in parents`) — dùng cho chẩn đoán.
+      // Ở variant NO_FOLDER_ACCESS: app đọc được TỆP nhưng không đọc được nội
+      // dung thư mục, đúng hành vi `drive.file` cấp quyền theo từng tệp.
+      if (variant === "NO_FOLDER_ACCESS") {
+        // Toàn Drive vẫn thấy tệp (đã cấp quyền theo tệp)
+        const files = filesForVariant(q);
+        console.log(`drive: liệt kê toàn Drive → ${files.length} tệp (không đọc được thư mục)`);
+        return json(res, 200, { files });
+      }
+
       const files = filesForVariant(q);
-      console.log(`drive: liệt kê thư mục → ${files.length} tệp (variant=${variant})`);
+      console.log(`drive: liệt kê toàn Drive → ${files.length} tệp`);
       return json(res, 200, { files });
     }
   }

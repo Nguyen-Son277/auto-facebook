@@ -416,7 +416,7 @@ export async function diagnoseDriveFolder(brandId: string, url?: string): Promis
     const d = await diagnoseFolder(conn.id, folderId);
 
     const mimeList = Object.entries(d.mimeCounts)
-      .map(([mime, n]) => `  • ${nilempty(mime)}: ${n}`)
+      .map(([mime, n]) => `  • ${tênLoại(mime)}: ${n}`)
       .join("\n");
 
     const mediaList = d.mediaFiles.length
@@ -427,48 +427,86 @@ export async function diagnoseDriveFolder(brandId: string, url?: string): Promis
       ? d.subfolders.slice(0, 8).map((f) => `  • ${f.name}`).join("\n")
       : "  (không có thư mục con)";
 
-    // Kết luận: nói thẳng nguyên nhân số 1 hoặc số 2 vì đó là hai ca hay gặp nhất.
+    const wideList = d.driveWideSample.length
+      ? d.driveWideSample
+          .slice(0, 8)
+          .map((f) => `  • ${f.name} (${f.mimeType})`)
+          .join("\n")
+      : "  (app không đọc được tệp ảnh/video nào trên Drive này)";
+
+    // ===== KẾT LUẬN =====
+    // Thứ tự kiểm tra đi từ lỗi ở ĐẦU VÀO (gắn nhầm ID) tới lỗi ở QUYỀN, rồi
+    // mới tới dữ liệu — vì xác định sai đầu vào thì mọi bước sau vô nghĩa.
     let verdict: string;
-    if (d.mediaFiles.length > 0) {
-      verdict = `✓ Tìm thấy ${d.mediaFiles.length} ảnh/video dùng được. Bấm “Xem nội dung thư mục” để hiện.`;
+
+    if (d.folderMime !== "application/vnd.google-apps.folder") {
+      const isMedia = isImageMime(d.folderMime) || isVideoMime(d.folderMime);
+      verdict =
+        isMedia
+          ? `✗ ID trong link là một TỆP ${isVideoMime(d.folderMime) ? "VIDEO" : "ẢNH"} (“${d.folderName}”), KHÔNG phải thư mục.\n` +
+            `Nên thư mục “con” của nó không có gì → 0 tệp là đúng.\n` +
+            `Cách xử lý: (a) dán link THƯ MỤC chứa ảnh (dạng …/drive/folders/<ID>), hoặc (b) nếu chỉ muốn 1 tấm ảnh này thì dùng ô “Dán link ảnh Drive” trong trang Soạn bài.`
+          : `✗ ID trong link không phải thư mục Drive (loại: ${d.folderMime}). Dán lại link thư mục dạng …/drive/folders/<ID>.`;
+    } else if (d.mediaFiles.length > 0) {
+      verdict = `✓ Tìm thấy ${d.mediaFiles.length} ảnh/video dùng được trong thư mục “${d.folderName}”. Bấm “Xem nội dung thư mục” để hiện.`;
     } else if (d.nestedMediaCount > 0) {
       verdict =
-        `⚠ Thư mục này KHÔNG chứa ảnh trực tiếp — có ${d.nestedMediaCount} tệp nằm trong THƯ MỤC CON.\n` +
-        `Cách xử lý: gắn thư mục con đó cho thương hiệu (dán link thư mục con), hoặc chuyển ảnh ra thẳng thư mục này.`;
+        `⚠ Thư mục “${d.folderName}” KHÔNG chứa ảnh trực tiếp — có ${d.nestedMediaCount} tệp nằm trong THƯ MỤC CON.\n` +
+        `Cách xử lý: gắn thư mục con đó cho thương hiệu, hoặc chuyển ảnh ra thẳng thư mục này.`;
     } else if (d.directFiles.length > 0) {
       verdict =
-        `⚠ Có ${d.directFiles.length} tệp nhưng KHÔNG có định dạng ảnh/video Facebook dùng được.\n` +
+        `⚠ Có ${d.directFiles.length} tệp nhưng KHÔNG có định dạng ảnh/video dùng được.\n` +
         `Định dạng đang có:\n${mimeList}\n` +
         `Cách xử lý: đổi ảnh sang JPG/PNG/WEBP rồi tải lại lên Drive.`;
     } else if (d.subfolders.length > 0) {
       verdict =
-        `⚠ Thư mục chỉ có thư mục con, không có tệp trực tiếp.\nThư mục con:\n${folderList}\n` +
+        `⚠ Thư mục “${d.folderName}” chỉ có thư mục con, không có tệp trực tiếp.\nThư mục con:\n${folderList}\n` +
         `Cách xử lý: gắn một thư mục con cho thương hiệu.`;
+    } else if (d.driveWideCount > 0) {
+      // Đây là ca "drive.file cấp quyền theo TỪNG tệp": app đọc được tệp nhưng
+      // KHÔNG đọc được nội dung thư mục này. Dán link không cấp quyền mới.
+      verdict =
+        `✗ App KHÔNG đọc được nội dung thư mục này, NHƯNG đọc được ${d.driveWideCount} tệp ảnh/video khác trên Drive của bạn.\n` +
+        `Nguyên nhân: quyền \`drive.file\` chỉ áp dụng cho tệp/thư mục bạn đã CHỌN TƯỜNG MINH qua Google Picker. ` +
+        `Dán link chỉ trỏ tới thư mục chứ không cấp quyền mới, nên Google trả về danh sách rỗng.\n` +
+        `Cách xử lý: dùng nút “Chọn thư mục trên Drive” (Google Picker) — đó là cách DUY NHẤT cấp quyền cho app. ` +
+        `Hoặc chọn thẳng từng ảnh qua ô “Dán link ảnh Drive” trong trang Soạn bài (mỗi link = 1 ảnh).`;
     } else {
-      verdict = "⚠ Google trả về 0 mục. Kiểm tra lại thư mục có ảnh chưa, hoặc thử tải lại danh sách.";
+      verdict =
+        `✗ Google trả về 0 mục VÀ app cũng không đọc được tệp ảnh/video nào trên Drive của bạn.\n` +
+        `Nghĩa là app chưa được cấp quyền với tệp nào cả.\n` +
+        `Cách xử lý: bấm “Cấp quyền lại” ở Cài đặt rồi dùng nút “Chọn thư mục trên Drive” (Google Picker) để cấp quyền.`;
     }
 
     return {
-      ok: true,
+      ok: d.mediaFiles.length > 0,
       message:
         `${verdict}\n\n` +
-        `Tổng tệp trực tiếp: ${d.directFiles.length} · thư mục con: ${d.subfolders.length} · ` +
-        `ảnh/video dùng được: ${d.mediaFiles.length}\n` +
-        `Ảnh/video dùng được:\n${mediaList}\n` +
-        `Loại tệp trong thư mục:\n${mimeList || "  (trống)"}`,
+        `— Thư mục đang xét: “${d.folderName}” (${tênLoại(d.folderMime)})\n` +
+        `— Tổng tệp trực tiếp: ${d.directFiles.length} · thư mục con: ${d.subfolders.length} · ảnh/video dùng được: ${d.mediaFiles.length}\n` +
+        `— Tệp ảnh/video app đọc được trên TOÀN Drive: ${d.driveWideCount}\n` +
+        `Ví dụ tệp app đọc được:\n${wideList}\n` +
+        `Ảnh/video trong thư mục đang xét:\n${mediaList}\n` +
+        `Loại tệp trong thư mục đang xét:\n${mimeList || "  (trống)"}`,
     };
   } catch (err) {
     return {
       error:
         `Không đọc được thư mục để chẩn đoán.\n${driveErrorMessage(err)}\n\n` +
-        "Nếu là 403/404: app chưa được cấp quyền với thư mục này.",
+        "Nếu là 403/404: app chưa được cấp quyền với thư mục này — dùng Google Picker " +
+        "(nút “Chọn thư mục trên Drive”) để cấp quyền.",
     };
   }
 }
 
 /** Tên loại tệp dễ đọc cho phần chẩn đoán. */
-function nilempty(mime: string): string {
-  return mime || "(không rõ loại)";
+function tênLoại(mime: string): string {
+  if (!mime) return "(không rõ loại)";
+  if (mime === "application/vnd.google-apps.folder") return "thư mục";
+  if (isImageMime(mime)) return mime;
+  if (isVideoMime(mime)) return mime;
+  if (mime.startsWith("application/vnd.google-apps")) return `Google gốc (${mime.split(".").pop()})`;
+  return mime;
 }
 
 /**
@@ -633,24 +671,75 @@ export async function getBrandDriveFolder(brandId: string): Promise<{
   folderName: string | null;
   lastError: string | null;
   connectionStatus: string | null;
+  /** Số ảnh/video đọc được trong thư mục; null = chưa kiểm tra. */
+  fileCount: number | null;
+  /** Cảnh báo khi thư mục gắn được nhưng NỘI DUNG không đọc được. */
+  contentWarning: string | null;
 }> {
   const user = await requireCurrentUser();
   const brand = await ownedBrand(user.id, brandId);
   if (!brand) {
-    return { linked: false, folderId: null, folderName: null, lastError: null, connectionStatus: null };
+    return {
+      linked: false,
+      folderId: null,
+      folderName: null,
+      lastError: null,
+      connectionStatus: null,
+      fileCount: null,
+      contentWarning: null,
+    };
   }
 
   const folder = await prisma.brandDriveFolder.findUnique({
     where: { brandId },
-    include: { connection: { select: { status: true } } },
+    include: { connection: { select: { id: true, status: true } } },
   });
 
+  if (!folder) {
+    return {
+      linked: false,
+      folderId: null,
+      folderName: null,
+      lastError: null,
+      connectionStatus: null,
+      fileCount: null,
+      contentWarning: null,
+    };
+  }
+
+  // Đếm thật nội dung thư mục. VÌ SAO QUAN TRỌNG: đọc được TÊN thư mục không có
+  // nghĩa là đọc được NỘI DUNG — `drive.file` cấp quyền theo từng tài nguyên, nên
+  // có trường hợp "Đã gắn thư mục" mà danh sách tệp vẫn rỗng. Không kiểm tra thì
+  // người dùng chỉ phát hiện khi mở thư viện và thấy trống.
+  let fileCount: number | null = null;
+  let contentWarning: string | null = null;
+
+  if (folder.connection && folder.connection.status === "ACTIVE") {
+    try {
+      const page = await listFolderMedia(folder.connection.id, folder.folderId, {
+        pageSize: 100,
+        allowVideo: folder.allowVideo,
+      });
+      fileCount = page.files.length;
+      if (fileCount === 0) {
+        contentWarning =
+          "Đọc được thư mục nhưng bên trong không có ảnh/video mà app đọc được. " +
+          "Bấm “Chẩn đoán thư mục” để biết nguyên nhân (ảnh nằm trong thư mục con, " +
+          "định dạng lạ, hoặc app chưa được cấp quyền với nội dung).";
+      }
+    } catch (err) {
+      contentWarning = `Không đọc được nội dung thư mục: ${driveErrorMessage(err)}`;
+    }
+  }
+
   return {
-    linked: Boolean(folder),
-    folderId: folder?.folderId ?? null,
-    folderName: folder?.folderName ?? null,
-    lastError: folder?.lastError ?? null,
-    connectionStatus: folder?.connection?.status ?? null,
+    linked: true,
+    folderId: folder.folderId,
+    folderName: folder.folderName,
+    lastError: folder.lastError,
+    connectionStatus: folder.connection?.status ?? null,
+    fileCount,
+    contentWarning,
   };
 }
 

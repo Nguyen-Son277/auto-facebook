@@ -315,6 +315,47 @@ try {
     JSON.stringify(mixedList?.files?.map((f) => f.mimeType))
   );
 
+  // ============================================================
+  section("10. Cùng một thư mục: có tệp vs bị chặn nội dung (ca '0 tệp')");
+  // ============================================================
+
+  // Kịch bản A: Drive trả tệp cho truy vấn `in parents` → app phải thấy ảnh
+  await setVariant("IMAGES");
+  const okList = await json(await fetch(listUrl.toString(), { headers: auth }));
+  check("kịch bản bình thường: thư mục trả về 2 ảnh", (okList?.files ?? []).length === 2);
+
+  // Kịch bản B (ca người dùng gặp): Drive trả RỖNG cho `in parents`, nhưng
+  // truy vấn toàn Drive vẫn có tệp → chẩn đoán phải phân biệt được.
+  await setVariant("NO_FOLDER_ACCESS");
+  const blockedList = await json(await fetch(listUrl.toString(), { headers: auth }));
+  check(
+    "khi bị chặn nội dung thư mục: `in parents` trả RỖNG (không throw)",
+    (blockedList?.files ?? []).length === 0,
+    JSON.stringify(blockedList)
+  );
+
+  // Truy vấn toàn Drive (không `in parents`) — app dùng cho chẩn đoán
+  const wideUrl = new URL(`${BASE}/drive/v3/files`);
+  wideUrl.searchParams.set("q", "trashed = false and (mimeType = 'image/jpeg' or mimeType = 'image/png')");
+  wideUrl.searchParams.set("fields", "files(id,name,mimeType,parents)");
+  const wideRes = await json(await fetch(wideUrl.toString(), { headers: auth }));
+  check(
+    "truy vấn toàn Drive VẪN thấy tệp (đây là dấu hiệu phân biệt với thư mục trống)",
+    (wideRes?.files ?? []).length === 2,
+    JSON.stringify(wideRes?.files?.map((f) => f.id))
+  );
+
+  // Kịch bản C: thư mục thật sự trống → cả hai truy vấn đều 0
+  await setVariant("EMPTY");
+  const emptyBoth = await json(await fetch(listUrl.toString(), { headers: auth }));
+  const emptyWide = await json(await fetch(wideUrl.toString(), { headers: auth }));
+  check("thư mục trống thật: `in parents` = 0", (emptyBoth?.files ?? []).length === 0);
+  check("thư mục trống thật: toàn Drive cũng = 0", (emptyWide?.files ?? []).length === 0);
+
+  await setVariant("IMAGES");
+  const restored = await json(await fetch(listUrl.toString(), { headers: auth }));
+  check("đổi lại IMAGES thì thư mục có ảnh trở lại", (restored?.files ?? []).length === 2);
+
   await fetch(`${BASE}/__control`, { method: "DELETE" });
 } finally {
   stopMock();

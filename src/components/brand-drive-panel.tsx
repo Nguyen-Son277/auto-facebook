@@ -29,6 +29,10 @@ export type BrandDriveState = {
   folderName: string | null;
   lastError: string | null;
   connectionStatus: string | null;
+  /** Số ảnh/video đọc được trong thư mục; null = chưa kiểm tra được. */
+  fileCount?: number | null;
+  /** Cảnh báo khi gắn được thư mục nhưng nội dung không đọc được. */
+  contentWarning?: string | null;
 };
 
 export default function BrandDrivePanel({
@@ -140,10 +144,18 @@ export default function BrandDrivePanel({
           </span>
           {state.linked ? (
             <span
-              className="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-medium text-emerald-700"
+              className={`rounded-full px-2.5 py-1 text-xs font-medium ${
+                state.fileCount === 0
+                  ? "bg-amber-100 text-amber-800"
+                  : "bg-emerald-100 text-emerald-700"
+              }`}
               data-testid="brand-drive-status"
             >
-              Đã gắn: {state.folderName ?? state.folderId}
+              {state.fileCount === 0
+                ? `⚠ Đã gắn nhưng thư mục trống: ${state.folderName ?? state.folderId}`
+                : `Đã gắn: ${state.folderName ?? state.folderId}${
+                    typeof state.fileCount === "number" ? ` · ${state.fileCount} ảnh/video` : ""
+                  }`}
             </span>
           ) : (
             <span className="rounded-full bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-500">
@@ -185,6 +197,15 @@ export default function BrandDrivePanel({
               Cấp quyền lại
             </button>
             .
+          </div>
+        ) : null}
+
+        {state.linked && state.contentWarning ? (
+          <div
+            className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900"
+            data-testid="brand-drive-content-warning"
+          >
+            ⚠ {state.contentWarning}
           </div>
         ) : null}
 

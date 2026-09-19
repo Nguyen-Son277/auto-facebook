@@ -526,7 +526,46 @@ export type FolderDiagnostics = {
   nestedMediaCount: number;
   /** Câu truy vấn đã gửi Google (để đối chiếu khi cần). */
   query: string;
+  /** Tên + loại của chính thư mục đang xét — phát hiện gắn nhầm ID. */
+  folderName: string;
+  folderMime: string;
+  /** Tổng số tệp app ĐỌC ĐƯỢC trên toàn Drive (bỏ điều kiện `in parents`). */
+  driveWideCount: number;
+  /** Ví dụ vài tệp app đọc được trên toàn Drive. */
+  driveWideSample: { name: string; mimeType: string; parents: string[] }[];
 };
+
+/**
+ * Liệt kê mọi ảnh/video mà APP ĐỌC ĐƯỢC, phạm vi toàn Drive (không lọc theo
+ * thư mục cha).
+ *
+ * VÌ SAO CẦN: `drive.file` cấp quyền theo TỪNG tệp/thư mục mà người dùng đã
+ * chọn. Nếu thư mục đã gắn trả về 0 tệp, câu hỏi tiếp theo luôn là: app có đọc
+ * được tệp nào không? Danh sách này trả lời câu đó — và `parents` cho biết tệp
+ * nằm trong thư mục nào, nhờ đó biết ngay thư mục đã gắn có phải là nơi chứa ảnh.
+ */
+export async function listAccessibleMedia(
+  connectionId: string,
+  type: "IMAGE" | "VIDEO" = "IMAGE"
+): Promise<{ name: string; mimeType: string; parents: string[] }[]> {
+  const accessToken = await getAccessToken(connectionId);
+  const mimes = type === "VIDEO" ? VIDEO_MIMES : IMAGE_MIMES;
+  const mimeQuery = mimes.map((m) => `mimeType = '${m}'`).join(" or ");
+
+  const res = await driveFetch("/files", accessToken, {
+    q: `trashed = false and (${mimeQuery})`,
+    fields: "files(id,name,mimeType,parents)",
+    pageSize: "100",
+    orderBy: "modifiedTime desc",
+  });
+
+  const data = (await res.json()) as { files?: Record<string, unknown>[] };
+  return (data.files ?? []).map((f) => ({
+    name: String(f.name ?? "Không tên"),
+    mimeType: String(f.mimeType ?? ""),
+    parents: Array.isArray(f.parents) ? (f.parents as string[]).map(String) : [],
+  }));
+}
 
 export async function diagnoseFolder(
   connectionId: string,
@@ -534,6 +573,18 @@ export async function diagnoseFolder(
 ): Promise<FolderDiagnostics> {
   const accessToken = await getAccessToken(connectionId);
   const query = `'${folderId}' in parents and trashed = false`;
+
+  // Đọc chính thư mục trước: phát hiện ngay ca "ID trong link là TỆP ảnh, không
+  // phải thư mục" (người dùng hay copy link ảnh khi tưởng là link thư mục).
+  let folderName = "(không đọc được)";
+  let folderMime = "(không rõ)";
+  try {
+    const meta = await getFile(connectionId, folderId);
+    folderName = meta.name;
+    folderMime = meta.mimeType;
+  } catch {
+    // Không đọc được metadata cũng là thông tin — để phần kết luận nói ra
+  }
 
   const res = await driveFetch("/files", accessToken, {
     q: query,
@@ -578,6 +629,19 @@ export async function diagnoseFolder(
     }
   }
 
+  // App đọc được tệp nào trên toàn Drive? (bỏ `in parents`) — dữ liệu quyết định
+  // giữa "quyền theo tệp" và "thư mục thật sự trống".
+  let driveWide: { name: string; mimeType: string; parents: string[] }[] = [];
+  try {
+    const [images, videos] = await Promise.all([
+      listAccessibleMedia(connectionId, "IMAGE"),
+      listAccessibleMedia(connectionId, "VIDEO"),
+    ]);
+    driveWide = [...images, ...videos];
+  } catch {
+    driveWide = [];
+  }
+
   const brief = (f: Record<string, unknown>) => ({
     id: String(f.id ?? ""),
     name: String(f.name ?? "Không tên"),
@@ -591,6 +655,10 @@ export async function diagnoseFolder(
     mimeCounts,
     nestedMediaCount,
     query,
+    folderName,
+    folderMime,
+    driveWideCount: driveWide.length,
+    driveWideSample: driveWide.slice(0, 10),
   };
 }
 
