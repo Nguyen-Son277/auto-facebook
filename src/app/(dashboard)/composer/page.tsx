@@ -4,6 +4,7 @@ import PageHeader from "@/components/page-header";
 import ComposerStudio from "@/components/composer-studio";
 import { getAiConfigForUser, getPexelsKeyForUser } from "@/lib/settings";
 import { MAX_VIDEO_BYTES, pruneOrphanUploads } from "@/lib/uploads";
+import { getDriveStatus } from "@/app/actions/drive";
 
 export default async function ComposerPage() {
   const user = await requireCurrentUser();
@@ -16,8 +17,7 @@ export default async function ComposerPage() {
   const workspaceIds = memberships.map((m) => m.workspaceId);
 
   const [activePages, drafts, history, ai, pexels, library, uploads, brands] =
-    await Promise.all([
-      prisma.facebookPage.findMany({
+    await Promise.all([      prisma.facebookPage.findMany({
         where: { userId: user.id, isActive: true },
         orderBy: { name: "asc" },
         select: {
@@ -66,7 +66,10 @@ export default async function ComposerPage() {
         : Promise.resolve([]),
     ]);
 
-  // Dọn file video tải lên nhưng không còn bài nào tham chiếu (chỉ file cũ > 24h).
+  // Nguồn media thứ ba: Google Drive cá nhân (nút "Chọn từ Google Drive").
+  const drive = await getDriveStatus();
+
+  // Dọn file tải lên nhưng không còn bài nào tham chiếu (chỉ file cũ > 24h).
   // Không chặn render — đây chỉ là dọn dẹp nền.
   void pruneOrphanUploads(
     user.id,
@@ -100,6 +103,9 @@ export default async function ComposerPage() {
         aiReady={Boolean(ai.baseUrl && ai.apiKey && ai.model)}
         pexelsReady={Boolean(pexels.apiKey)}
         maxVideoBytes={MAX_VIDEO_BYTES}
+        driveConnected={drive.connected}
+        driveEmail={drive.googleEmail}
+        pickerApiKey={process.env.GOOGLE_PICKER_API_KEY ?? ""}
         libraryProviderIds={library
           .map((m) => m.providerId)
           .filter((id): id is string => Boolean(id))}

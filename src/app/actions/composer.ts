@@ -5,7 +5,7 @@ import { requireCurrentUser } from "@/lib/dal";
 import { prisma } from "@/lib/prisma";
 import { generatePostVariants, type AiUsage } from "@/lib/ai";
 import { loadBrandContextByBrand } from "@/lib/brand";
-import { parseAttachments, type AttachedMedia } from "@/lib/posts";
+import { attachedFromDbMedia, parseAttachments, type AttachedMedia } from "@/lib/posts";
 import {
   createAndPublishPost,
   deletePost as deletePostRecord,
@@ -173,24 +173,8 @@ export async function loadDraft(postId: string): Promise<{
     content: post.content,
     hashtags: post.hashtags ?? "",
     pageId: post.pageId ?? "",
-    attachments: post.media.map((m) => ({
-      remoteUrl: m.remoteUrl,
-      previewUrl: m.previewUrl ?? undefined,
-      type: m.type === "VIDEO" ? ("VIDEO" as const) : ("IMAGE" as const),
-      source:
-        m.source === "PEXELS"
-          ? ("PEXELS" as const)
-          : m.source === "UPLOAD"
-            ? ("UPLOAD" as const)
-            : ("URL" as const),
-      providerId: m.providerId ?? undefined,
-      photographer: m.photographer ?? undefined,
-      photographerUrl: m.photographerUrl ?? undefined,
-      sourcePageUrl: m.sourcePageUrl ?? undefined,
-      alt: m.alt ?? undefined,
-      width: m.width ?? undefined,
-      height: m.height ?? undefined,
-      duration: m.duration ?? undefined,
-    })),
+    // Dùng chung hàm chuẩn hóa với worker/đăng lại: nguồn DRIVE phải mang theo
+    // driveFileId, nếu không mở lại nháp sẽ mất ảnh Drive.
+    attachments: post.media.map(attachedFromDbMedia),
   };
 }

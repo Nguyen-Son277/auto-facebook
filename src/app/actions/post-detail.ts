@@ -3,7 +3,11 @@
 import { revalidatePath } from "next/cache";
 import { requireCurrentUser } from "@/lib/dal";
 import { prisma } from "@/lib/prisma";
-import { parseAttachments, validateAttachments } from "@/lib/posts";
+import {
+  mediaColumnsFromAttachment,
+  parseAttachments,
+  validateAttachments,
+} from "@/lib/posts";
 import { pickMediaForContent } from "@/lib/autopilot";
 import { loadBrandContext } from "@/lib/brand";
 import { generatePostVariants } from "@/lib/ai";
@@ -50,6 +54,8 @@ async function loadEditablePost(postId: string, userId: string) {
       id: true,
       status: true,
       pageId: true,
+      // brandId để nút "tìm lại ảnh" biết thư mục Drive của thương hiệu
+      brandId: true,
       content: true,
       scheduledAt: true,
       pillarName: true,
@@ -166,21 +172,8 @@ export async function updatePostMedia(
         postId,
         userId: user.id,
         type: m.type,
-        source: m.source,
-        remoteUrl: m.remoteUrl,
-        previewUrl: m.previewUrl ?? null,
-        width: m.width ?? null,
-        height: m.height ?? null,
-        duration: m.duration ?? null,
-        providerId: m.providerId ?? null,
-        photographer: m.photographer ?? null,
-        photographerUrl: m.photographerUrl ?? null,
-        sourcePageUrl: m.sourcePageUrl ?? null,
-        alt: m.alt ?? null,
-        storageKey: m.storageKey ?? null,
-        mimeType: m.mimeType ?? null,
-        sizeBytes: m.sizeBytes ?? null,
         position: i,
+        ...mediaColumnsFromAttachment(m),
       },
     });
   }
@@ -210,10 +203,28 @@ export async function regeneratePostMedia(postId: string): Promise<PostEditState
   // Dùng đúng cấu hình tự động của Page để ảnh mới nhất quán với các bài khác
   const config = await prisma.autoPilot.findUnique({ where: { pageId: post.pageId } });
 
+  // Trạng thái Drive của Brand để nút "tìm lại ảnh" cũng tôn trọng nguồn đã chọn
+  const brandFolder = post.brandId
+    ? await prisma.brandDriveFolder.findUnique({
+        where: { brandId: post.brandId },
+        include: { connection: { select: { status: true } } },
+      })
+    : null;
+
   const picked = await pickMediaForContent(user.id, post.content, {
     mediaKind: config?.mediaKind ?? "IMAGE",
     photosPerPost: config?.photosPerPost ?? 2,
     pageId: post.pageId,
+    autoMedia: config?.autoMedia ?? true,
+    mediaPrimary: config?.mediaPrimary ?? "PEXELS",
+    mediaFallback: config?.mediaFallback ?? true,
+    drive: brandFolder
+      ? {
+          folderId: brandFolder.folderId,
+          connectionStatus: brandFolder.connection?.status ?? null,
+        }
+      : null,
+    driveAllowVideo: brandFolder?.allowVideo ?? true,
   });
 
   if (picked.media.length === 0) {
@@ -230,18 +241,8 @@ export async function regeneratePostMedia(postId: string): Promise<PostEditState
         postId,
         userId: user.id,
         type: m.type,
-        source: m.source,
-        remoteUrl: m.remoteUrl,
-        previewUrl: m.previewUrl ?? null,
-        width: m.width ?? null,
-        height: m.height ?? null,
-        duration: m.duration ?? null,
-        providerId: m.providerId ?? null,
-        photographer: m.photographer ?? null,
-        photographerUrl: m.photographerUrl ?? null,
-        sourcePageUrl: m.sourcePageUrl ?? null,
-        alt: m.alt ?? null,
         position: i,
+        ...mediaColumnsFromAttachment(m),
       },
     });
   }

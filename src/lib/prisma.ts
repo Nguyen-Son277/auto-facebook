@@ -3,8 +3,6 @@ import "server-only";
 import { PrismaClient } from "@/generated/prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 
-const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
-
 /**
  * Tạo Prisma Client nối PostgreSQL (Supabase) qua driver adapter `pg`.
  *
@@ -69,8 +67,56 @@ function createPrismaClient(): PrismaClient {
 }
 
 // Singleton: tránh tạo nhiều connection khi Next.js hot-reload ở môi trường dev.
-export const prisma = globalForPrisma.prisma ?? createPrismaClient();
+//
+// ⚠️ VÌ SAO CÓ "SCHEMA VERSION" TRONG KHÓA CACHE
+// `prisma generate` ghi lại client vào src/generated/prisma, nhưng tiến trình dev
+// đang chạy vẫn giữ object PrismaClient CŨ trong globalThis — hot-reload chỉ nạp
+// lại module lib/prisma.ts, không dựng lại client. Kết quả: model mới (ví dụ
+// `prisma.driveConnection`) là `undefined` và app chết với
+//   "Cannot read properties of undefined (reading 'findUnique')".
+// Đổi khóa cache khi schema thay đổi buộc dev server dựng client mới ngay lần
+// import kế tiếp, thay vì phải restart tay mà không rõ nguyên nhân.
+//
+// QUY ƯỚC: mỗi migration thêm/đổi model hoặc cột thì tăng số này.
+const SCHEMA_VERSION = "2-drive-media-source";
 
-if (process.env.NODE_ENV !== "production") {
-  globalForPrisma.prisma = prisma;
+const globalForPrisma = globalThis as unknown as {
+  prisma?: PrismaClient;
+  /** Phiên bản schema của client đang nằm trong globalThis. */
+  prismaSchemaVersion?: string;
+};
+
+/**
+ * Client dùng chung. Ở production chỉ tạo một lần cho cả tiến trình.
+ *
+ * Dùng `globalThis` để dev không mở thêm pool mỗi lần hot-reload, nhưng KHÓA
+ * theo SCHEMA_VERSION: sau khi chạy `prisma generate` cho schema mới, lần import
+ * kế tiếp sẽ thấy phiên bản khác và dựng lại client — tránh lỗi
+ * "Cannot read properties of undefined" ở model vừa thêm.
+ */
+function getPrismaClient(): PrismaClient {
+  if (
+    globalForPrisma.prisma &&
+    globalForPrisma.prismaSchemaVersion === SCHEMA_VERSION
+  ) {
+    return globalForPrisma.prisma;
+  }
+
+  const client = createPrismaClient();
+
+  if (process.env.NODE_ENV !== "production") {
+    // Cảnh báo khi thay client vì schema đổi — để không ai phải đoán nguyên nhân.
+    if (globalForPrisma.prisma) {
+      console.warn(
+        `[prisma] Schema đã đổi (${globalForPrisma.prismaSchemaVersion} → ${SCHEMA_VERSION}) — ` +
+          "đã dựng lại Prisma Client cho khớp."
+      );
+    }
+    globalForPrisma.prisma = client;
+    globalForPrisma.prismaSchemaVersion = SCHEMA_VERSION;
+  }
+
+  return client;
 }
+
+export const prisma = getPrismaClient();

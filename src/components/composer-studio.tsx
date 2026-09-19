@@ -11,6 +11,7 @@ import {
   submitPost,
 } from "@/app/actions/composer";
 import { searchPexelsMedia, suggestKeywords } from "@/app/actions/media";
+import { attachDriveFileByUrl } from "@/app/actions/drive";
 import { GOALS, LENGTHS, TONES } from "@/lib/ai-prompts";
 import {
   countChars,
@@ -20,6 +21,8 @@ import {
 } from "@/lib/posts";
 import type { KeywordState, MediaSearchState, MediaType, PexelsMediaItem } from "@/lib/pexels-types";
 import MediaBrowser, { toAttachment } from "@/components/media-browser";
+import { useDrivePicker, type PickerDoc } from "@/components/drive-picker";
+import { startDriveConnect } from "@/lib/drive-connect";
 
 export type ComposerPageOption = {
   id: string;
@@ -107,6 +110,9 @@ export default function ComposerStudio({
   pexelsReady,
   libraryProviderIds,
   maxVideoBytes = 50 * 1024 * 1024,
+  driveConnected = false,
+  driveEmail = null,
+  pickerApiKey = "",
 }: {
   pages: ComposerPageOption[];
   brands?: ComposerBrandOption[];
@@ -117,6 +123,12 @@ export default function ComposerStudio({
   libraryProviderIds: string[];
   /** Giới hạn dung lượng video (byte) — server truyền xuống từ MAX_VIDEO_BYTES. */
   maxVideoBytes?: number;
+  /** Đã kết nối Google Drive cá nhân chưa — nút "Chọn từ Google Drive". */
+  driveConnected?: boolean;
+  /** Email Google đang nối (hiển thị trong tooltip). */
+  driveEmail?: string | null;
+  /** Google Picker API key (server truyền xuống, không nhúng vào bundle). */
+  pickerApiKey?: string;
 }) {
   const router = useRouter();
 
@@ -143,6 +155,9 @@ export default function ComposerStudio({
   const [uploading, setUploading] = useState(false);
   const [uploadPct, setUploadPct] = useState(0);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  // Ô dán link ảnh Drive (khi Google Picker không mở được)
+  const [driveUrl, setDriveUrl] = useState("");
+  const [linkingDrive, setLinkingDrive] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [scheduledAt, setScheduledAt] = useState("");
 
@@ -271,7 +286,7 @@ export default function ComposerStudio({
     setAttachments((prev) => prev.filter((m) => m.remoteUrl !== url));
     setMediaNotice(null);
 
-    // Video tải từ máy: xóa file trên server để không chiếm dung lượng
+    // Tệp tải từ máy: xóa file trên server để không chiếm dung lượng
     if (target?.source === "UPLOAD" && target.storageKey) {
       void fetch(`/api/uploads/${target.storageKey}`, { method: "DELETE" }).catch(() => {
         // Không chặn UI nếu xóa file thất bại
@@ -279,27 +294,142 @@ export default function ComposerStudio({
     }
   }
 
+  // ---------- Nguồn Google Drive (Picker) ----------
+  const picker = useDrivePicker();
+  // Hợp nhất trạng thái kết nối (từ server) với trạng thái Picker (client) để
+  // chỗ dùng chỉ cần đọc một object.
+  const drive = {
+    connected: driveConnected,
+    email: driveEmail,
+    loading: picker.loading,
+    error: picker.error,
+    open: picker.open,
+  };
+
+  /** Chuyển tệp Picker trả về thành AttachedMedia (remoteUrl là route nội bộ có kiểm quyền). */
+  function driveDocToAttachment(doc: PickerDoc): AttachedMedia | null {
+    const id = doc.id;
+    if (!id) return null;
+    const mime = doc.mimeType ?? "image/jpeg";
+    const type: "IMAGE" | "VIDEO" = mime.startsWith("video/") ? "VIDEO" : "IMAGE";
+    return {
+      remoteUrl: `/api/drive/${id}`,
+      previewUrl: doc.thumbnails?.[0]?.url,
+      type,
+      source: "DRIVE",
+      driveFileId: id,
+      providerId: id,
+      mimeType: mime,
+      sizeBytes: typeof doc.sizeBytes === "number" ? doc.sizeBytes : undefined,
+      duration: typeof doc.durationMillis === "number" ? Math.round(doc.durationMillis / 1000) : undefined,
+      alt: doc.name,
+    };
+  }
+
+  /** Người dùng bấm "Chọn từ Google Drive". */
+  async function onPickFromDrive() {
+    setMediaNotice(null);
+    setUploadError(null);
+
+    const docs = await drive.open("media", pickerApiKey);
+    if (docs.length === 0) return; // huỷ hoặc lỗi (drive.error đã hiện)
+
+    const items = docs
+      .map(driveDocToAttachment)
+      .filter((m): m is AttachedMedia => m !== null);
+
+    const check = validateAttachments([...attachments, ...items]);
+    if (!check.ok) {
+      setUploadError(check.error);
+      return;
+    }
+
+    addMedia(items);
+    setMediaNotice(
+      `Đã thêm ${items.length} tệp từ Google Drive. Có thể trộn với ảnh Pexels hoặc ảnh tải từ máy.`
+    );
+  }
+
   /**
-   * Tải video từ máy lên Supabase Storage theo 2 bước:
+   * Gắn một ảnh/video Drive bằng LINK dán tay.
+   *
+   * Dùng khi Google Picker không mở được. Giống ô dán link ở trang Thương hiệu,
+   * việc kiểm tra quyền đọc do SERVER làm (attachDriveFileByUrl) nên không bao
+   * giờ gắn được một tệp mà app không đọc nổi.
+   */
+  async function onAttachDriveUrl() {
+    setMediaNotice(null);
+    setUploadError(null);
+    setLinkingDrive(true);
+
+    const res = await attachDriveFileByUrl(driveUrl);
+    setLinkingDrive(false);
+
+    if (!res.ok) {
+      setUploadError(res.error);
+      return;
+    }
+
+    const item: AttachedMedia = {
+      remoteUrl: res.item.previewUrl,
+      previewUrl: res.item.thumbnailUrl ?? res.item.previewUrl,
+      type: res.item.type,
+      source: "DRIVE",
+      driveFileId: res.item.id,
+      providerId: res.item.id,
+      mimeType: res.item.mimeType,
+      sizeBytes: res.item.sizeBytes ?? undefined,
+      width: res.item.width ?? undefined,
+      height: res.item.height ?? undefined,
+      duration: res.item.duration ?? undefined,
+      alt: res.item.name,
+    };
+
+    const check = validateAttachments([...attachments, item]);
+    if (!check.ok) {
+      setUploadError(check.error);
+      return;
+    }
+
+    addMedia([item]);
+    setDriveUrl("");
+    setMediaNotice(`Đã gắn "${res.item.name}" từ Google Drive.`);
+  }
+
+  /**
+   * Tải ẢNH hoặc VIDEO từ máy lên Supabase Storage theo 2 bước:
    *   1. POST /api/uploads  → server kiểm tra hợp lệ và cấp signed upload URL
    *   2. PUT thẳng file lên Storage bằng XMLHttpRequest (để theo dõi tiến trình)
    *
    * File KHÔNG đi qua Vercel Function vì body bị giới hạn 4.5MB — nhờ vậy
    * video tới 50MB vẫn tải lên được.
+   *
+   * "Tải từ máy" là một trong ba nguồn media ngang hàng: Pexels, Google Drive,
+   * tải từ máy. Loại Ảnh/Video do server trả về (`mediaType`) quyết định.
    */
-  async function onUploadVideo(file: File) {
+  async function onUploadFile(file: File) {
     setUploadError(null);
 
-    if (videoCount > 0) {
-      setUploadError("Bài đã có 1 video — bỏ video hiện tại trước khi thêm video mới.");
+    // Chặn sớm theo luật Facebook trước khi tốn băng thông tải lên
+    const looksVideo = file.type.startsWith("video/");
+    if (looksVideo) {
+      if (videoCount > 0) {
+        setUploadError("Bài đã có 1 video — bỏ video hiện tại trước khi thêm video mới.");
+        return;
+      }
+      if (photoCount > 0) {
+        setUploadError("Facebook không cho trộn video với ảnh — bỏ ảnh trước.");
+        return;
+      }
+    } else if (videoCount > 0) {
+      setUploadError("Facebook không cho trộn ảnh với video — bỏ video trước.");
       return;
-    }
-    if (photoCount > 0) {
-      setUploadError("Facebook không cho trộn video với ảnh — bỏ ảnh trước.");
+    } else if (photoCount >= MAX_PHOTOS_PER_POST) {
+      setUploadError(`Tối đa ${MAX_PHOTOS_PER_POST} ảnh mỗi bài.`);
       return;
     }
 
-    if (file.size > maxVideoBytes) {
+    if (looksVideo && file.size > maxVideoBytes) {
       setUploadError(
         `File ${(file.size / 1024 / 1024).toFixed(0)}MB vượt giới hạn ${Math.round(
           maxVideoBytes / 1024 / 1024
@@ -319,6 +449,7 @@ export default function ComposerStudio({
       uploadUrl?: string;
       size?: number;
       mimeType?: string;
+      mediaType?: "IMAGE" | "VIDEO";
       previewUrl?: string;
     };
     try {
@@ -360,11 +491,12 @@ export default function ComposerStudio({
 
       if (xhr.status >= 200 && xhr.status < 300) {
         const storageKey = sign.storageKey!;
+        const mediaType: "IMAGE" | "VIDEO" = sign.mediaType ?? (looksVideo ? "VIDEO" : "IMAGE");
         addMedia([
           {
             remoteUrl: sign.previewUrl ?? `/api/uploads/${storageKey}`,
             previewUrl: sign.previewUrl ?? undefined,
-            type: "VIDEO",
+            type: mediaType,
             source: "UPLOAD",
             storageKey,
             mimeType: sign.mimeType,
@@ -372,7 +504,11 @@ export default function ComposerStudio({
             alt: file.name,
           },
         ]);
-        setMediaNotice(`Đã tải lên "${file.name}" — bấm Đăng ngay để đăng video này.`);
+        setMediaNotice(
+          mediaType === "VIDEO"
+            ? `Đã tải lên "${file.name}" — bấm Đăng ngay để đăng video này.`
+            : `Đã tải lên "${file.name}" — thêm được tối đa ${MAX_PHOTOS_PER_POST} ảnh mỗi bài.`
+        );
         return;
       }
 
@@ -914,6 +1050,22 @@ export default function ComposerStudio({
                 </span>
               </label>
               <div className="flex flex-wrap gap-2">
+                {/* Ba nguồn media NGANG HÀNG: Google Drive · Pexels · Tải từ máy.
+                    Trộn được trong cùng một bài (miễn không trộn ảnh với video). */}
+                <button
+                  type="button"
+                  onClick={onPickFromDrive}
+                  disabled={drive.loading || !drive.connected}
+                  data-testid="drive-pick-btn"
+                  title={
+                    !drive.connected
+                      ? "Kết nối Google Drive ở trang Cài đặt trước"
+                      : "Chọn ảnh/video từ thư mục Drive của thương hiệu"
+                  }
+                  className="rounded-lg bg-yellow-500 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-yellow-600 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {drive.loading ? "📁 Đang mở Drive..." : "📁 Chọn từ Google Drive"}
+                </button>
                 <button
                   type="button"
                   onClick={() => setPickerOpen(true)}
@@ -925,29 +1077,67 @@ export default function ComposerStudio({
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
                   disabled={uploading}
-                  data-testid="upload-video-btn"
+                  data-testid="upload-file-btn"
                   className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-semibold text-gray-700 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  {uploading ? `⏫ Đang tải ${uploadPct}%` : "⏫ Tải video từ máy"}
+                  {uploading ? `⏫ Đang tải ${uploadPct}%` : "⏫ Tải ảnh/video từ máy"}
                 </button>
                 <input
                   ref={fileInputRef}
                   type="file"
-                  accept="video/mp4,video/quicktime,video/webm,video/x-msvideo,video/x-matroska"
+                  accept="image/jpeg,image/png,image/webp,image/gif,video/mp4,video/quicktime,video/webm,video/x-msvideo,video/x-matroska"
                   className="hidden"
                   data-testid="upload-video-input"
                   onChange={(e) => {
                     const f = e.target.files?.[0];
-                    if (f) onUploadVideo(f);
+                    if (f) onUploadFile(f);
                     // Cho phép chọn lại đúng file đó ở lần sau
                     e.target.value = "";
                   }}
                 />
               </div>
+
+              {/* Dán link ảnh Drive — lối tắt khi Google Picker không mở được */}
+              {drive.connected ? (
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <input
+                    type="url"
+                    value={driveUrl}
+                    onChange={(e) => setDriveUrl(e.target.value)}
+                    placeholder="Dán link ảnh Drive (…/file/d/<ID>/view)"
+                    data-testid="drive-url-input"
+                    className="min-w-[240px] flex-1 rounded-lg border border-gray-300 px-3 py-1.5 font-mono text-[11px] text-gray-900 focus:border-blue-500 focus:outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={onAttachDriveUrl}
+                    disabled={linkingDrive || !driveUrl.trim()}
+                    data-testid="drive-url-attach"
+                    className="rounded-lg bg-yellow-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-yellow-700 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {linkingDrive ? "Đang kiểm tra..." : "Gắn ảnh từ link"}
+                  </button>
+                </div>
+              ) : null}
             </div>
 
             {/* Media đã chọn — gửi lên server qua hidden input "media" */}
             <input type="hidden" name="media" value={JSON.stringify(attachments)} />
+
+            {/* Lỗi từ Google Drive/Picker hiện chung chỗ với lỗi tải tệp */}
+            {drive.error ? (
+              <p className="mb-2 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700" data-testid="drive-pick-error">
+                ✗ {drive.error}
+                {!drive.connected ? (
+                  <>
+                    {" "}
+                    <button type="button" onClick={startDriveConnect} className="font-medium underline">
+                      Kết nối Google Drive →
+                    </button>
+                  </>
+                ) : null}
+              </p>
+            ) : null}
 
             {uploading && (
               <div className="mb-2" data-testid="upload-progress">
@@ -1000,6 +1190,26 @@ export default function ComposerStudio({
                           ▶ video
                         </span>
                       )}
+                      {/* Nhãn nguồn — ba nguồn ngang hàng: Drive · Pexels · Từ máy · URL */}
+                      <span
+                        className={`absolute left-1 top-1 rounded px-1 text-[10px] font-medium text-white ${
+                          m.source === "DRIVE"
+                            ? "bg-yellow-600/85"
+                            : m.source === "UPLOAD"
+                              ? "bg-gray-700/80"
+                              : m.source === "PEXELS"
+                                ? "bg-cyan-700/80"
+                                : "bg-blue-700/80"
+                        }`}
+                      >
+                        {m.source === "DRIVE"
+                          ? "Drive"
+                          : m.source === "UPLOAD"
+                            ? "Từ máy"
+                            : m.source === "PEXELS"
+                              ? "Pexels"
+                              : "URL"}
+                      </span>
                     </div>
                     <button
                       type="button"
@@ -1011,15 +1221,19 @@ export default function ComposerStudio({
                       ×
                     </button>
                     <p className="truncate px-1.5 py-1 text-[10px] text-gray-500">
-                      {m.source === "UPLOAD"
-                        ? `${m.alt ?? "Video từ máy"}${
-                            m.sizeBytes
-                              ? ` · ${(m.sizeBytes / 1024 / 1024).toFixed(1)}MB`
-                              : ""
+                      {m.source === "DRIVE"
+                        ? `${m.alt ?? "Tệp trên Drive"}${
+                            m.sizeBytes ? ` · ${(m.sizeBytes / 1024 / 1024).toFixed(1)}MB` : ""
                           }`
-                        : `${m.photographer ?? (m.source === "PEXELS" ? "Pexels" : "URL")}${
-                            m.width ? ` · ${m.width}×${m.height}` : ""
-                          }`}
+                        : m.source === "UPLOAD"
+                          ? `${m.alt ?? "Tệp từ máy"}${
+                              m.sizeBytes
+                                ? ` · ${(m.sizeBytes / 1024 / 1024).toFixed(1)}MB`
+                                : ""
+                            }`
+                          : `${m.photographer ?? (m.source === "PEXELS" ? "Pexels" : "URL")}${
+                              m.width ? ` · ${m.width}×${m.height}` : ""
+                            }`}
                     </p>
                   </li>
                 ))}

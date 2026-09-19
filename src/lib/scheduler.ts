@@ -11,7 +11,7 @@ import {
 import { buildMessage, deliverToFacebook } from "@/lib/deliver";
 import type { GraphContext } from "@/lib/facebook";
 import { getSetting, setSetting } from "@/lib/settings";
-import { validateAttachments, type AttachedMedia } from "@/lib/posts";
+import { attachedFromDbMedia, validateAttachments, type AttachedMedia } from "@/lib/posts";
 
 // ============================================================
 // Worker tự động đăng bài theo lịch.
@@ -210,13 +210,7 @@ export async function runSchedulerTick(
     }
 
     // --- Kiểm tra media trước khi gọi Facebook ---
-    const media: AttachedMedia[] = post.media.map((m) => ({
-      remoteUrl: m.remoteUrl,
-      type: m.type === "VIDEO" ? "VIDEO" : "IMAGE",
-      source: m.source === "PEXELS" ? "PEXELS" : m.source === "UPLOAD" ? "UPLOAD" : "URL",
-      storageKey: m.storageKey ?? undefined,
-      mimeType: m.mimeType ?? undefined,
-    }));
+    const media: AttachedMedia[] = post.media.map(attachedFromDbMedia);
 
     const check = validateAttachments(media);
     if (!check.ok) {

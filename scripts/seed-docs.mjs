@@ -243,6 +243,59 @@ AutoPilot đọc **trọng số trụ cột** (trang [Thương hiệu](/brand)) 
 Tắt AutoPilot bất cứ lúc nào — cấu hình vẫn giữ để bật lại. Bài đã xếp lịch vẫn nằm chờ (không mất), bật lại là chạy tiếp.`,
   },
   {
+    title: "Ảnh/video từ Google Drive cá nhân",
+    notifyOnPublish: false,
+    body: `# Ảnh/video từ Google Drive cá nhân
+
+Hệ thống có **ba nguồn ảnh/video ngang hàng nhau**, bạn chọn tự do — thậm chí trộn trong cùng một bài:
+
+| Nguồn | Lưu ở đâu | Phù hợp khi |
+|---|---|---|
+| 📁 **Google Drive cá nhân** | Drive của chính bạn (15 GB) | Bạn đã có ảnh sản phẩm, ảnh thật của shop |
+| 🖼️ **Pexels** | Kho ảnh miễn phí bản quyền | Chưa có ảnh, cần ảnh đẹp nhanh |
+| ⏫ **Tải từ máy** | Kho tệp của hệ thống | Ảnh/video lẻ, dùng một lần |
+
+Ảnh thật của shop thường hiệu quả hơn ảnh stock, mà Drive của bạn thì dung lượng tính theo tài khoản của bạn — nên đây là nguồn đáng dùng nhất.
+
+## 1. Kết nối Google Drive (quản trị viên làm một lần)
+
+Cần một **OAuth Client** trên Google Cloud:
+
+1. Vào [console.cloud.google.com](https://console.cloud.google.com) → tạo project.
+2. **APIs & Services → Library**: bật **Google Drive API** và **Google Picker API**.
+3. **OAuth consent screen**: chọn loại *External*; thêm scope \`.../auth/drive.file\` (và \`openid\`, \`email\`, \`profile\`); thêm email người dùng vào mục **Test users**.
+   - App chỉ xin quyền \`drive.file\`: **chỉ đọc được tệp bạn tự chọn**, không xem được cả Drive. Nhờ vậy không phải qua quy trình xác minh ngặt nghèo của Google.
+   - Ở chế độ *Testing*, Google giới hạn 100 người dùng và refresh token hết hạn sau **7 ngày** — khi đó bấm **Cấp quyền lại** trong Cài đặt.
+4. **Credentials → Create credentials → OAuth client ID** (loại *Web application*), thêm Authorized redirect URI đúng bằng giá trị \`GOOGLE_OAUTH_REDIRECT_URI\`.
+5. **Credentials → Create credentials → API key** cho Google Picker.
+6. Điền vào \`.env\`: \`GOOGLE_OAUTH_CLIENT_ID\`, \`GOOGLE_OAUTH_CLIENT_SECRET\`, \`GOOGLE_OAUTH_REDIRECT_URI\`, \`GOOGLE_PICKER_API_KEY\` rồi khởi động lại app.
+
+## 2. Mỗi người dùng tự kết nối
+
+Vào [Cài đặt](/settings) → mục **Google Drive cá nhân** → bấm **Kết nối Google Drive** và đồng ý cấp quyền. Mỗi người dùng dùng Drive của chính mình; ảnh không đi qua dung lượng của hệ thống.
+
+## 3. Gắn thư mục cho từng thương hiệu
+
+Vào [Thương hiệu](/brand) → chọn thương hiệu → mở khối **Ảnh/video từ Google Drive** → **Chọn thư mục trên Drive**.
+
+Tạo trên Drive một thư mục cho mỗi thương hiệu, ví dụ \`Ảnh — Cửa hàng A\`, rồi chọn đúng thư mục đó. Hệ thống lấy ảnh **trực tiếp trong thư mục đó**.
+
+> Vì App chỉ được cấp quyền với tệp do bạn chọn, bước chọn thư mục là **bắt buộc** — không có cách nào khác để app biết dùng ảnh nào.
+
+## 4. Dùng trong bài đăng
+
+- **Soạn bài thủ công**: bấm **📁 Chọn từ Google Drive** để chọn ảnh/video, hoặc vào [Thư viện Media](/media) → tab **Google Drive** để xem thư mục và **Lưu vào thư viện**.
+- **Trộn nguồn**: trong cùng một bài bạn có thể dùng 2 ảnh Drive + 2 ảnh Pexels. Facebook chỉ cấm trộn ảnh với video, không cấm trộn nguồn.
+- **AutoPilot**: ở trang [Tự động đăng](/autopilot), mục **Lấy ảnh/video từ đâu?** chọn 📁 Google Drive; tick **Nếu nguồn chính hết ảnh thì lấy từ nguồn còn lại** để Drive trống thì tự chuyển sang Pexels (khuyến nghị bật).
+
+## 5. Giới hạn cần biết
+
+- **Video trên Drive tối đa 50MB** (giới hạn kho tạm của hệ thống). Video dài/nặng nên nén lại trước.
+- Drive hết dung lượng thì hệ thống báo rõ và **không tự xoá gì** của bạn.
+- Ảnh/video đi qua máy chủ để gửi lên Facebook (Facebook không đọc được link Drive riêng tư), nên nên dùng ảnh đã tối ưu, không cần ảnh gốc quá lớn.
+- Nếu ngắt kết nối Drive, các Page đang dùng nguồn Drive sẽ **tự chuyển về Pexels** và bật dự phòng, để bài không bị thiếu ảnh.`,
+  },
+  {
     title: "Thương hiệu & nội dung chuẩn",
     notifyOnPublish: false,
     body: `# Thương hiệu & nội dung chuẩn

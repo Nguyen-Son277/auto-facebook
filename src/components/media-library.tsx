@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import MediaBrowser from "@/components/media-browser";
+import DriveLibraryPanel, { type DriveFolderOption } from "@/components/drive-library-panel";
 import { deleteLibraryMedia } from "@/app/actions/media";
 import type { MediaSearchState } from "@/lib/pexels-types";
 
@@ -27,15 +28,22 @@ export default function MediaLibrary({
   quotaUsed,
   quotaLimit,
   initialResult,
+  drive,
 }: {
   saved: SavedMediaItem[];
   pexelsReady: boolean;
   quotaUsed: number;
   quotaLimit: number;
   initialResult: MediaSearchState;
+  /** Trạng thái Google Drive + danh sách brand đã gắn thư mục Drive. */
+  drive: {
+    connected: boolean;
+    /** Brand (trong workspace của user) đã có thư mục Drive. */
+    folders: DriveFolderOption[];
+  };
 }) {
   const router = useRouter();
-  const [tab, setTab] = useState<"search" | "library">("search");
+  const [tab, setTab] = useState<"search" | "library" | "drive">("search");
   const [filter, setFilter] = useState<"ALL" | "IMAGE" | "VIDEO">("ALL");
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [, startDelete] = useTransition();
@@ -71,12 +79,16 @@ export default function MediaLibrary({
     <div className="space-y-5">
       {/* Quota + tab */}
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex gap-1 rounded-lg bg-gray-100 p-1 text-sm">
+        <div className="flex flex-wrap gap-1 rounded-lg bg-gray-100 p-1 text-sm">
           {(
             [
               ["search", "🔍 Tìm trên Pexels"],
               ["library", `📚 Thư viện của tôi (${saved.length})`],
-            ] as ["search" | "library", string][]
+              // Tab Drive chỉ hiện khi người dùng đã kết nối Drive
+              ...(drive.connected
+                ? ([["drive", "📁 Google Drive"]] as ["drive", string][])
+                : []),
+            ] as ["search" | "library" | "drive", string][]
           ).map(([value, label]) => (
             <button
               key={value}
@@ -114,6 +126,10 @@ export default function MediaLibrary({
             initialResult={initialResult}
             savedProviderIds={providerIds}
           />
+        </div>
+      ) : tab === "drive" ? (
+        <div className="rounded-2xl border border-gray-200 bg-white p-5">
+          <DriveLibraryPanel folders={drive.folders} />
         </div>
       ) : (
         <div className="rounded-2xl border border-gray-200 bg-white p-5">

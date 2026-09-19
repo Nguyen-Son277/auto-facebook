@@ -145,6 +145,39 @@ export async function saveAutoPilot(
     startDate = picked.getTime() > today.getTime() ? picked : null;
   }
 
+  // Nguồn ảnh/video: người dùng chọn nguồn chính (Pexels hoặc Drive cá nhân)
+  // và có bật dự phòng sang nguồn còn lại không. Xem lib/media-source.ts.
+  const mediaPrimaryRaw = str(formData, "mediaPrimary");
+  const mediaPrimary = mediaPrimaryRaw === "DRIVE" ? "DRIVE" : "PEXELS";
+  const mediaFallback = bool(formData, "mediaFallback");
+
+  // Chọn Drive nhưng thương hiệu chưa gắn thư mục thì lưu cũng vô nghĩa —
+  // báo lỗi kèm việc cần làm thay vì âm thầm đổi về Pexels.
+  if (mediaPrimary === "DRIVE" && bool(formData, "autoMedia")) {
+    const pageRow = await prisma.facebookPage.findUnique({
+      where: { id: pageId },
+      select: { brandId: true },
+    });
+    if (!pageRow?.brandId) {
+      return {
+        ok: false,
+        error:
+          "Page chưa gắn thương hiệu nên không có thư mục Drive. Vào trang Thương hiệu để gắn Page vào một thương hiệu trước.",
+      };
+    }
+    const folder = await prisma.brandDriveFolder.findUnique({
+      where: { brandId: pageRow.brandId },
+      select: { id: true },
+    });
+    if (!folder) {
+      return {
+        ok: false,
+        error:
+          "Thương hiệu này chưa gắn thư mục Google Drive. Vào trang Thương hiệu → mục “Ảnh/video từ Google Drive” để chọn thư mục, hoặc chọn nguồn Pexels.",
+      };
+    }
+  }
+
   const data = {
     mode: str(formData, "mode") === "AUTO" ? "AUTO" : "REVIEW",
     postsPerDay,
@@ -153,6 +186,8 @@ export async function saveAutoPilot(
     daysOfWeek: days.join(","),
     minGapMinutes,
     autoMedia: bool(formData, "autoMedia"),
+    mediaPrimary,
+    mediaFallback,
     mediaKind: resolvedKind,
     mediaMix,
     videoPercent,
@@ -180,9 +215,14 @@ export async function saveAutoPilot(
       : mediaMix === "VIDEO_ONLY"
         ? "toàn video"
         : "toàn ảnh";
+  const sourceLabel = data.autoMedia
+    ? ` · nguồn ${mediaPrimary === "DRIVE" ? "Google Drive" : "Pexels"}${
+        mediaFallback ? " (có dự phòng)" : ""
+      }`
+    : "";
   return {
     ok: true,
-    message: `Đã lưu thông số: ${postsPerDay} bài/ngày, ${mixLabel}.`,
+    message: `Đã lưu thông số: ${postsPerDay} bài/ngày, ${mixLabel}${sourceLabel}.`,
   };
 }
 

@@ -4,10 +4,12 @@ import {
   AiSettingsForm,
   PexelsSettingsForm,
 } from "@/components/settings-forms";
+import DriveSettingsCard, { type DriveResult } from "@/components/drive-settings-card";
 import ChangePasswordForm from "@/components/change-password-form";
 import ThemeSelector from "@/components/theme-selector";
 import { getUserSettingsMeta, getUserSetting, SETTING_KEYS } from "@/lib/settings";
 import { fetchAiModels } from "@/lib/ai";
+import { getDriveStatus } from "@/app/actions/drive";
 
 // Cấu hình Facebook đã chuyển sang /facebook-apps (theo từng workspace,
 // nhiều App cùng lúc) — Settings chỉ còn AI + Pexels.
@@ -16,10 +18,29 @@ const ALL_KEYS: string[] = [
   ...Object.values(SETTING_KEYS.PEXELS),
 ];
 
-export default async function SettingsPage() {
+export default async function SettingsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ drive?: string; msg?: string }>;
+}) {
   const user = await requireCurrentUser();
+  const sp = await searchParams;
   const { masked, savedKeys } = await getUserSettingsMeta(user.id, [...ALL_KEYS]);
   const themePref = (await getUserSetting(user.id, SETTING_KEYS.APP.theme)) ?? "system";
+  const driveStatus = await getDriveStatus();
+
+  // Chỉ nhận các mã trạng thái do /api/drive/callback sinh ra
+  const DRIVE_RESULTS: DriveResult[] = [
+    "connected",
+    "denied",
+    "error",
+    "not_configured",
+    "missing_redirect",
+  ];
+  const driveResult: DriveResult =
+    sp.drive && (DRIVE_RESULTS as string[]).includes(sp.drive)
+      ? (sp.drive as DriveResult)
+      : null;
 
   // Nếu đã có Base URL + API Key → tải sẵn danh sách model để người dùng
   // chọn ngay khi mở trang, không phải gõ tên model.
@@ -66,6 +87,15 @@ export default async function SettingsPage() {
           }
         />
         <PexelsSettingsForm masked={masked} />
+
+        {/* ================= Google Drive cá nhân =================
+            Nguồn ảnh/video thứ ba, ngang hàng Pexels và "tải từ máy".
+            Thư mục cho từng thương hiệu chọn ở trang Thương hiệu. */}
+        <DriveSettingsCard
+          status={driveStatus}
+          result={driveResult}
+          detail={sp.msg}
+        />
 
         {/* Tự động đăng bài (công tắc cấp hệ thống) đã chuyển về trang
             Quản trị — chỉ admin điều khiển được. User thường không thấy. */}

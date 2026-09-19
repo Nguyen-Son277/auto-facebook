@@ -8,6 +8,8 @@ import { notify } from "@/lib/notify";
 import { formatDateTime } from "@/lib/format-date";
 import type { GraphContext } from "@/lib/facebook";
 import {
+  attachedFromDbMedia,
+  mediaColumnsFromAttachment,
   parseAttachments,
   validateAttachments,
   type AttachedMedia,
@@ -65,21 +67,8 @@ async function createPostRecord(
         userId,
         workspaceId: page!.workspaceId,
         type: m.type,
-        source: m.source,
-        remoteUrl: m.remoteUrl,
-        previewUrl: m.previewUrl ?? null,
-        width: m.width ?? null,
-        height: m.height ?? null,
-        duration: m.duration ?? null,
-        providerId: m.providerId ?? null,
-        photographer: m.photographer ?? null,
-        photographerUrl: m.photographerUrl ?? null,
-        sourcePageUrl: m.sourcePageUrl ?? null,
-        alt: m.alt ?? null,
-        storageKey: m.storageKey ?? null,
-        mimeType: m.mimeType ?? null,
-        sizeBytes: m.sizeBytes ?? null,
         position: i,
+        ...mediaColumnsFromAttachment(m),
       },
     });
   }
@@ -271,14 +260,7 @@ export async function retryPost(
     };
   }
 
-  const media: AttachedMedia[] = post.media.map((m) => ({
-    remoteUrl: m.remoteUrl,
-    type: m.type === "VIDEO" ? "VIDEO" : "IMAGE",
-    source:
-      m.source === "PEXELS" ? "PEXELS" : m.source === "UPLOAD" ? "UPLOAD" : "URL",
-    storageKey: m.storageKey ?? undefined,
-    mimeType: m.mimeType ?? undefined,
-  }));
+  const media: AttachedMedia[] = post.media.map(attachedFromDbMedia);
 
   const check = validateAttachments(media);
   if (!check.ok) return { ok: false, error: check.error };

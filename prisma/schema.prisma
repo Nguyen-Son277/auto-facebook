@@ -53,6 +53,9 @@ model User {
   docsWritten   Doc[]
   questionsAsked FeedbackQuestion[]
   answersGiven   FeedbackAnswer[]
+
+  // ---- Nguồn media: Google Drive cá nhân (xem DriveConnection) ----
+  driveConnection DriveConnection?
 }
 
 // ============================================================
@@ -164,6 +167,8 @@ model Brand {
   pillars   ContentPillar[]
   docs      KnowledgeDoc[]
   posts     Post[]
+  /// Thư mục Google Drive chứa ảnh/video riêng của thương hiệu (chọn qua Picker)
+  driveFolder BrandDriveFolder?
 
   @@unique([workspaceId, slug])
   @@index([workspaceId, status])
@@ -261,7 +266,9 @@ model Media {
   /// Workspace sở hữu media (thư viện cách ly theo workspace)
   workspaceId     String?
   type            String // IMAGE | VIDEO
-  source          String   @default("PEXELS") // PEXELS | URL | UPLOAD
+  /// PEXELS (kho ảnh stock) | URL (link ngoài) | UPLOAD (tải từ máy) | DRIVE (Google Drive cá nhân)
+  source          String   @default("PEXELS")
+  /// URL file gốc. Với DRIVE: đường dẫn nội bộ "/api/drive/<driveFileId>" (có kiểm quyền).
   remoteUrl       String // URL file gốc (Pexels hoặc nơi lưu trữ)
   previewUrl      String? // URL ảnh xem trước
   width           Int?
@@ -269,7 +276,8 @@ model Media {
   duration        Int? // giây (chỉ video)
   position        Int      @default(0) // thứ tự hiển thị trong bài
   // ---- Thông tin nguồn (Pexels) để ghi công tác giả ----
-  providerId      String? // ID ảnh/video trên Pexels
+  /// ID ảnh/video trên Pexels; với source = DRIVE thì đây là fileId trên Google Drive.
+  providerId      String?
   photographer    String?
   photographerUrl String?
   sourcePageUrl   String?
@@ -287,6 +295,72 @@ model Media {
   @@index([userId])
   @@index([postId])
   @@index([workspaceId])
+}
+
+// ============================================================
+// GOOGLE DRIVE — nguồn media cá nhân của người dùng.
+//
+// Ý tưởng: thay vì dồn mọi ảnh/video vào Supabase Storage (1 GB ở gói
+// Free), để mỗi người dùng dùng Drive của chính họ (15 GB). App chỉ nối
+// vào và đọc — dung lượng tăng theo số người dùng, không đè lên hạn mức
+// của hệ thống.
+//
+// Quyền dùng "drive.file" (scope không nhạy cảm, không cần Google duyệt):
+// app CHỈ thấy file do app tạo hoặc do người dùng chọn qua Google Picker.
+// Vì vậy mỗi thương hiệu cần một thư mục do người dùng chọn (BrandDriveFolder).
+//
+// Token mã hóa AES-256-GCM bằng encryptValue (lib/settings.ts) — giống
+// FacebookConnection, KHÔNG bao giờ lộ ra client.
+// ============================================================
+
+model DriveConnection {
+  id                   String    @id @default(cuid())
+  /// Mỗi người dùng một kết nối Drive (tài sản riêng, như AI/Pexels key).
+  userId               String    @unique
+  /// Email Google đã cấp quyền — để hiển thị "đang nối vào tài khoản nào".
+  googleEmail          String?
+  /// Scope đã được cấp (thường là "openid email profile .../drive.file").
+  scope                String
+  /// Refresh token — đã mã hóa AES-256-GCM.
+  refreshToken         String
+  /// Access token (ngắn hạn) — đã mã hóa; tự làm mới khi gần hết hạn.
+  accessToken          String?
+  accessTokenExpiresAt DateTime? @db.Timestamptz(3)
+  /// Thư mục gốc người dùng chọn làm nơi chứa thư mục của các thương hiệu.
+  rootFolderId         String?
+  /// ACTIVE | NEEDS_REAUTH (token bị thu hồi/hết hạn) | DISABLED
+  status               String    @default("ACTIVE")
+  lastError            String?
+  lastRefreshedAt      DateTime? @db.Timestamptz(3)
+  createdAt            DateTime  @db.Timestamptz(3) @default(now())
+  updatedAt            DateTime  @db.Timestamptz(3) @updatedAt
+
+  user   User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  brands BrandDriveFolder[]
+
+  @@index([status])
+}
+
+/// Thư mục Drive của MỘT thương hiệu — nguồn ảnh/video riêng cho Brand đó.
+model BrandDriveFolder {
+  id           String    @id @default(cuid())
+  brandId      String    @unique
+  /// null = người dùng đã ngắt kết nối Drive (giữ folderId để nối lại đúng thư mục cũ).
+  connectionId String?
+  folderId     String
+  /// Tên thư mục, cache lại để hiển thị được cả khi Drive tạm lỗi.
+  folderName   String?
+  /// Cho phép AutoPilot dùng video trong thư mục này (tắt = chỉ lấy ảnh).
+  allowVideo   Boolean   @default(true)
+  lastSyncedAt DateTime? @db.Timestamptz(3)
+  lastError    String?
+  createdAt    DateTime  @db.Timestamptz(3) @default(now())
+  updatedAt    DateTime  @db.Timestamptz(3) @updatedAt
+
+  brand      Brand            @relation(fields: [brandId], references: [id], onDelete: Cascade)
+  connection DriveConnection? @relation(fields: [connectionId], references: [id], onDelete: SetNull)
+
+  @@index([connectionId])
 }
 
 // ============================================================
@@ -407,6 +481,12 @@ model AutoPilot {
 
   // ---- Tự tìm ảnh/video ----
   autoMedia     Boolean @default(true)
+  /// Nguồn chính để lấy ảnh/video: PEXELS (kho stock) | DRIVE (thư mục Drive của Brand).
+  /// Người dùng chọn tự do; đổi nguồn không làm hỏng bài đã lên lịch.
+  mediaPrimary  String  @default("PEXELS")
+  /// true = nguồn chính hết ảnh/lỗi thì lấy tiếp từ nguồn còn lại.
+  /// false = chỉ dùng đúng nguồn chính; thiếu ảnh thì chấp nhận bài không ảnh (có cảnh báo).
+  mediaFallback Boolean @default(true)
   /// Giữ lại để tương thích với cấu hình cũ; mediaMix mới có quyền quyết định.
   mediaKind     String  @default("IMAGE") // IMAGE | VIDEO
   photosPerPost Int     @default(2)

@@ -18,6 +18,7 @@ import { TONES } from "@/lib/ai-prompts";
 import { formatDateKey, videoQuotaForDay } from "@/lib/autopilot-plan";
 import { pushToast } from "./toast-provider";
 import { statusBadgeOf } from "@/lib/posts";
+import { startDriveConnect } from "@/lib/drive-connect";
 
 // ============================================================
 // Bảng điều khiển chế độ tự động.
@@ -55,6 +56,10 @@ export type AutoPilotConfigView = {
   daysOfWeek: string;
   minGapMinutes: number;
   autoMedia: boolean;
+  /** PEXELS | DRIVE — nguồn ảnh/video chính. */
+  mediaPrimary: string;
+  /** Nguồn chính hết/lỗi thì có lấy tiếp từ nguồn còn lại không. */
+  mediaFallback: boolean;
   mediaKind: string;
   mediaMix: string;
   videoPercent: number;
@@ -69,6 +74,17 @@ export type AutoPilotConfigView = {
   lastPlanError: string | null;
   totalPlanned: number;
 } | null;
+
+export type MediaSourceInfo = {
+  /** Đã kết nối Google Drive ở Cài đặt chưa. */
+  driveConnected: boolean;
+  /** Trạng thái connection: ACTIVE | NEEDS_REAUTH | DISABLED | null. */
+  driveStatus: string | null;
+  /** Thư mục Drive đã gắn cho thương hiệu của Page này (null = chưa). */
+  driveFolderName: string | null;
+  /** Người dùng đã có Pexels API Key chưa. */
+  pexelsReady: boolean;
+};
 
 export type PlannedPost = {
   id: string;
@@ -189,17 +205,27 @@ function PowerSwitch({
 function SettingsForm({
   pageId,
   config,
+  media,
 }: {
   pageId: string;
   config: AutoPilotConfigView;
+  media: MediaSourceInfo;
 }) {
   const [state, action, pending] = useActionState(saveAutoPilot, null);
   const [advanced, setAdvanced] = useState(false);
   const [autoMedia, setAutoMedia] = useState(config?.autoMedia ?? true);
+  const [mediaPrimary, setMediaPrimary] = useState(config?.mediaPrimary ?? "PEXELS");
+  const [mediaFallback, setMediaFallback] = useState(config?.mediaFallback ?? true);
   const [mediaMix, setMediaMix] = useState(config?.mediaMix ?? "IMAGE_ONLY");
   const [videoPercent, setVideoPercent] = useState(config?.videoPercent ?? 25);
   // Điều khiển được để hiện ngay dòng xem trước "mỗi ngày mấy bài video"
   const [postsPerDay, setPostsPerDay] = useState(config?.postsPerDay ?? 2);
+
+  const driveReady =
+    media.driveConnected &&
+    media.driveStatus === "ACTIVE" &&
+    Boolean(media.driveFolderName);
+  const driveFolderMissing = media.driveConnected && !media.driveFolderName;
 
   // Dùng đúng hàm mà bộ lập kế hoạch dùng → con số xem trước khớp thực tế
   const videoCount = videoQuotaForDay(postsPerDay, videoPercent);
@@ -314,7 +340,7 @@ function SettingsForm({
         </div>
       </div>
 
-      {/* ---- Tự tìm ảnh ---- */}
+      {/* ---- Nguồn ảnh/video ---- */}
       <div>
         <span className={labelCls}>Có tự tìm hình không?</span>
         <div className="mt-2 space-y-2">
@@ -328,11 +354,98 @@ function SettingsForm({
               onChange={(e) => setAutoMedia(e.target.checked)}
               className="h-4 w-4 rounded border-gray-300"
             />
-            Tự tìm ảnh/video trên Pexels cho mỗi bài
+            Tự tìm ảnh/video cho mỗi bài
           </label>
 
           {autoMedia ? (
             <div className="ml-6 space-y-3">
+              <div>
+                <label className={labelCls} htmlFor="ap-mediaPrimary">
+                  Lấy ảnh/video từ đâu?
+                </label>
+                <select
+                  id="ap-mediaPrimary"
+                  name="mediaPrimary"
+                  data-testid="ap-mediaPrimary"
+                  value={mediaPrimary}
+                  onChange={(e) => setMediaPrimary(e.target.value)}
+                  className={`${inputCls} mt-1`}
+                >
+                  <option value="PEXELS">🖼️ Pexels — kho ảnh/video miễn phí</option>
+                  <option value="DRIVE">
+                    📁 Google Drive cá nhân — thư mục của thương hiệu
+                  </option>
+                </select>
+                <p className={hintCls}>
+                  {mediaPrimary === "DRIVE"
+                    ? "Lấy đúng ảnh sản phẩm bạn đã để trong thư mục Drive của thương hiệu."
+                    : "Ảnh/video stock miễn phí — không cần chuẩn bị gì trước."}
+                </p>
+              </div>
+
+              {/* Trạng thái Drive — nói đúng việc cần làm nếu chưa dùng được */}
+              {mediaPrimary === "DRIVE" ? (
+                <div
+                  className={`rounded-lg px-3 py-2 text-xs ${
+                    driveReady ? "bg-emerald-50 text-emerald-800" : "bg-amber-50 text-amber-800"
+                  }`}
+                  data-testid="ap-drive-status"
+                >
+                  {driveReady ? (
+                    <>
+                      ✓ Đang dùng thư mục Drive:{" "}
+                      <strong>{media.driveFolderName}</strong>
+                    </>
+                  ) : !media.driveConnected ? (
+                    <>
+                      ⚠ Chưa kết nối Google Drive.{" "}
+                      <button type="button" onClick={startDriveConnect} className="font-medium underline">
+                        Kết nối ngay
+                      </button>
+                    </>
+                  ) : media.driveStatus === "NEEDS_REAUTH" ? (
+                    <>
+                      ⚠ Kết nối Drive cần cấp quyền lại.{" "}
+                      <button type="button" onClick={startDriveConnect} className="font-medium underline">
+                        Cấp quyền lại
+                      </button>
+                    </>
+                  ) : driveFolderMissing ? (
+                    <>
+                      ⚠ Thương hiệu chưa gắn thư mục Drive.{" "}
+                      <a href="/brand" className="font-medium underline">
+                        Chọn thư mục →
+                      </a>
+                    </>
+                  ) : (
+                    <>⚠ Kết nối Drive đang bị tắt.</>
+                  )}
+                </div>
+              ) : null}
+
+              <label className="flex cursor-pointer items-start gap-2 text-sm text-gray-700">
+                <input
+                  type="checkbox"
+                  name="mediaFallback"
+                  value="1"
+                  data-testid="ap-mediaFallback"
+                  checked={mediaFallback}
+                  onChange={(e) => setMediaFallback(e.target.checked)}
+                  className="mt-0.5 h-4 w-4 rounded border-gray-300"
+                />
+                <span>
+                  Nếu nguồn chính hết ảnh thì lấy từ nguồn còn lại
+                  <span className="block text-xs text-gray-500">
+                    {mediaPrimary === "DRIVE"
+                      ? "Drive trống hoặc lỗi → lấy ảnh Pexels. Nên bật để bài không bao giờ thiếu ảnh."
+                      : "Pexels hết lượt tìm ảnh → lấy ảnh trong thư mục Drive của thương hiệu."}
+                    {mediaPrimary === "PEXELS" && !media.pexelsReady
+                      ? " (Bạn chưa nhập Pexels API Key — nên chọn Google Drive.)"
+                      : ""}
+                  </span>
+                </span>
+              </label>
+
               <div>
                 <label className={labelCls} htmlFor="ap-mediaMix">
                   Dùng ảnh hay video?
@@ -352,6 +465,9 @@ function SettingsForm({
                 <p className={hintCls}>
                   Facebook không cho đăng chung ảnh và video trong cùng một bài, nên “xen kẽ”
                   nghĩa là luân phiên giữa các bài.
+                  {mediaPrimary === "DRIVE"
+                    ? " Với Google Drive, app chỉ dùng video khi thư mục có video."
+                    : ""}
                 </p>
               </div>
 
@@ -729,6 +845,7 @@ export default function AutopilotDashboard({
   pendingReview,
   readiness,
   quota,
+  media,
 }: {
   pageId: string;
   config: AutoPilotConfigView;
@@ -743,8 +860,16 @@ export default function AutopilotDashboard({
     issue: string | null;
   };
   quota: { used: number; limit: number; remaining: number; live: boolean; blocked: boolean };
+  /** Trạng thái các nguồn media (Pexels / Google Drive) để chọn nguồn cho AutoPilot. */
+  media: MediaSourceInfo;
 }) {
   const enabled = config?.enabled ?? false;
+
+  // Nguồn Drive đã sẵn sàng chưa: đã kết nối + connection ACTIVE + đã gắn thư mục
+  const driveReady =
+    media.driveConnected &&
+    media.driveStatus === "ACTIVE" &&
+    Boolean(media.driveFolderName);
 
   // Cảnh báo sớm: hết quota Pexels thì bài sẽ ra không có ảnh
   const quotaLow = quota.remaining <= 20;
@@ -820,8 +945,8 @@ export default function AutopilotDashboard({
 
       <PowerSwitch pageId={pageId} enabled={enabled} hasConfig={config !== null} />
 
-      {/* Hạn mức tìm ảnh — người dùng cần biết trước khi bài ra không có ảnh */}
-      {config?.autoMedia ? (
+      {/* Hạn mức tìm ảnh Pexels — chỉ hiện khi Pexels thực sự là nguồn */}
+      {config?.autoMedia && (config.mediaPrimary ?? "PEXELS") === "PEXELS" ? (
         <div
           className={`rounded-lg px-4 py-3 text-sm ${
             quota.blocked
@@ -846,6 +971,38 @@ export default function AutopilotDashboard({
         </div>
       ) : null}
 
+      {/* Nguồn Drive: nhắc thư mục đang dùng + cảnh báo cấu hình thiếu */}
+      {config?.autoMedia && config.mediaPrimary === "DRIVE" ? (
+        <div
+          className={`rounded-lg px-4 py-3 text-sm ${
+            driveReady ? "bg-gray-50 text-gray-600" : "bg-amber-50 text-amber-800"
+          }`}
+          data-testid="ap-drive-source"
+        >
+          <span className="font-medium">Nguồn ảnh/video: Google Drive — </span>
+          {driveReady ? (
+            <>
+              thư mục <strong>{media.driveFolderName}</strong>
+              {config.mediaFallback ? " (có dự phòng Pexels khi thư mục trống)" : ""}
+            </>
+          ) : !media.driveConnected ? (
+            <span>
+              chưa kết nối.{" "}
+              <button type="button" onClick={startDriveConnect} className="font-medium underline">
+                Kết nối Drive →
+              </button>
+            </span>
+          ) : (
+            <span>
+              thương hiệu chưa gắn thư mục.{" "}
+              <a href="/brand" className="font-medium underline">
+                Chọn thư mục trên Drive →
+              </a>
+            </span>
+          )}
+        </div>
+      ) : null}
+
       <PlanPreview
         pageId={pageId}
         posts={posts}
@@ -853,7 +1010,7 @@ export default function AutopilotDashboard({
         pendingReview={pendingReview}
       />
 
-      <SettingsForm pageId={pageId} config={config} />
+      <SettingsForm pageId={pageId} config={config} media={media} />
 
       {config && config.totalPlanned > 0 ? (
         <p className="text-center text-xs text-gray-500" data-testid="ap-total">

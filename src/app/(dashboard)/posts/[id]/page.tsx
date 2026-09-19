@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { requireCurrentUser } from "@/lib/dal";
 import { prisma } from "@/lib/prisma";
 import { getPexelsKeyForUser } from "@/lib/settings";
+import { attachedFromDbMedia } from "@/lib/posts";
 import PostEditor from "@/components/post-editor";
 
 // ============================================================
@@ -63,26 +64,7 @@ export default async function PostDetailPage({
           fbPostId: post.fbPostId,
           pageName: post.page?.name ?? null,
         }}
-        media={post.media.map((m) => ({
-          remoteUrl: m.remoteUrl,
-          previewUrl: m.previewUrl ?? undefined,
-          type: m.type === "VIDEO" ? "VIDEO" : "IMAGE",
-          source: (m.source === "UPLOAD" || m.source === "URL" ? m.source : "PEXELS") as
-            | "PEXELS"
-            | "URL"
-            | "UPLOAD",
-          providerId: m.providerId ?? undefined,
-          photographer: m.photographer ?? undefined,
-          photographerUrl: m.photographerUrl ?? undefined,
-          sourcePageUrl: m.sourcePageUrl ?? undefined,
-          alt: m.alt ?? undefined,
-          width: m.width ?? undefined,
-          height: m.height ?? undefined,
-          duration: m.duration ?? undefined,
-          storageKey: m.storageKey ?? undefined,
-          mimeType: m.mimeType ?? undefined,
-          sizeBytes: m.sizeBytes ?? undefined,
-        }))}
+        media={post.media.map(attachedFromDbMedia)}
         pexelsReady={Boolean(apiKey)}
       />
     </div>

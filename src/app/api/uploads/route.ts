@@ -6,9 +6,12 @@ import { createUploadTarget } from "@/lib/uploads";
 // POST /api/uploads — cấp signed upload URL cho trình duyệt.
 //
 // Trên Vercel, Function chỉ nhận body tối đa 4.5MB nên KHÔNG thể nhận file
-// video trực tiếp. Vì vậy route này chỉ nhận metadata (tên file, mime, dung
-// lượng), kiểm tra hợp lệ rồi trả về URL có chữ ký để browser PUT file thẳng
-// lên Supabase Storage.
+// trực tiếp. Vì vậy route này chỉ nhận metadata (tên file, mime, dung lượng),
+// kiểm tra hợp lệ rồi trả về URL có chữ ký để browser PUT file thẳng lên
+// Supabase Storage.
+//
+// Nhận cả ẢNH và VIDEO — "tải từ máy" là một trong ba nguồn media ngang hàng
+// (Pexels, Google Drive, tải từ máy).
 // ============================================================
 
 type SignBody = {
@@ -45,6 +48,8 @@ export async function POST(request: Request) {
     uploadUrl: result.uploadUrl,
     size: result.size,
     mimeType: result.mimeType,
+    // IMAGE | VIDEO — client gắn nhãn và kiểm tra luật trộn ảnh/video
+    mediaType: result.mediaType,
     // URL nội bộ để xem trước trong trình soạn thảo (route này redirect sang Storage)
     previewUrl: `/api/uploads/${result.storageKey}`,
   });

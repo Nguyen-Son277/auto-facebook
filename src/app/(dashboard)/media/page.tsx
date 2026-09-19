@@ -4,11 +4,12 @@ import PageHeader from "@/components/page-header";
 import MediaLibrary from "@/components/media-library";
 import { getPexelsKeyForUser } from "@/lib/settings";
 import { curatedMedia, getPexelsQuota } from "@/lib/pexels";
+import { getDriveStatus } from "@/app/actions/drive";
 
 export default async function MediaPage() {
   const user = await requireCurrentUser();
 
-  const [pexels, saved] = await Promise.all([
+  const [pexels, saved, drive] = await Promise.all([
     getPexelsKeyForUser(user.id).then((apiKey) => ({ apiKey })),
     prisma.media.findMany({
       where: { userId: user.id, postId: null },
@@ -28,7 +29,27 @@ export default async function MediaPage() {
         providerId: true,
       },
     }),
+    getDriveStatus(),
   ]);
+
+  // Thư mục Drive của các thương hiệu thuộc workspace mà user là thành viên.
+  // Đây là dữ liệu để tab "Google Drive" biết duyệt thư mục nào.
+  const memberships = await prisma.workspaceMember.findMany({
+    where: { userId: user.id },
+    select: { workspaceId: true },
+  });
+  const driveFolders =
+    drive.connected && memberships.length > 0
+      ? await prisma.brandDriveFolder.findMany({
+          where: { brand: { workspaceId: { in: memberships.map((m) => m.workspaceId) } } },
+          orderBy: { createdAt: "asc" },
+          select: {
+            brandId: true,
+            folderName: true,
+            brand: { select: { name: true } },
+          },
+        })
+      : [];
 
   const quota = getPexelsQuota(user.id);
 
@@ -63,6 +84,14 @@ export default async function MediaPage() {
         quotaUsed={quota.used}
         quotaLimit={quota.limit}
         initialResult={initialResult}
+        drive={{
+          connected: drive.connected,
+          folders: driveFolders.map((f) => ({
+            brandId: f.brandId,
+            brandName: f.brand.name,
+            folderName: f.folderName,
+          })),
+        }}
       />
     </div>
   );

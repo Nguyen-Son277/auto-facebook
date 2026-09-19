@@ -43,7 +43,19 @@ npx prisma migrate dev
 npm run dev
 ```
 
-Mở http://localhost:3000 — lần đầu sẽ được chuyển tới **/setup** để tạo tài khoản admin.
+Mở http://localhost:3000 — trang chủ công khai giới thiệu sản phẩm; người đã đăng nhập được chuyển thẳng vào **/dashboard**, còn lần chạy đầu tiên sẽ được dẫn tới **/setup** để tạo tài khoản admin.
+
+## Trang công khai (không cần đăng nhập)
+
+| Đường dẫn | Nội dung |
+|---|---|
+| `/` | Trang chủ giới thiệu: hero + CTA đăng nhập/đăng ký, 8 nhóm tính năng, quy trình 3 bước. Người **đã đăng nhập** vào `/` sẽ được chuyển tiếp sang `/dashboard`. |
+| `/chinh-sach-bao-mat` | Chính sách bảo mật: dữ liệu thu thập, phạm vi dùng dữ liệu Facebook, bên thứ ba, lưu trữ & bảo mật, quyền của người dùng. |
+| `/dieu-khoan-dich-vu` | Điều khoản dịch vụ: mô tả dịch vụ, trách nhiệm tài khoản, trách nhiệm nội dung, sở hữu trí tuệ, giới hạn trách nhiệm. |
+
+- **Sửa nội dung pháp lý tại một chỗ:** `src/lib/legal.ts` — gồm tên đơn vị vận hành, email hỗ trợ, ngày hiệu lực và toàn bộ nội dung 2 trang. Cú pháp soạn: `**đậm**`, `[nhãn](https://link)`.
+- **Trước khi công bố / gửi Meta App Review**, thay các chỗ đánh dấu `[ĐIỀN …]` trong `src/lib/legal.ts` bằng thông tin thật (tên công ty/cá nhân, địa chỉ, nơi giải quyết tranh chấp).
+- 3 đường dẫn trên nằm trong danh sách `PUBLIC_PATHS` của `src/proxy.ts`; thêm trang công khai mới thì phải khai báo ở đó, nếu không proxy sẽ chuyển hướng về `/login`.
 
 ## Quản trị tài khoản (hệ thống riêng tư)
 
@@ -414,6 +426,50 @@ Vào `/history` để xem toàn bộ bài đã đăng, đang đăng và bài l�
   kèm nút **🔁 Đăng lại** — dùng lại đúng nội dung và media đã lưu, không cần soạn lại.
 - Nút **🗑️ Xóa** xóa bài khỏi lịch sử (xóa cả file video upload kèm theo).
 
+## Ba nguồn ảnh/video (Pexels · Google Drive cá nhân · Tải từ máy)
+
+Hệ thống có **ba nguồn media ngang hàng nhau**, người dùng chọn tự do và có thể **trộn trong cùng một bài**:
+
+| Nguồn | Lưu ở đâu | Ai trả dung lượng | Dùng ở |
+|---|---|---|---|
+| 🖼️ Pexels | CDN Pexels | Pexels (200 request/giờ/key) | Soạn bài + AutoPilot |
+| 📁 Google Drive cá nhân | Drive của từng người dùng | Người dùng (Drive của họ) | Soạn bài + AutoPilot |
+| ⏫ Tải từ máy | Supabase Storage | Hệ thống (1 GB gói Free) | Soạn bài |
+
+Ràng buộc Facebook không đổi: **tối đa 4 ảnh** hoặc **1 video**, **không trộn ảnh với video** —
+nhưng trộn *nguồn* thì được (ví dụ 2 ảnh Drive + 2 ảnh Pexels).
+
+### Google Drive cá nhân
+
+**Vì sao**: ảnh thật của shop thắng ảnh stock, mà dung lượng Drive tính theo tài khoản của
+từng người dùng — không đè lên hạn mức 1 GB của hệ thống.
+
+**Scope `drive.file`**: app chỉ xin quyền `drive.file` (loại *không nhạy cảm*, **không cần Google
+xác minh**) — nghĩa là app chỉ đọc được tệp do chính nó tạo hoặc do người dùng **chọn tường minh**
+qua Google Picker. Đó là lý do mỗi thương hiệu phải được gắn một thư mục cụ thể.
+
+**Cấu hình (quản trị viên, một lần)** — chi tiết từng bước ở trang `/docs`:
+
+1. Google Cloud project → bật **Google Drive API** + **Google Picker API**.
+2. OAuth consent screen → scope `.../auth/drive.file` (+ `openid email profile`), thêm *Test users*.
+   Ở chế độ Testing, refresh token hết hạn sau **7 ngày** — người dùng bấm **Cấp quyền lại**.
+3. Tạo **OAuth client ID** (Web application) với redirect URI khớp `GOOGLE_OAUTH_REDIRECT_URI`,
+   và một **API key** cho Picker.
+4. Đặt env: `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`, `GOOGLE_OAUTH_REDIRECT_URI`,
+   `GOOGLE_PICKER_API_KEY`.
+
+**Luồng sử dụng**: `/settings` → **Kết nối Google Drive** → `/brand` → chọn thư mục cho thương hiệu
+→ `/composer` bấm **📁 Chọn từ Google Drive** (hoặc tab **Google Drive** ở `/media` để lưu vào thư viện).
+
+**AutoPilot**: ở `/autopilot` chọn *Lấy ảnh/video từ đâu?* = Pexels hoặc Google Drive, kèm tuỳ chọn
+**dự phòng** (nguồn chính hết ảnh thì lấy nguồn còn lại). Nguồn chính lỗi/trống thì hệ thống **không
+bao giờ để bài thiếu ảnh im lặng** — luôn báo cho người dùng biết vì sao.
+
+**Đăng bài**: Facebook **không đọc được link Drive riêng tư**, nên ảnh Drive được tải về rồi upload
+lên Graph API bằng `multipart/form-data` (trường `source`), rồi đăng qua `attached_media`.
+Video Drive đi qua kho tạm + signed URL (dùng đúng đường của video "tải từ máy") và **được xoá
+ngay sau khi Facebook nhận**; giới hạn **50MB**/video (`MAX_VIDEO_BYTES`).
+
 ## Tìm ảnh/video từ Pexels (trang Thư viện Media + trong Soạn bài)
 
 Vào `/media` (hoặc bấm **🖼️ Chọn ảnh/video từ Pexels** trong trang Soạn bài):
@@ -434,6 +490,10 @@ Lưu nháp sẽ giữ nguyên media — mở lại nháp bằng nút **Sửa** l
 **Thư viện của tôi** (tab thứ hai ở `/media`): ảnh/video đã lưu để tái sử dụng, kèm tên tác giả,
 liên kết trang nguồn, nút **Chép URL** và **Xóa**. Media đã có trong thư viện được gắn nhãn
 "Đã lưu" khi tìm kiếm, và không bị lưu trùng.
+
+**Google Drive** (tab thứ ba, chỉ hiện khi đã kết nối Drive): chọn thương hiệu → **Xem nội dung
+thư mục** để duyệt ảnh/video trong thư mục Drive đã gắn, rồi **Lưu vào thư viện**. Tệp Drive lưu
+kèm fileId nên vẫn dùng lại được ở các bài sau; không tốn dung lượng hệ thống.
 
 ### Cơ chế tiết kiệm quota
 
@@ -486,6 +546,7 @@ npm run mock:ai                   # mock provider OpenAI-compatible ở http://1
                                   #   Base URL: http://127.0.0.1:4010/v1 · API Key: test-key-abc123
 npm run mock:fb                   # mock Facebook Graph API ở http://127.0.0.1:4020
 npm run mock:pexels               # mock Pexels API ở http://127.0.0.1:4030 (key: pexels-test-key)
+npm run mock:drive                # mock Google Drive + OAuth ở http://127.0.0.1:4040
 npm run test:e2e                  # E2E cấu hình AI + tải model (cần dev server + mock:ai)
 npm run test:e2e:composer         # E2E Tuần 3: AI viết → chọn phương án → lưu nháp → đăng bài
 npm run test:e2e:media            # E2E Tuần 4: tìm media, thư viện, gợi ý từ khóa, đăng ảnh/video
@@ -495,6 +556,9 @@ npm run test:e2e:scheduler        # E2E: vòng lặp tự đăng trong app + nú
 npm run test:e2e:autopilot        # E2E: hồ sơ thương hiệu + chế độ tự động (70 kiểm tra)
 npm run test:e2e:autopilot:cycle  # E2E: vòng đời trọn vẹn — AI viết → tìm ảnh → tự đăng lên FB
 npm run test:plan                 # Test logic thuần: chia khung giờ + xoay vòng trụ cột (55 kiểm tra)
+npm run test:media-source         # Test logic thuần: chọn nguồn media + dự phòng (25 kiểm tra)
+npm run test:drive                # Test logic thuần: lọc MIME/metadata Google Drive (42 kiểm tra)
+npm run test:e2e:drive            # E2E: OAuth + Drive API trên mock (30 kiểm tra, không cần dev server)
 npm run test:multi-workspace     # Test đa workspace + đa Facebook App (25 kiểm tra)
 npm run test:db:prepare           # Tạo/cập nhật schema DB test (test.db)
 node scripts/restore-from-facebook.mjs   # Khôi phục Page + token từ Facebook (khi sự cố)
@@ -619,6 +683,12 @@ Chạy nó trước mỗi lần migration hoặc dọn dữ liệu.
 
 Không bắt buộc: `AI_*`, `PEXELS_API_KEY`, `FACEBOOK_*` — người dùng nhập trong UI
 và được lưu (mã hoá AES-256-GCM) trong DB.
+
+Không bắt buộc: `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`,
+`GOOGLE_OAUTH_REDIRECT_URI`, `GOOGLE_PICKER_API_KEY` — chỉ cần khi muốn dùng
+**nguồn ảnh/video Google Drive cá nhân**; thiếu chúng thì app vẫn chạy đủ với
+Pexels + tải từ máy (card Drive ở `/settings` hiện “Máy chủ chưa cấu hình”).
+Xem hướng dẫn tạo OAuth client ở mục *Ba nguồn ảnh/video* phía trên.
 
 ## 3. Khởi tạo database
 

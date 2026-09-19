@@ -287,7 +287,9 @@ export async function publishVideoToPage(
  * tự tải về (xem lib/deliver.ts).
  */
 
-/** Đăng nhiều ảnh (tối đa 4) — flow: upload unpublished ảnh, rồi /feed kèm attached_media. */
+/**
+ * Đăng nhiều ảnh (tối đa 4) — flow: upload unpublished ảnh, rồi /feed kèm attached_media.
+ */
 export async function publishMultiPhotosToPage(
   page: { fbPageId: string; accessToken: string },
   message: string,
@@ -320,5 +322,140 @@ export async function publishMultiPhotosToPage(
     params,
     { method: "POST", conn }
   )) as { id: string };
+  return data.id;
+}
+
+// ============================================================
+// UPLOAD BINARY (multipart/form-data)
+//
+// VÌ SAO CẦN
+// Hai trường hợp Facebook KHÔNG thể tự tải ảnh qua `url`:
+//   - Ảnh/video trong Google Drive riêng tư: `webContentLink` cần cookie phiên.
+//   - File không có URL công khai nào để Facebook truy cập.
+// Cách chắc chắn: chuyển chính nội dung tệp lên Graph API. Multi-photo thì
+// upload `published=false` (unpublished) rồi /feed kèm attached_media; đúng
+// luồng Facebook mô tả cho ảnh đã tải lên.
+// ============================================================
+
+/** Nội dung tệp để gửi kèm multipart. */
+export type BinaryUpload = {
+  data: Blob | ReadableStream<Uint8Array>;
+  filename: string;
+  mimeType: string;
+  /** Byte, nếu biết — giúp Facebook xử lý nhanh hơn. */
+  size?: number | null;
+};
+
+/**
+ * Gọi Graph API bằng multipart/form-data (khác fbFetch vốn dùng
+ * form-urlencoded). Không tự set Content-Type để fetch tự sinh boundary và
+ * gửi theo dạng stream — nhờ vậy video lớn KHÔNG bị nạp hết vào RAM.
+ */
+async function fbUpload(
+  path: string,
+  accessToken: string,
+  fields: Record<string, string>,
+  fileField: string,
+  file: BinaryUpload,
+  conn?: GraphContext | null
+): Promise<Record<string, unknown>> {
+  const version = await effectiveVersion(conn);
+  const form = new FormData();
+
+  if (file.data instanceof Blob) {
+    form.append(fileField, file.data, file.filename);
+  } else {
+    // Node 18+: ReadableStream phải bọc lại để undici gửi được theo luồng.
+    const { Readable } = await import("node:stream");
+    const nodeStream = Readable.fromWeb(file.data as Parameters<typeof Readable.fromWeb>[0]);
+    form.append(
+      fileField,
+      new Blob([nodeStream as unknown as BlobPart], { type: file.mimeType }),
+      file.filename
+    );
+  }
+
+  for (const [k, v] of Object.entries(fields)) form.append(k, v);
+  form.append("access_token", accessToken);
+
+  const res = await fetch(`${GRAPH_BASE}/${version}/${path}`, {
+    method: "POST",
+    body: form,
+    signal: AbortSignal.timeout(10 * 60 * 1000),
+  });
+  return parseGraphResponse(res);
+}
+
+/**
+ * Upload ảnh dạng binary lên Page.
+ *
+ * `published = true` → đăng ngay thành bài 1 ảnh (POST /photos).
+ * `published = false` → chỉ upload lấy photo id (để ghép bài nhiều ảnh).
+ */
+export async function publishPhotoBinaryToPage(
+  page: { fbPageId: string; accessToken: string },
+  file: BinaryUpload,
+  options: { caption?: string; published: boolean; conn?: GraphContext | null } = {
+    published: true,
+  }
+): Promise<string> {
+  const fields: Record<string, string> = {
+    published: options.published ? "true" : "false",
+  };
+  if (options.caption) fields.caption = options.caption;
+
+  const data = (await fbUpload(
+    `${page.fbPageId}/photos`,
+    page.accessToken,
+    fields,
+    "source",
+    file,
+    options.conn
+  )) as { id?: string };
+
+  if (!data.id) throw new FacebookApiError("Facebook không trả về ID ảnh sau khi tải lên.");
+  return data.id;
+}
+
+/** Upload video dạng binary lên Page (POST /videos với field `source`). */
+export async function publishVideoBinaryToPage(
+  page: { fbPageId: string; accessToken: string },
+  file: BinaryUpload,
+  options: { description?: string; conn?: GraphContext | null } = {}
+): Promise<string> {
+  const fields: Record<string, string> = {};
+  if (options.description) fields.description = options.description;
+
+  const data = (await fbUpload(
+    `${page.fbPageId}/videos`,
+    page.accessToken,
+    fields,
+    "source",
+    file,
+    options.conn
+  )) as { id?: string };
+
+  if (!data.id) throw new FacebookApiError("Facebook không trả về ID video sau khi tải lên.");
+  return data.id;
+}
+
+/**
+ * Ghép nhiều ảnh đã upload unpublished thành một bài feed.
+ * Tách riêng để dùng chung cho cả đường URL và đường binary.
+ */
+export async function publishFeedWithPhotoIds(
+  page: { fbPageId: string; accessToken: string },
+  message: string,
+  photoIds: string[],
+  conn?: GraphContext | null
+): Promise<string> {
+  const params: Record<string, string> = { message };
+  photoIds.forEach((id, i) => {
+    params[`attached_media[${i}]`] = JSON.stringify({ media_fbid: id });
+  });
+  const data = (await fbFetch(`${page.fbPageId}/feed`, page.accessToken, params, {
+    method: "POST",
+    conn,
+  })) as { id: string };
   return data.id;
 }

@@ -4,7 +4,9 @@ import { prisma } from "@/lib/prisma";
 import PageHeader from "@/components/page-header";
 import BrandEditor from "@/components/brand-editor";
 import BrandPagesPanel from "@/components/brand-pages-panel";
+import BrandDrivePanel from "@/components/brand-drive-panel";
 import BrandListClient from "./brand-list-client";
+import { getBrandDriveFolder, getDriveStatus } from "@/app/actions/drive";
 
 // ============================================================
 // Trang Thương hiệu — quản lý NHIỀU thương hiệu trong workspace.
@@ -41,6 +43,21 @@ export default async function BrandPage({
   ]);
 
   const selected = brands.find((b) => b.id === sp.brand) ?? null;
+
+  // Nguồn Google Drive: trạng thái kết nối + thư mục của brand đang chọn.
+  // Chỉ truy vấn khi có brand được chọn để không tốn công vô ích.
+  const [driveStatus, brandDrive] = await Promise.all([
+    getDriveStatus(),
+    selected
+      ? getBrandDriveFolder(selected.id)
+      : Promise.resolve({
+          linked: false,
+          folderId: null,
+          folderName: null,
+          lastError: null,
+          connectionStatus: null,
+        }),
+  ]);
 
   return (
     <div>
@@ -108,6 +125,15 @@ export default async function BrandPage({
 
           {/* ===== Pages thuộc thương hiệu — gán/bỏ gán ngay tại đây ===== */}
           <BrandPagesPanel brandId={selected.id} pages={pages} />
+
+          {/* ===== Thư mục Google Drive riêng của thương hiệu (không bắt buộc) ===== */}
+          <BrandDrivePanel
+            brandId={selected.id}
+            state={brandDrive}
+            driveConnected={driveStatus.connected}
+            pickerReady={driveStatus.pickerReady}
+            pickerApiKey={process.env.GOOGLE_PICKER_API_KEY ?? ""}
+          />
 
           <BrandEditor
             brandId={selected.id}

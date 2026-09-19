@@ -11,6 +11,21 @@ import {
   searchMedia,
   MAX_PER_PAGE,
 } from "./pexels";
+import {
+  blockerMessage,
+  fallbackNotice,
+  mediaCandidates,
+  noSourceReason,
+  type DriveAvailability,
+  type MediaSource,
+} from "./media-source";
+import {
+  driveErrorMessage,
+  isImageMime,
+  isVideoMime,
+  listFolderMedia,
+  type DriveFile,
+} from "./drive";
 import { contentScopeForPage, loadBrandContext, resolvePageBrand } from "./brand";
 import {
   addDays,
@@ -95,6 +110,10 @@ export type AutoPilotConfig = {
   daysOfWeek: string;
   minGapMinutes: number;
   autoMedia: boolean;
+  /** PEXELS | DRIVE — nguồn chính người dùng chọn cho ảnh/video. */
+  mediaPrimary: string;
+  /** Nguồn chính hết/lỗi thì có lấy tiếp từ nguồn còn lại không. */
+  mediaFallback: boolean;
   mediaKind: string;
   /** IMAGE_ONLY | VIDEO_ONLY | MIXED — quyết định luân phiên ảnh/video. */
   mediaMix: string;
@@ -154,6 +173,10 @@ export type MediaPickResult = {
   error?: string;
   /** Số lần thực sự gọi Pexels — để test kiểm chứng ngân sách. */
   calls?: number;
+  /** Nguồn đã dùng thực tế (khi phải rơi sang nguồn dự phòng). */
+  usedSource?: MediaSource;
+  /** Cảnh báo khi phải dùng nguồn dự phòng thay vì nguồn chính. */
+  notice?: string;
 };
 
 /** Ảnh nhỏ hơn ngần này hiển thị vỡ nét trên Facebook. */
@@ -189,18 +212,13 @@ async function rememberUsedMedia(pageId: string, media: AttachedMedia[]): Promis
 }
 
 /**
- * Tự tìm media cho một bài.
+ * Tự tìm media cho một bài — điều phối theo NGUỒN người dùng chọn.
  *
- * Ba vấn đề thực tế được xử lý ở đây:
+ * Thứ tự nguồn do lib/media-source.ts quyết định (nguồn chính trước, nguồn dự
+ * phòng sau nếu bật). Hàm này chỉ thử lần lượt và trả về nguồn nào đã dùng.
  *
- * 1. ẢNH TRÙNG — Pexels xếp kết quả theo độ phổ biến nên cùng từ khóa luôn ra
- *    cùng tấm đầu. Giải pháp: lấy trang ngẫu nhiên, xáo trộn kết quả, và loại
- *    những providerId Page này đã dùng trong 60 ngày.
- *
- * 2. QUOTA — trước đây mỗi bài gọi tới 6 lần (một lần cho mỗi từ khóa). Nay
- *    lấy 24 kết quả mỗi lần và DỪNG NGAY khi đủ ảnh, tối đa 3 lần gọi.
- *
- * 3. ẢNH XẤU — lọc bỏ ảnh hẹp dưới 1200px và ưu tiên ảnh ngang cho tấm đầu.
+ * Không bao giờ ném lỗi vì media: lỗi nguồn chỉ tạo `error`/`notice` để
+ * planner báo cho người dùng — mất ảnh còn hơn mất bài.
  */
 export async function pickMediaForContent(
   userId: string,
@@ -213,12 +231,104 @@ export async function pickMediaForContent(
     /** Bối cảnh ngành hàng để AI gợi từ khóa sát hơn. */
     industry?: string;
     products?: string;
+    // ---- Nguồn (mặc định Pexels để mọi caller cũ giữ nguyên hành vi) ----
+    autoMedia?: boolean;
+    mediaPrimary?: string;
+    mediaFallback?: boolean;
+    drive?: DriveAvailability;
+    driveAllowVideo?: boolean;
+    /** Số thứ tự bài trong ngày — dùng để luân phiên tệp Drive. */
+    rotation?: number;
+    brandId?: string | null;
   },
   random: () => number = Math.random
 ): Promise<MediaPickResult> {
   const kind = config.kindOverride ?? (config.mediaKind === "VIDEO" ? "VIDEO" : "IMAGE");
   const wanted = kind === "VIDEO" ? 1 : Math.min(Math.max(config.photosPerPost, 1), 4);
 
+  const sourceInput = {
+    autoMedia: config.autoMedia ?? true,
+    mediaPrimary: config.mediaPrimary ?? "PEXELS",
+    mediaFallback: config.mediaFallback ?? true,
+    drive: config.drive ?? null,
+    pexelsReady: hasPexelsBudget(userId),
+  };
+
+  const candidates = mediaCandidates(sourceInput);
+  if (candidates.length === 0) {
+    return { media: [], calls: 0, error: noSourceReason(sourceInput) };
+  }
+
+  const problems: string[] = [];
+
+  for (const source of candidates) {
+    if (source === "DRIVE") {
+      const res = await pickDriveMedia(userId, {
+        kind,
+        wanted,
+        pageId: config.pageId,
+        drive: config.drive ?? null,
+        allowVideo: config.driveAllowVideo ?? true,
+        rotation: config.rotation ?? 0,
+      });
+      if (res.media.length > 0) {
+        return {
+          media: res.media,
+          calls: 0,
+          usedSource: "DRIVE",
+          notice: fallbackNotice("DRIVE", sourceInput.mediaPrimary) ?? undefined,
+        };
+      }
+      problems.push(res.error ?? "Thư mục Google Drive không có tệp phù hợp.");
+      continue;
+    }
+
+    if (source === "PEXELS") {
+      const res = await pickPexelsMedia(userId, content, config, kind, wanted, random);
+      if (res.media.length > 0) {
+        return {
+          ...res,
+          usedSource: "PEXELS",
+          notice: fallbackNotice("PEXELS", sourceInput.mediaPrimary) ?? undefined,
+        };
+      }
+      problems.push(res.error ?? "Không tìm được ảnh/video phù hợp trên Pexels.");
+      continue;
+    }
+
+    // UPLOAD không chạy tự động: tiến trình nền không có tệp từ máy.
+    problems.push(blockerMessage("AUTO_MEDIA_OFF"));
+  }
+
+  return {
+    media: [],
+    calls: 0,
+    error: problems[0] ?? "Không lấy được ảnh/video từ nguồn nào.",
+  };
+}
+
+/**
+ * Tự tìm media trên Pexels cho một bài.
+ *
+ * Ba vấn đề thực tế được xử lý ở đây:
+ *
+ * 1. ẢNH TRÙNG — Pexels xếp kết quả theo độ phổ biến nên cùng từ khóa luôn ra
+ *    cùng tấm đầu. Giải pháp: lấy trang ngẫu nhiên, xáo trộn kết quả, và loại
+ *    những providerId Page này đã dùng trong 60 ngày.
+ *
+ * 2. QUOTA — trước đây mỗi bài gọi tới 6 lần (một lần cho mỗi từ khóa). Nay
+ *    lấy 24 kết quả mỗi lần và DỪNG NGAY khi đủ ảnh, tối đa 3 lần gọi.
+ *
+ * 3. ẢNH XẤU — lọc bỏ ảnh hẹp dưới 1200px và ưu tiên ảnh ngang cho tấm đầu.
+ */
+async function pickPexelsMedia(
+  userId: string,
+  content: string,
+  config: { pageId?: string; industry?: string; products?: string },
+  kind: "IMAGE" | "VIDEO",
+  wanted: number,
+  random: () => number
+): Promise<MediaPickResult> {
   // Hết quota → dừng sớm, KHÔNG gọi AI xin từ khóa (đỡ tốn tiền AI vô ích)
   if (!hasPexelsBudget(userId)) {
     const q = getPexelsQuota(userId);
@@ -300,6 +410,142 @@ export async function pickMediaForContent(
 }
 
 // ============================================================
+// Nguồn DRIVE — đọc ảnh/video trong thư mục của thương hiệu
+// ============================================================
+
+/** Cache danh sách tệp của thư mục trong 5 phút (một lượt chạy hay hỏi lại). */
+const folderMediaCache = new Map<string, { at: number; files: DriveFile[] }>();
+const FOLDER_MEDIA_TTL_MS = 5 * 60 * 1000;
+
+async function loadDriveFolderFiles(
+  connectionId: string,
+  folderId: string,
+  allowVideo: boolean
+): Promise<DriveFile[]> {
+  const key = `${connectionId}|${folderId}|${allowVideo ? "av" : "img"}`;
+  const hit = folderMediaCache.get(key);
+  if (hit && Date.now() - hit.at < FOLDER_MEDIA_TTL_MS) return hit.files;
+
+  const page = await listFolderMedia(connectionId, folderId, { allowVideo, pageSize: 200 });
+  folderMediaCache.set(key, { at: Date.now(), files: page.files });
+  return page.files;
+}
+
+/**
+ * Chọn ảnh/video từ thư mục Drive của thương hiệu.
+ *
+ * Chống lặp giống Pexels: loại những fileId Page đã dùng trong 60 ngày
+ * (UsedMedia.providerId giữ fileId Drive). Thư mục cạn ảnh mới thì chấp nhận
+ * dùng lại tệp cũ — có ảnh còn hơn bài trắng.
+ *
+ * `rotation` (số thứ tự bài trong ngày) làm điểm bắt đầu lệch nhau giữa các
+ * bài, để hai bài liền nhau không lấy cùng một tấm.
+ */
+async function pickDriveMedia(
+  userId: string,
+  input: {
+    kind: "IMAGE" | "VIDEO";
+    wanted: number;
+    pageId?: string;
+    drive: DriveAvailability;
+    allowVideo: boolean;
+    rotation: number;
+  }
+): Promise<{ media: AttachedMedia[]; error?: string }> {
+  if (!input.drive?.folderId) {
+    return { media: [], error: blockerMessage("DRIVE_NO_FOLDER") };
+  }
+
+  // Tra connection đúng của NGƯỜI DÙNG đang chạy — không dùng connection của
+  // thành viên khác trong workspace.
+  const conn = await prisma.driveConnection.findUnique({
+    where: { userId },
+    select: { id: true, status: true },
+  });
+  if (!conn) return { media: [], error: blockerMessage("DRIVE_NOT_CONNECTED") };
+  if (conn.status === "NEEDS_REAUTH") return { media: [], error: blockerMessage("DRIVE_NEEDS_REAUTH") };
+  if (conn.status === "DISABLED") return { media: [], error: blockerMessage("DRIVE_DISABLED") };
+
+  const allowVideo = input.allowVideo && input.kind !== "IMAGE";
+  let files: DriveFile[];
+  try {
+    files = await loadDriveFolderFiles(conn.id, input.drive.folderId, allowVideo);
+  } catch (err) {
+    const message = driveErrorMessage(err);
+    await prisma.brandDriveFolder
+      .updateMany({
+        where: { folderId: input.drive.folderId },
+        data: { lastError: message },
+      })
+      .catch(() => {});
+    return { media: [], error: message };
+  }
+
+  await prisma.brandDriveFolder
+    .updateMany({
+      where: { folderId: input.drive.folderId },
+      data: { lastError: null, lastSyncedAt: new Date() },
+    })
+    .catch(() => {});
+
+  const wantedKind = input.kind;
+  const matching = files.filter((f) =>
+    wantedKind === "VIDEO" ? isVideoMime(f.mimeType) : isImageMime(f.mimeType)
+  );
+
+  if (matching.length === 0) {
+    return {
+      media: [],
+      error:
+        wantedKind === "VIDEO"
+          ? "Thư mục Google Drive của thương hiệu chưa có video nào."
+          : "Thư mục Google Drive của thương hiệu chưa có ảnh nào.",
+    };
+  }
+
+  const used = input.pageId ? await loadUsedProviderIds(input.pageId) : new Set<string>();
+
+  // Ưu tiên tệp chưa dùng; xoay vòng theo `rotation` để các bài khác nhau.
+  const fresh = matching.filter((f) => !used.has(f.id));
+  const pool = fresh.length > 0 ? fresh : matching;
+  const start = pool.length > 0 ? input.rotation % pool.length : 0;
+  const ordered = [...pool.slice(start), ...pool.slice(0, start)];
+
+  const picked: AttachedMedia[] = [];
+  for (const file of ordered) {
+    if (picked.length >= input.wanted) break;
+    picked.push(driveFileToAttached(file));
+  }
+
+  if (picked.length === 0) {
+    return { media: [], error: "Không chọn được tệp nào trong thư mục Google Drive." };
+  }
+
+  if (input.pageId) await rememberUsedMedia(input.pageId, picked);
+  return { media: picked };
+}
+
+/** Chuyển một tệp Drive thành AttachedMedia (remoteUrl là route nội bộ có kiểm quyền). */
+function driveFileToAttached(file: DriveFile): AttachedMedia {
+  const type: "IMAGE" | "VIDEO" = isVideoMime(file.mimeType) ? "VIDEO" : "IMAGE";
+  return {
+    remoteUrl: `/api/drive/${file.id}`,
+    previewUrl: file.thumbnailLink ?? undefined,
+    type,
+    source: "DRIVE",
+    // providerId = fileId để UsedMedia + thư viện chống trùng hoạt động
+    providerId: file.id,
+    driveFileId: file.id,
+    mimeType: file.mimeType,
+    sizeBytes: file.size ?? undefined,
+    alt: file.name,
+    width: file.width ?? undefined,
+    height: file.height ?? undefined,
+    duration: file.duration ?? undefined,
+  };
+}
+
+// ============================================================
 // Lập kế hoạch cho một AutoPilot
 // ============================================================
 
@@ -366,6 +612,12 @@ async function createPlannedPost(input: {
   recentTopics: string[];
   /** Kiểu media đã được bộ lập kế hoạch quyết định (ảnh/video theo tỉ lệ). */
   kind: "IMAGE" | "VIDEO";
+  /** Trạng thái Drive của Brand — quyết định nguồn DRIVE có dùng được không. */
+  drive: DriveAvailability;
+  /** Brand có cho phép AutoPilot dùng video trong thư mục Drive không. */
+  driveAllowVideo: boolean;
+  /** Số thứ tự bài trong ngày — dùng để xoay vòng tệp Drive. */
+  rotation: number;
 }): Promise<
   | { ok: true; topic: string; hook: string | null; mediaWarning?: string; kind: "IMAGE" | "VIDEO" }
   | { ok: false; error: string; duplicate?: boolean }
@@ -441,9 +693,10 @@ async function createPlannedPost(input: {
     ).join(" ");
   }
 
-  // Tự tìm ảnh/video nếu người dùng bật. Lỗi Pexels KHÔNG làm hỏng bài —
-  // đăng bài không ảnh vẫn tốt hơn là mất bài. NHƯNG phải báo cho người dùng
-  // biết, nếu không họ tưởng đang có ảnh mà thực tế bài trắng trơn.
+  // Tự tìm ảnh/video nếu người dùng bật. Lỗi nguồn media (Pexels HOẶC Drive)
+  // KHÔNG làm hỏng bài — đăng bài không ảnh vẫn tốt hơn là mất bài. NHƯNG phải
+  // báo cho người dùng biết, nếu không họ tưởng đang có ảnh mà thực tế bài
+  // trắng trơn.
   //
   // kindOverride: kiểu media đã do bộ lập kế hoạch quyết định (chế độ xen kẽ),
   // ưu tiên hơn mediaKind cũ của cấu hình.
@@ -458,11 +711,22 @@ async function createPlannedPost(input: {
       // Đưa ngành hàng vào prompt gợi từ khóa → ảnh đúng sản phẩm hơn
       industry: brand?.industry ?? undefined,
       products: brand?.products ?? undefined,
+      // Nguồn người dùng chọn + dự phòng (xem lib/media-source.ts)
+      autoMedia: config.autoMedia,
+      mediaPrimary: config.mediaPrimary,
+      mediaFallback: config.mediaFallback,
+      drive: input.drive,
+      driveAllowVideo: input.driveAllowVideo,
+      rotation: input.rotation,
     });
     media = picked.media;
     if (media.length === 0) {
       mediaWarning =
         picked.error ?? "Không tìm được ảnh — bài sẽ đăng dạng chỉ có chữ.";
+    } else if (picked.notice) {
+      // Lấy được ảnh nhưng từ nguồn dự phòng — người dùng cần biết vì sao bài
+      // không dùng đúng thư mục Drive họ đã chọn.
+      mediaWarning = picked.notice;
     }
   }
 
@@ -556,6 +820,23 @@ export async function planForAutoPilot(
   // Trụ cột thuộc Brand của Page (fallback pageId cho dữ liệu cũ)
   const pageForBrand = await resolvePageBrand(config.pageId);
   const brandId = pageForBrand?.brandId ?? null;
+
+  // Nguồn DRIVE: thư mục + trạng thái connection của thương hiệu. Lấy MỘT lần
+  // cho cả lượt lập kế hoạch thay vì hỏi lại ở từng slot.
+  const brandDrive = brandId
+    ? await prisma.brandDriveFolder.findUnique({
+        where: { brandId },
+        include: { connection: { select: { status: true } } },
+      })
+    : null;
+  const drive: DriveAvailability = brandDrive
+    ? {
+        folderId: brandDrive.folderId,
+        connectionStatus: brandDrive.connection?.status ?? null,
+      }
+    : null;
+  const driveAllowVideo = brandDrive?.allowVideo ?? true;
+
   const pillars = await prisma.contentPillar.findMany({
     where: { ...contentScopeForPage(brandId, config.pageId), enabled: true },
     orderBy: [{ position: "asc" }, { createdAt: "asc" }],
@@ -695,6 +976,10 @@ export async function planForAutoPilot(
         pillar,
         recentTopics,
         kind,
+        drive,
+        driveAllowVideo,
+        // Xoay vòng tệp trong thư mục Drive theo thứ tự bài trong ngày
+        rotation: dayStartIndex + i,
       });
 
       if (res.ok) {

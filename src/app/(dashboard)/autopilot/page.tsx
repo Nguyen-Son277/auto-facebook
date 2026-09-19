@@ -4,6 +4,8 @@ import { prisma } from "@/lib/prisma";
 import { getAutoPilotOverview, listAutoPilotConfigs } from "@/lib/autopilot";
 import { getPageReadiness, readinessProblem } from "@/lib/brand";
 import { getPexelsQuota } from "@/lib/pexels";
+import { getPexelsKeyForUser } from "@/lib/settings";
+import { getDriveStatus } from "@/app/actions/drive";
 import PageHeader from "@/components/page-header";
 import AutopilotDashboard from "@/components/autopilot-dashboard";
 import AutopilotListClient from "./autopilot-list-client";
@@ -66,6 +68,19 @@ export default async function AutopilotPage({
     const quota = getPexelsQuota(user.id);
     const config = overview.config;
 
+    // Trạng thái các nguồn media: Pexels (đã có key chưa) + Google Drive của
+    // thương hiệu của Page (đã kết nối + đã gắn thư mục chưa).
+    const [pexelsKey, drive] = await Promise.all([
+      getPexelsKeyForUser(user.id),
+      getDriveStatus(),
+    ]);
+    const brandFolder = readinessState?.brandId
+      ? await prisma.brandDriveFolder.findUnique({
+          where: { brandId: readinessState.brandId },
+          select: { folderName: true, folderId: true },
+        })
+      : null;
+
     return (
       <div>
         <PageHeader
@@ -102,6 +117,8 @@ export default async function AutopilotPage({
                   daysOfWeek: config.daysOfWeek,
                   minGapMinutes: config.minGapMinutes,
                   autoMedia: config.autoMedia,
+                  mediaPrimary: config.mediaPrimary,
+                  mediaFallback: config.mediaFallback,
                   mediaKind: config.mediaKind,
                   mediaMix: config.mediaMix,
                   videoPercent: config.videoPercent,
@@ -120,6 +137,12 @@ export default async function AutopilotPage({
           posts={overview.upcoming}
           pendingReview={overview.pendingReview}
           quota={quota}
+          media={{
+            driveConnected: drive.connected,
+            driveStatus: drive.status,
+            driveFolderName: brandFolder?.folderName ?? brandFolder?.folderId ?? null,
+            pexelsReady: Boolean(pexelsKey),
+          }}
           readiness={{
             pillars: readinessState?.pillars ?? 0,
             hasProfile: readinessState?.hasProfile ?? false,

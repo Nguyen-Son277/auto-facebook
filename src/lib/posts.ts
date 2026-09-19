@@ -6,9 +6,18 @@ export type AttachedMedia = {
   remoteUrl: string;
   previewUrl?: string;
   type: "IMAGE" | "VIDEO";
-  source: "PEXELS" | "URL" | "UPLOAD";
+  /**
+   * Nguồn của media:
+   *  - PEXELS: kho ảnh stock (đăng bằng URL công khai)
+   *  - URL:    link ngoài do người dùng dán
+   *  - UPLOAD: tệp tải từ máy lên Supabase Storage
+   *  - DRIVE:  tệp trong Google Drive cá nhân (đăng bằng binary upload)
+   */
+  source: "PEXELS" | "URL" | "UPLOAD" | "DRIVE";
   /** Chỉ có với source "UPLOAD": tên file trong uploads/<userId>/. */
   storageKey?: string;
+  /** Chỉ có với source "DRIVE": fileId trên Google Drive. */
+  driveFileId?: string;
   mimeType?: string;
   sizeBytes?: number;
   /** ID trên Pexels (dùng để chống trùng trong thư viện). */
@@ -60,27 +69,44 @@ export function parseAttachments(raw: string | null | undefined): AttachedMedia[
     if (!item || typeof item !== "object") continue;
     const obj = item as Record<string, unknown>;
     const remoteUrl = str(obj.remoteUrl);
-    // Cho phép URL công khai hoặc đường dẫn nội bộ /api/uploads/<key>
-    const isRemote = remoteUrl ? /^https?:\/\//i.test(remoteUrl) : false;
-    const isLocalUpload = remoteUrl ? /^\/api\/uploads\/[a-f0-9]{24}\.[a-z0-9]+$/i.test(remoteUrl) : false;
-    if (!remoteUrl || (!isRemote && !isLocalUpload)) continue;
+    if (!remoteUrl) continue;
+
+    const isRemote = /^https?:\/\//i.test(remoteUrl);
+    const isLocalUpload = /^\/api\/uploads\/[a-f0-9]{24}\.[a-z0-9]+$/i.test(remoteUrl);
+    // Đường dẫn nội bộ /api/drive/<fileId> — nguồn Google Drive cá nhân
+    const isLocalDrive = /^\/api\/drive\/[a-zA-Z0-9_-]{5,200}$/.test(remoteUrl);
+    if (!isRemote && !isLocalUpload && !isLocalDrive) continue;
 
     const type = obj.type === "VIDEO" ? "VIDEO" : "IMAGE";
-    const source =
-      obj.source === "PEXELS" ? "PEXELS" : obj.source === "UPLOAD" ? "UPLOAD" : "URL";
 
-    // File upload phải có storageKey khớp với remoteUrl, nếu không thì bỏ
+    // Nguồn được SUY RA từ dạng URL, không tin nhãn client gửi lên: URL nội bộ
+    // của Drive thì bắt buộc source = DRIVE, nếu không tầng đăng bài sẽ đưa
+    // Facebook một URL riêng tư và thất bại khó hiểu.
+    const source: AttachedMedia["source"] = isLocalDrive
+      ? "DRIVE"
+      : isLocalUpload
+        ? "UPLOAD"
+        : obj.source === "PEXELS"
+          ? "PEXELS"
+          : "URL";
+
     const storageKey = str(obj.storageKey);
     if (source === "UPLOAD") {
-      if (!storageKey || !isLocalUpload || !remoteUrl.endsWith(storageKey)) continue;
+      // File upload phải có storageKey khớp với remoteUrl, nếu không thì bỏ
+      if (!storageKey || !remoteUrl.endsWith(storageKey)) continue;
     }
+
+    const driveFileId = isLocalDrive
+      ? remoteUrl.slice("/api/drive/".length)
+      : str(obj.driveFileId);
 
     list.push({
       remoteUrl,
       previewUrl: str(obj.previewUrl),
       type,
       source,
-      storageKey,
+      storageKey: source === "UPLOAD" ? storageKey : undefined,
+      driveFileId: source === "DRIVE" ? driveFileId : undefined,
       mimeType: str(obj.mimeType),
       sizeBytes: num(obj.sizeBytes),
       providerId: str(obj.providerId),
@@ -103,8 +129,81 @@ export function parseAttachments(raw: string | null | undefined): AttachedMedia[
   });
 }
 
-export type AttachmentCheck = { ok: true } | { ok: false; error: string };
+/**
+ * Chuẩn hóa một bản ghi Media trong DB thành AttachedMedia.
+ *
+ * Dùng chung cho worker (lib/scheduler.ts) và nút "Đăng lại" (actions/publish.ts)
+ * để hai đường không lệch nhau — đặc biệt là nguồn DRIVE: thiếu driveFileId ở
+ * đây thì bài sẽ lặng lẽ mất ảnh.
+ */
+export function attachedFromDbMedia(m: {
+  remoteUrl: string;
+  type: string;
+  source: string;
+  storageKey?: string | null;
+  providerId?: string | null;
+  mimeType?: string | null;
+  sizeBytes?: number | null;
+  width?: number | null;
+  height?: number | null;
+  duration?: number | null;
+  alt?: string | null;
+  previewUrl?: string | null;
+}): AttachedMedia {
+  const type: AttachedMedia["type"] = m.type === "VIDEO" ? "VIDEO" : "IMAGE";
+  const source: AttachedMedia["source"] =
+    m.source === "PEXELS"
+      ? "PEXELS"
+      : m.source === "UPLOAD"
+        ? "UPLOAD"
+        : m.source === "DRIVE"
+          ? "DRIVE"
+          : "URL";
 
+  return {
+    remoteUrl: m.remoteUrl,
+    previewUrl: m.previewUrl ?? undefined,
+    type,
+    source,
+    // Với DRIVE, providerId giữ fileId trên Google Drive (xem schema.prisma)
+    driveFileId: source === "DRIVE" ? (m.providerId ?? undefined) : undefined,
+    storageKey: m.storageKey ?? undefined,
+    mimeType: m.mimeType ?? undefined,
+    sizeBytes: m.sizeBytes ?? undefined,
+    width: m.width ?? undefined,
+    height: m.height ?? undefined,
+    duration: m.duration ?? undefined,
+    alt: m.alt ?? undefined,
+  };
+}
+
+/**
+ * Chiều ngược lại: AttachedMedia → các cột của bảng Media.
+ *
+ * Với nguồn DRIVE, fileId trên Google Drive được lưu vào cột `providerId`
+ * (xem schema.prisma). Quên bước này là bài đăng sau đó mất ảnh Drive.
+ */
+export function mediaColumnsFromAttachment(m: AttachedMedia) {
+  return {
+    source: m.source,
+    remoteUrl: m.remoteUrl,
+    previewUrl: m.previewUrl ?? null,
+    width: m.width ?? null,
+    height: m.height ?? null,
+    duration: m.duration ?? null,
+    // DRIVE: providerId chính là driveFileId
+    providerId: m.source === "DRIVE" ? (m.driveFileId ?? m.providerId ?? null) : (m.providerId ?? null),
+    photographer: m.photographer ?? null,
+    photographerUrl: m.photographerUrl ?? null,
+    sourcePageUrl: m.sourcePageUrl ?? null,
+    alt: m.alt ?? null,
+    storageKey: m.storageKey ?? null,
+    mimeType: m.mimeType ?? null,
+    sizeBytes: m.sizeBytes ?? null,
+  };
+}
+
+export type AttachmentCheck = { ok: true } | { ok: false; error: string };
 /**
  * Kiểm tra ràng buộc đính kèm của Facebook:
  * không cho trộn ảnh với video, tối đa 4 ảnh, tối đa 1 video.
