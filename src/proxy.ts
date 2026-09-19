@@ -2,8 +2,33 @@ import { NextResponse, type NextRequest } from "next/server";
 
 const SESSION_COOKIE_NAME = process.env.SESSION_COOKIE_NAME ?? "session";
 
-// Trang public: không yêu cầu đăng nhập
-const PUBLIC_PATHS = ["/login", "/setup", "/register"];
+/**
+ * Trang public: không yêu cầu đăng nhập.
+ * - "/" là trang chủ giới thiệu (người đã đăng nhập sẽ được trang tự chuyển
+ *   vào /dashboard).
+ * - 2 trang pháp lý BẮT BUỘC phải công khai: Meta App Review và người dùng
+ *   đều cần đọc được chính sách bảo mật / điều khoản dịch vụ khi chưa có
+ *   tài khoản.
+ */
+const PUBLIC_PATHS = [
+  "/",
+  "/login",
+  "/setup",
+  "/register",
+  "/chinh-sach-bao-mat",
+  "/dieu-khoan-dich-vu",
+];
+
+/**
+ * So khớp đường dẫn public: "/" chỉ khớp đúng gốc, các mục còn lại khớp cả
+ * tuyến con (ví dụ "/login/abc"). So khớp "/" bằng startsWith sẽ mở toàn bộ
+ * website nên phải xử lý riêng.
+ */
+function isPublicPath(pathname: string): boolean {
+  return PUBLIC_PATHS.some(
+    (p) => p === "/" ? pathname === "/" : pathname === p || pathname.startsWith(`${p}/`)
+  );
+}
 
 /**
  * API tự xử lý xác thực riêng nên proxy không được chuyển hướng:
@@ -26,9 +51,7 @@ export function proxy(request: NextRequest) {
   }
 
   const hasSessionCookie = Boolean(request.cookies.get(SESSION_COOKIE_NAME)?.value);
-  const isPublic = PUBLIC_PATHS.some(
-    (p) => pathname === p || pathname.startsWith(`${p}/`)
-  );
+  const isPublic = isPublicPath(pathname);
 
   if (!hasSessionCookie && !isPublic) {
     const loginUrl = new URL("/login", request.url);
@@ -36,6 +59,9 @@ export function proxy(request: NextRequest) {
     return NextResponse.redirect(loginUrl);
   }
 
+  // Đã đăng nhập thì không cần xem lại trang đăng nhập / đăng ký / thiết lập.
+  // Riêng trang chủ "/" để trang tự quyết định (server component đã kiểm tra
+  // session thật trong DB rồi mới chuyển vào /dashboard).
   if (
     hasSessionCookie &&
     (pathname === "/login" || pathname === "/setup" || pathname === "/register")

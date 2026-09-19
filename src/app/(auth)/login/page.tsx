@@ -4,6 +4,7 @@ import { useActionState } from "react";
 import Link from "next/link";
 import { login } from "@/app/actions/auth";
 import PasswordInput from "@/components/password-input";
+import { LEGAL_LINKS } from "@/lib/legal";
 
 export default function LoginPage() {
   const [state, formAction, pending] = useActionState(login, null);
@@ -69,6 +70,22 @@ export default function LoginPage() {
           Đăng ký
         </Link>{" "}
         — quản trị viên sẽ duyệt trước khi bạn vào được.
+      </p>
+
+      {/* Trang pháp lý phải truy cập được ngay cả khi chưa đăng nhập
+          (yêu cầu của Meta App Review). */}
+      <p className="mt-4 text-center text-xs text-gray-500">
+        <Link href="/" className="hover:underline">
+          Trang chủ
+        </Link>
+        {LEGAL_LINKS.map((item) => (
+          <span key={item.href}>
+            {" · "}
+            <Link href={item.href} className="hover:underline">
+              {item.label}
+            </Link>
+          </span>
+        ))}
       </p>
     </div>
   );
