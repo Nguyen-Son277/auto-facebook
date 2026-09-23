@@ -364,3 +364,90 @@ export function orderDaysByNeed<T extends { day: Date; existing: number }>(
     return a.day.getTime() - b.day.getTime();
   });
 }
+
+// ============================================================
+// ĐỊA BÀN HOẠT ĐỘNG
+//
+// Người dùng nhập danh sách khu vực thương hiệu phục vụ (mỗi dòng một mục),
+// AutoPilot xoay vòng mỗi bài nhắm một khu vực để phủ từ khoá địa phương.
+//
+// Vì sao KHÔNG để AI tự sinh tên khu vực: tên phường/xã ở Việt Nam thay đổi
+// rất nhiều sau các đợt sáp nhập tỉnh/xã, nên AI rất dễ bịa ra địa danh sai
+// hoặc không còn tồn tại. Người dùng nhập gì thì AI chỉ được dùng đúng cái đó.
+// ============================================================
+
+/** Số địa bàn tối đa nhận vào — nhiều hơn sẽ làm loãng prompt. */
+export const MAX_SERVICE_AREAS = 60;
+/** Độ dài tối đa mỗi địa bàn (tên khu vực thật rất ngắn). */
+export const MAX_SERVICE_AREA_CHARS = 80;
+
+/**
+ * Tách danh sách địa bàn người dùng nhập thành mảng sạch.
+ *
+ * Chấp nhận cả xuống dòng lẫn dấu phẩy làm dấu phân cách để người dùng dán
+ * danh sách từ nhiều nguồn khác nhau mà không phải sửa lại.
+ * Khử trùng không phân biệt hoa/thường nhưng GIỮ NGUYÊN chữ gốc của lần xuất
+ * hiện đầu tiên — vì đó là cách viết người dùng muốn AI dùng trong bài.
+ */
+export function parseServiceAreas(raw: string | null | undefined): string[] {
+  if (!raw) return [];
+
+  const seen = new Set<string>();
+  const out: string[] = [];
+
+  for (const piece of raw.split(/[\n,;]+/)) {
+    const area = piece.trim().replace(/\s+/g, " ").slice(0, MAX_SERVICE_AREA_CHARS);
+    if (!area) continue;
+
+    // Bỏ dấu + hạ chữ thường để so trùng ("Dĩ An" và "dĩ an" là một)
+    const key = area
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/đ/g, "d")
+      .replace(/Đ/g, "D")
+      .toLowerCase();
+    if (seen.has(key)) continue;
+
+    seen.add(key);
+    out.push(area);
+    if (out.length >= MAX_SERVICE_AREAS) break;
+  }
+
+  return out;
+}
+
+/**
+ * Chọn địa bàn cho bài tiếp theo — "xoay vòng làm mượt".
+ *
+ * Cùng triết lý với `pickPillar`: chọn địa bàn có số lần đã dùng ÍT NHẤT, nhờ
+ * vậy danh sách được phủ đều theo thứ tự thay vì lặp mãi một khu vực. Nếu khu
+ * vực ít dùng nhất lại trùng bài vừa đăng thì ưu tiên phương án khác, để hai
+ * bài liền nhau không nhắm cùng một địa bàn.
+ */
+export function pickServiceArea(areas: string[], recentAreas: string[]): string | null {
+  if (areas.length === 0) return null;
+  if (areas.length === 1) return areas[0];
+
+  const usage = new Map<string, number>();
+  for (const name of recentAreas) {
+    const key = name.trim().toLowerCase();
+    usage.set(key, (usage.get(key) ?? 0) + 1);
+  }
+
+  const scoreOf = (area: string) => usage.get(area.trim().toLowerCase()) ?? 0;
+
+  let best = areas[0];
+  for (const area of areas) {
+    if (scoreOf(area) < scoreOf(best)) best = area;
+  }
+
+  // Tránh nhắm lại đúng khu vực của bài liền trước nếu còn lựa chọn khác
+  if (recentAreas[0]?.trim().toLowerCase() === best.trim().toLowerCase()) {
+    const alternative = areas
+      .filter((a) => a.trim().toLowerCase() !== best.trim().toLowerCase())
+      .sort((a, b) => scoreOf(a) - scoreOf(b))[0];
+    if (alternative) return alternative;
+  }
+
+  return best;
+}

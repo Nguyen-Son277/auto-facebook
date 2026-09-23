@@ -32,6 +32,7 @@
     "test:brand-page": "node --experimental-strip-types --no-warnings scripts/test-brand-page-link.mjs",
     "test:timezone": "node --experimental-strip-types --no-warnings scripts/test-timezone.mjs",
     "test:readability": "node --experimental-strip-types --no-warnings scripts/test-readability.mjs",
+    "test:service-area": "node --experimental-strip-types --no-warnings scripts/test-service-area.mjs",
     "test:e2e:optimize": "node scripts/e2e-autopilot-optimize.mjs",
     "test:e2e:autopilot": "node scripts/e2e-autopilot.mjs",
     "test:e2e:autopilot:cycle": "node scripts/e2e-autopilot-fullcycle.mjs",

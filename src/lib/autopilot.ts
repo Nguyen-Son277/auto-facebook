@@ -29,7 +29,9 @@ import {
   orderDaysByNeed,
   parseDaysOfWeek,
   parseHm,
+  parseServiceAreas,
   pickPillar,
+  pickServiceArea,
   planTimeSlots,
   shouldAbortPage,
   startOfDay,
@@ -578,7 +580,7 @@ async function loadRecentContext(pageId: string) {
     where: { pageId, origin: "AUTOPILOT" },
     orderBy: { createdAt: "desc" },
     take: PILLAR_HISTORY,
-    select: { pillarName: true, topic: true },
+    select: { pillarName: true, topic: true, serviceArea: true },
   });
 
   return {
@@ -586,6 +588,11 @@ async function loadRecentContext(pageId: string) {
     topics: recent
       .map((r) => r.topic)
       .filter((t): t is string => Boolean(t && t.trim()))
+      .slice(0, RECENT_TOPIC_LIMIT),
+    // Địa bàn đã dùng gần đây — để xoay vòng không nhắm trùng bài liền trước
+    serviceAreas: recent
+      .map((r) => r.serviceArea)
+      .filter((a): a is string => Boolean(a && a.trim()))
       .slice(0, RECENT_TOPIC_LIMIT),
   };
 }
@@ -611,8 +618,17 @@ async function createPlannedPost(input: {
   driveAllowVideo: boolean;
   /** Số thứ tự bài trong ngày — dùng để xoay vòng tệp Drive. */
   rotation: number;
+  /** Địa bàn bài này nhắm tới (null = thương hiệu không cấu hình địa bàn). */
+  serviceArea?: string | null;
 }): Promise<
-  | { ok: true; topic: string; hook: string | null; mediaWarning?: string; kind: "IMAGE" | "VIDEO" }
+  | {
+      ok: true;
+      topic: string;
+      hook: string | null;
+      mediaWarning?: string;
+      kind: "IMAGE" | "VIDEO";
+      serviceArea: string | null;
+    }
   | { ok: false; error: string; duplicate?: boolean }
 > {
   const { config, pillar } = input;
@@ -658,6 +674,9 @@ async function createPlannedPost(input: {
     variantCount: 1,
     brand: {
       ...(brand ?? {}),
+      // Địa bàn mục tiêu của bài này — bộ lập kế hoạch đã xoay vòng chọn sẵn.
+      // serviceAreas (toàn bộ danh sách) đã có trong `brand` để AI biết phạm vi.
+      ...(input.serviceArea ? { serviceArea: input.serviceArea } : {}),
       pillar: {
         name: pillar.name,
         description: pillar.description ?? undefined,
@@ -756,6 +775,7 @@ async function createPlannedPost(input: {
       origin: "AUTOPILOT",
       pillarName: pillar.name,
       topic: variant.angle || pillar.name,
+      serviceArea: input.serviceArea ?? null,
     },
   });
 
@@ -788,6 +808,7 @@ async function createPlannedPost(input: {
     hook: variant.hook || null,
     mediaWarning,
     kind: input.kind,
+    serviceArea: input.serviceArea ?? null,
   };
 }
 
@@ -879,6 +900,18 @@ export async function planForAutoPilot(
   const recent = await loadRecentContext(config.pageId);
   const recentNames = [...recent.pillarNames];
   const recentTopics = [...recent.topics];
+
+  // Địa bàn hoạt động: lấy MỘT lần cho cả lượt lập kế hoạch rồi xoay vòng trong
+  // bộ nhớ. Thương hiệu để trống → mảng rỗng → pickServiceArea trả null → hành
+  // vi y hệt trước khi có tính năng này.
+  const brandProfile = brandId
+    ? await prisma.brandProfile.findUnique({
+        where: { brandId },
+        select: { serviceAreas: true },
+      })
+    : null;
+  const serviceAreas = parseServiceAreas(brandProfile?.serviceAreas);
+  const recentAreas = [...recent.serviceAreas];
 
   const leadCutoff = new Date(now.getTime() + MIN_LEAD_MS);
   let lastError: string | undefined;
@@ -983,6 +1016,10 @@ export async function planForAutoPilot(
         random
       );
 
+      // Địa bàn cho bài này — xoay vòng để phủ đều các khu vực, tránh nhắm
+      // trùng bài liền trước. null khi thương hiệu không cấu hình địa bàn.
+      const serviceArea = pickServiceArea(serviceAreas, recentAreas);
+
       const res = await createPlannedPost({
         config,
         pageId: config.pageId,
@@ -996,6 +1033,7 @@ export async function planForAutoPilot(
         driveAllowVideo,
         // Xoay vòng tệp trong thư mục Drive theo thứ tự bài trong ngày
         rotation: dayStartIndex + i,
+        serviceArea,
       });
 
       if (res.ok) {
@@ -1014,6 +1052,12 @@ export async function planForAutoPilot(
         // Ghi lại chủ đề vừa viết để lượt sau AI tránh lặp
         recentTopics.unshift(`${pillar.name} — ${res.topic}`);
         if (recentTopics.length > RECENT_TOPIC_LIMIT) recentTopics.pop();
+        // Chỉ ghi nhận địa bàn khi tạo bài THÀNH CÔNG — bài lỗi không được
+        // làm lệch vòng xoay.
+        if (res.serviceArea) {
+          recentAreas.unshift(res.serviceArea);
+          if (recentAreas.length > RECENT_TOPIC_LIMIT) recentAreas.pop();
+        }
         continue;
       }
 
@@ -1190,6 +1234,8 @@ export type AutoPilotOverview = {
     scheduledAt: string;
     pillarName: string | null;
     topic: string | null;
+    /** Địa bàn bài này nhắm tới (null = thương hiệu không cấu hình địa bàn). */
+    serviceArea: string | null;
     mediaCount: number;
   }[];
   /** Số bài tạo tự động trong 7 ngày tới. */
@@ -1243,6 +1289,7 @@ export async function getAutoPilotOverview(
       scheduledAt: p.scheduledAt?.toISOString() ?? "",
       pillarName: p.pillarName,
       topic: p.topic,
+      serviceArea: p.serviceArea,
       mediaCount: p._count.media,
     })),
     plannedNext7Days,

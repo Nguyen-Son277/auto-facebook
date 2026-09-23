@@ -303,13 +303,34 @@ chi tiết. Gán Page vào thương hiệu ở [trang Pages](#quản-lý-page-tr
 Ba khối nội dung, xếp theo mức độ quan trọng với AI:
 
 **1. Thông tin cơ bản** — tên thương hiệu, ngành hàng, giới thiệu, sản phẩm/dịch vụ,
-khách hàng mục tiêu, điểm khác biệt, khoảng giá, liên hệ, giọng điệu, hashtag,
-câu kêu gọi hành động, bài viết mẫu.
+khách hàng mục tiêu, điểm khác biệt, **địa bàn hoạt động**, khoảng giá, liên hệ, giọng điệu,
+hashtag, câu kêu gọi hành động, bài viết mẫu.
 
 > **Hai ô có tác dụng mạnh nhất:**
 > - **Khoảng giá** — AI chỉ được nhắc giá trong khoảng này. **Để trống thì AI sẽ KHÔNG nói về giá**,
 >   tránh việc bịa ra con số không có thật.
 > - **Tuyệt đối không nhắc tới** — AI sẽ tránh hoàn toàn các chủ đề bạn liệt kê.
+
+**Địa bàn hoạt động** (không bắt buộc) — mỗi dòng một khu vực bạn phục vụ, ví dụ:
+
+```
+Bình Dương
+Thủ Dầu Một
+Dĩ An
+Thuận An
+```
+
+Chế độ tự động **xoay vòng mỗi bài nhắm một khu vực khác nhau** rồi quay lại từ đầu, nhờ vậy
+nội dung phủ đều các từ khoá địa phương thay vì bài nào cũng nhắc một chỗ. Chip 📍 trên
+trang [Chế độ tự động](#chế-độ-tự-động-trang-autopilot) cho biết mỗi bài đang nhắm khu vực nào.
+
+> **AI chỉ được nhắc đúng những tên bạn nhập ở đây** — hệ thống không cho AI tự nghĩ ra địa
+> danh khác. Lý do: tên phường/xã ở Việt Nam thay đổi rất nhiều sau các đợt sáp nhập (ví dụ
+> tỉnh Bình Dương đã sáp nhập vào TP. Hồ Chí Minh từ 12/06/2025), nên để AI tự sinh tên sẽ
+> dễ ra địa danh sai hoặc không còn tồn tại. Hãy dán danh sách theo tên **hiện hành**.
+>
+> Đây là **khu vực phục vụ**, không phải địa chỉ chi nhánh — AI không bịa số nhà hay cam kết
+> "có mặt tại" nếu bạn không nêu. **Để trống thì AI sẽ không nhắc địa bàn nào cả.**
 
 **2. Trụ cột nội dung** — quyết định "hôm nay đăng loại bài gì". Mỗi trụ cột có tên,
 mô tả, mục tiêu và **tỉ trọng** (ví dụ: Giới thiệu sản phẩm 40%, Chia sẻ kiến thức 25%…).
@@ -571,7 +592,9 @@ npm run test:e2e:week6            # E2E Tuần 6: hẹn giờ, worker tự đăn
 npm run test:e2e:scheduler        # E2E: vòng lặp tự đăng trong app + nút bật/tắt trên web
 npm run test:e2e:autopilot        # E2E: hồ sơ thương hiệu + chế độ tự động (70 kiểm tra)
 npm run test:e2e:autopilot:cycle  # E2E: vòng đời trọn vẹn — AI viết → tìm ảnh → tự đăng lên FB
-npm run test:plan                 # Test logic thuần: chia khung giờ + xoay vòng trụ cột (55 kiểm tra)
+npm run test:plan                 # Test logic thuần: chia khung giờ + xoay vòng trụ cột/địa bàn (92 kiểm tra)
+npm run test:service-area         # Test logic thuần: đọc + xoay vòng địa bàn, prompt chống bịa địa danh (34 kiểm tra)
+npm run test:readability          # Test logic thuần: chấm điểm dễ đọc của bài viết (19 kiểm tra)
 npm run test:media-source         # Test logic thuần: chọn nguồn media + dự phòng (25 kiểm tra)
 npm run test:drive                # Test logic thuần: lọc MIME/metadata Google Drive (42 kiểm tra)
 npm run test:e2e:drive            # E2E: OAuth + Drive API trên mock (30 kiểm tra, không cần dev server)

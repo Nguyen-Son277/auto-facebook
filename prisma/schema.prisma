@@ -233,6 +233,10 @@ model Post {
   origin     String  @default("MANUAL") // MANUAL (người dùng soạn) | AUTOPILOT (hệ thống tự tạo)
   pillarName String? // trụ cột nội dung đã dùng (để xoay vòng và hiển thị)
   topic      String? // chủ đề AI đã viết (với bài tự động)
+  /// Địa bàn bài này đã nhắm (lấy từ BrandProfile.serviceAreas). Null = bài
+  /// không gắn địa bàn (thương hiệu để trống, hoặc bài cũ trước khi có tính năng).
+  /// Dùng để xoay vòng và hiển thị cho người dùng thấy vòng xoay đang chạy.
+  serviceArea String?
 
   // ---- Trạng thái worker tự động đăng (Tuần 6) ----
   attempts      Int       @default(0) // số lần đã thử đăng
@@ -390,6 +394,13 @@ model BrandProfile {
   usp          String? // điểm khác biệt so với đối thủ
   priceRange   String? // khoảng giá để AI không bịa giá
   audience     String? // khách hàng mục tiêu
+  /// Địa bàn hoạt động, mỗi dòng một mục (ví dụ "Thủ Dầu Một", "Dĩ An").
+  ///
+  /// KHÔNG bắt buộc. AutoPilot xoay vòng mỗi bài nhắm một địa bàn để phủ từ
+  /// khoá địa phương. AI CHỈ được nhắc đúng những tên có trong danh sách này —
+  /// tên phường/xã ở Việt Nam thay đổi nhiều sau các đợt sáp nhập, để AI tự
+  /// sinh tên sẽ dễ ra địa danh sai hoặc không còn tồn tại.
+  serviceAreas String?
   // ---- Liên hệ (AI được phép dùng đúng những gì nhập ở đây) ----
   address      String?
   phone        String?

@@ -78,7 +78,7 @@ function createPrismaClient(): PrismaClient {
 // import kế tiếp, thay vì phải restart tay mà không rõ nguyên nhân.
 //
 // QUY ƯỚC: mỗi migration thêm/đổi model hoặc cột thì tăng số này.
-const SCHEMA_VERSION = "3-media-drive-folder";
+const SCHEMA_VERSION = "4-brand-service-areas";
 
 const globalForPrisma = globalThis as unknown as {
   prisma?: PrismaClient;

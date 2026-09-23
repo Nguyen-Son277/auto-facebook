@@ -19,7 +19,9 @@ import {
   isoDayOf,
   parseDaysOfWeek,
   parseHm,
+  parseServiceAreas,
   pickPillar,
+  pickServiceArea,
   planTimeSlots,
   startOfDay,
   MAX_CONSECUTIVE_SLOT_FAILURES,
@@ -460,6 +462,44 @@ check("0 lỗi → chưa bỏ Page", shouldAbortPage(0) === false);
 check("1 lỗi → vẫn thử tiếp (không xoá trắng ngày)", shouldAbortPage(1) === false);
 check("2 lỗi liên tiếp → bỏ Page trong lượt này", shouldAbortPage(2) === true);
 check("ngưỡng bỏ Page đúng bằng 2", MAX_CONSECUTIVE_SLOT_FAILURES === 2);
+
+// ============================================================
+section("Địa bàn hoạt động (xoay vòng)");
+// ============================================================
+
+check("danh sách rỗng → tắt tính năng (null)", pickServiceArea([], []) === null);
+check("một địa bàn → luôn dùng địa bàn đó", pickServiceArea(["Dĩ An"], []) === "Dĩ An");
+
+{
+  // Vòng lặp thật của AutoPilot: chọn rồi ghi lại vào lịch sử
+  const areas = ["Thủ Dầu Một", "Dĩ An", "Thuận An"];
+  const recent = [];
+  const picked = [];
+  for (let i = 0; i < 4; i++) {
+    const a = pickServiceArea(areas, recent);
+    picked.push(a);
+    recent.unshift(a);
+  }
+  check("phủ đủ 3 địa bàn trong 3 bài đầu", new Set(picked.slice(0, 3)).size === 3, picked.join(" → "));
+  check(
+    "không nhắm trùng bài liền trước",
+    picked.every((a, i) => i === 0 || a !== picked[i - 1]),
+    picked.join(" → ")
+  );
+}
+
+check("ưu tiên địa bàn ít dùng nhất", pickServiceArea(["A", "B", "C"], ["A", "A", "B"]) === "C");
+check(
+  "so trùng lịch sử bỏ qua hoa/thường",
+  pickServiceArea(["Dĩ An", "Thủ Dầu Một"], ["dĩ an"]) === "Thủ Dầu Một"
+);
+
+// parseServiceAreas: bỏ dòng trống, khử trùng, chấp nhận cả dấu phẩy
+{
+  const r = parseServiceAreas("Bình Dương\n\nDĩ An, binh duong");
+  check("bỏ dòng trống + khử trùng + tách dấu phẩy", r.length === 2, JSON.stringify(r));
+}
+check("đầu vào rỗng → mảng rỗng", parseServiceAreas(null).length === 0);
 
 // ============================================================
 console.log(`\n${"=".repeat(52)}`);

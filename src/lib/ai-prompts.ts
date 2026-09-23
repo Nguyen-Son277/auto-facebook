@@ -79,6 +79,13 @@ export type BrandContext = {
   usp?: string;
   priceRange?: string;
   audience?: string;
+  /**
+   * Danh sách địa bàn hoạt động (mỗi dòng một mục) — AI CHỈ được nhắc đúng
+   * những tên có trong đây, không tự nghĩ ra địa danh khác.
+   */
+  serviceAreas?: string;
+  /** Địa bàn bài NÀY nhắm tới (AutoPilot xoay vòng qua từng mục). */
+  serviceArea?: string;
   address?: string;
   phone?: string;
   website?: string;
@@ -170,8 +177,21 @@ export const docKindLabel = (kind: string) => DOC_KIND_LABEL[kind] ?? DOC_KIND_L
  */
 export function buildBrandBlock(brand: BrandContext): string[] {
   const lines: string[] = [];
+  /**
+   * Thêm một mục dạng "- Nhãn: giá trị".
+   *
+   * Giá trị nhiều dòng (sản phẩm, địa bàn…) phải được THỤT LỀ cho các dòng
+   * nối tiếp. Nếu không, dòng thứ 2 trở đi sẽ nằm ngang hàng với các dấu "-"
+   * khác và AI đọc nhầm chúng thành những mục riêng biệt — ví dụ danh sách
+   * địa bàn "Bình Dương / Thủ Dầu Một / Dĩ An" bị hiểu thành 3 mục độc lập.
+   */
   const add = (label: string, value?: string) => {
-    if (value?.trim()) lines.push(`- ${label}: ${value.trim()}`);
+    if (!value?.trim()) return;
+    const [first, ...rest] = value.trim().split("\n");
+    lines.push(`- ${label}: ${first.trim()}`);
+    for (const line of rest) {
+      if (line.trim()) lines.push(`  ${line.trim()}`);
+    }
   };
 
   add("Tên thương hiệu", brand.brandName);
@@ -182,6 +202,7 @@ export function buildBrandBlock(brand: BrandContext): string[] {
   add("Khách hàng mục tiêu", brand.audience);
   add("Điểm khác biệt so với đối thủ", brand.usp);
   add("Khoảng giá (chỉ được dùng đúng khoảng này)", brand.priceRange);
+  add("Địa bàn hoạt động (chỉ được nhắc đúng những khu vực này)", brand.serviceAreas);
   add("Địa chỉ", brand.address);
   add("Điện thoại", brand.phone);
   add("Website", brand.website);
@@ -190,7 +211,7 @@ export function buildBrandBlock(brand: BrandContext): string[] {
   add("Ghi chú thêm", brand.notes);
 
   if (brand.avoidTopics?.trim()) {
-    lines.push(`- ⛔ TUYỆT ĐỐI KHÔNG nhắc tới: ${brand.avoidTopics.trim()}`);
+    add("⛔ TUYỆT ĐỐI KHÔNG nhắc tới", brand.avoidTopics);
   }
 
   if (lines.length === 0 && !brand.samplePosts?.trim() && !brand.knowledge?.length) {
@@ -233,6 +254,37 @@ export function buildUserPrompt(input: GenerateInput): string {
       `=== LOẠI BÀI CẦN VIẾT: ${input.brand.pillar.name} ===`,
       input.brand.pillar.description?.trim() ||
         "Hãy viết một bài thuộc đúng loại nội dung này.",
+      ""
+    );
+  }
+
+  // Địa bàn: chỉ xuất hiện khi thương hiệu có cấu hình và bài này đã được
+  // gán một khu vực cụ thể. Ràng buộc "không bịa địa danh" là bắt buộc —
+  // thiếu nó AI có thể tự nghĩ ra phường/xã khác, hoặc hiểu sai "khu vực
+  // phục vụ" thành "địa chỉ chi nhánh" rồi bịa cả số nhà.
+  if (input.brand?.serviceArea?.trim()) {
+    const areas = input.brand.serviceAreas?.trim();
+    // Danh sách in dạng gạch đầu dòng thụt lề để AI thấy rõ đây là MỘT tập hợp
+    // các khu vực được phép dùng, không phải các mục rời rạc.
+    const areaList = areas
+      ? areas
+          .split("\n")
+          .map((a) => a.trim())
+          .filter(Boolean)
+          .map((a) => `  • ${a}`)
+      : [];
+
+    lines.push(
+      "=== ĐỊA BÀN HOẠT ĐỘNG ===",
+      ...(areaList.length
+        ? ["Các khu vực thương hiệu phục vụ (chỉ được dùng đúng những tên này):", ...areaList]
+        : []),
+      `Bài này nhắm tới khu vực: ${input.brand.serviceArea.trim()}`,
+      "- Nhắc tên khu vực này một cách tự nhiên trong bài (1–2 lần), không nhồi nhét.",
+      "- CHỈ được dùng tên khu vực có trong danh sách trên. TUYỆT ĐỐI không tự bịa",
+      "  thêm tên phường/xã/quận/huyện/tỉnh khác ngoài danh sách.",
+      "- Đây là khu vực PHỤC VỤ, không phải địa chỉ chi nhánh: không bịa số nhà hay",
+      "  địa chỉ cụ thể, không cam kết \"có mặt tại\" nếu hồ sơ không nêu.",
       ""
     );
   }

@@ -60,6 +60,9 @@ async function loadEditablePost(postId: string, userId: string) {
       content: true,
       scheduledAt: true,
       pillarName: true,
+      // Địa bàn bài gốc — viết lại phải nhắm đúng khu vực cũ, nếu không bài
+      // viết lại sẽ mất tính địa phương dù bản ghi vẫn giữ serviceArea.
+      serviceArea: true,
       page: { select: { name: true } },
     },
   });
@@ -306,6 +309,8 @@ export async function regeneratePostContent(postId: string): Promise<PostEditSta
     variantCount: 1,
     brand: {
       ...(brand ?? {}),
+      // Giữ địa bàn của bài gốc để bản viết lại vẫn nhắm đúng khu vực cũ
+      ...(post.serviceArea ? { serviceArea: post.serviceArea } : {}),
       ...(pillar
         ? { pillar: { name: pillar.name, description: pillar.description ?? undefined } }
         : {}),

@@ -102,6 +102,7 @@ export type BrandProfileData = {
   usp: string | null;
   priceRange: string | null;
   audience: string | null;
+  serviceAreas: string | null;
   address: string | null;
   phone: string | null;
   website: string | null;
@@ -206,6 +207,16 @@ function ProfileForm({ brandId, profile }: { brandId: string; profile: BrandProf
           placeholder="Đo miễn phí, lắp trong ngày, bảo hành 2 năm"
         />
       </div>
+
+      <Field
+        label="Địa bàn hoạt động (không bắt buộc)"
+        name="serviceAreas"
+        testId="brand-serviceAreas"
+        rows={4}
+        defaultValue={profile?.serviceAreas}
+        placeholder={"Bình Dương\nThủ Dầu Một\nDĩ An\nThuận An"}
+        hint="Mỗi dòng một khu vực bạn phục vụ. Chế độ tự động sẽ XOAY VÒNG mỗi bài nhắm một khu vực để phủ từ khoá địa phương. AI chỉ nhắc đúng những tên bạn nhập ở đây — không tự bịa thêm. Để trống thì AI sẽ không nhắc địa bàn."
+      />
 
       <Field
         label="Khoảng giá"

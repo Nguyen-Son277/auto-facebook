@@ -101,6 +101,8 @@ export type PlannedPost = {
   scheduledAt: string;
   pillarName: string | null;
   topic: string | null;
+  /** Địa bàn bài này nhắm tới (null = thương hiệu không cấu hình địa bàn). */
+  serviceArea: string | null;
   mediaCount: number;
 };
 
@@ -799,6 +801,15 @@ function PlanPreview({
                   {p.pillarName ? (
                     <span className="rounded-full bg-blue-50 px-2 py-0.5 text-blue-700">
                       {p.pillarName}
+                    </span>
+                  ) : null}
+                  {p.serviceArea ? (
+                    <span
+                      className="rounded-full bg-emerald-50 px-2 py-0.5 text-emerald-700"
+                      data-testid="ap-plan-area"
+                      title="Địa bàn bài này nhắm tới"
+                    >
+                      📍 {p.serviceArea}
                     </span>
                   ) : null}
                   {p.mediaCount > 0 ? (

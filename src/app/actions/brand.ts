@@ -22,6 +22,18 @@ export type BrandState = {
 const str = (fd: FormData, key: string) => String(fd.get(key) ?? "").trim();
 const nullable = (fd: FormData, key: string) => str(fd, key) || null;
 
+/**
+ * Chuẩn hoá kiểu xuống dòng về "\n".
+ *
+ * Trình duyệt luôn gửi giá trị <textarea> dạng CRLF ("\r\n") theo chuẩn HTML,
+ * nên nếu lưu nguyên thì DB chứa ký tự "\r" thừa. Hàm đọc danh sách vẫn xử lý
+ * được, nhưng chuẩn hoá tại đây giữ dữ liệu sạch và nhất quán.
+ */
+const multiline = (fd: FormData, key: string) => {
+  const value = nullable(fd, key);
+  return value ? value.replace(/\r\n?/g, "\n") : null;
+};
+
 /** Giới hạn độ dài để một ô nhập không thể làm phình prompt vô hạn. */
 const MAX_FIELD = 4000;
 const MAX_DOC = 20000;
@@ -159,6 +171,7 @@ export async function saveBrandProfile(
     usp: nullable(formData, "usp"),
     priceRange: nullable(formData, "priceRange"),
     audience: nullable(formData, "audience"),
+    serviceAreas: multiline(formData, "serviceAreas"),
     address: nullable(formData, "address"),
     phone: nullable(formData, "phone"),
     website: nullable(formData, "website"),

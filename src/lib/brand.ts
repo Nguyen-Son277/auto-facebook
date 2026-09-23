@@ -113,6 +113,8 @@ export type BrandSource = {
   usp: string | null;
   priceRange: string | null;
   audience: string | null;
+  /** Danh sách địa bàn hoạt động, mỗi dòng một mục (không bắt buộc). */
+  serviceAreas: string | null;
   address: string | null;
   phone: string | null;
   website: string | null;
@@ -215,6 +217,7 @@ export async function loadBrandContext(
     usp: profile?.usp ?? undefined,
     priceRange: profile?.priceRange ?? undefined,
     audience: profile?.audience ?? undefined,
+    serviceAreas: profile?.serviceAreas ?? undefined,
     address: profile?.address ?? undefined,
     phone: profile?.phone ?? undefined,
     website: profile?.website ?? undefined,
@@ -323,6 +326,7 @@ export async function loadBrandContextByBrand(
     usp: profile?.usp ?? undefined,
     priceRange: profile?.priceRange ?? undefined,
     audience: profile?.audience ?? undefined,
+    serviceAreas: profile?.serviceAreas ?? undefined,
     address: profile?.address ?? undefined,
     phone: profile?.phone ?? undefined,
     website: profile?.website ?? undefined,
