@@ -4,6 +4,13 @@ import { revalidatePath } from "next/cache";
 import { requireCurrentUser, resolveWorkspace } from "@/lib/dal";
 import { prisma } from "@/lib/prisma";
 import { DEFAULT_PILLARS } from "@/lib/brand";
+import {
+  autoPilotBlockedError,
+  disableAutoPilotForPages,
+  autoPilotPagesForBrand,
+  minimalProfileProblem,
+  type AutoPilotImpact,
+} from "@/lib/brand";
 
 // ============================================================
 // Server action cho trang Thương hiệu (đa brand).
@@ -11,13 +18,60 @@ import { DEFAULT_PILLARS } from "@/lib/brand";
 // Hồ sơ + trụ cột + kho tài liệu thuộc về BRAND — dùng chung cho
 // mọi Page của thương hiệu. Mọi action kiểm tra brand thuộc
 // workspace của user đang đăng nhập, không tin ID từ client.
+//
+// BẢO VỆ LỊCH ĐĂNG TỰ ĐỘNG: các action có thể làm Page mất thông tin doanh
+// nghiệp (xoá Brand, xoá/tắt trụ cột cuối, làm trống hồ sơ) đều đi qua
+// `guardAutoPilot()` — xem khối giải thích ở src/lib/brand-scope.ts.
 // ============================================================
 
 export type BrandState = {
   ok?: boolean;
   error?: string;
   message?: string;
+  /**
+   * true = thao tác bị hoãn vì sẽ làm Page đang tự động đăng mất thông tin
+   * doanh nghiệp. Giao diện phải hỏi xác nhận rồi gọi lại kèm
+   * `confirmAutoPilotOff = true`.
+   */
+  needsAutoPilotConfirmation?: boolean;
+  /** Tên các Page bị ảnh hưởng — để hiện trong hộp thoại xác nhận. */
+  affectedPages?: string[];
 } | null;
+
+/**
+ * Cổng chặn dùng chung cho mọi action có thể làm hỏng AutoPilot.
+ *
+ * Trả `null` = được phép đi tiếp. Trả `BrandState` = phải dừng và báo cho
+ * giao diện (kèm danh sách Page bị ảnh hưởng để hỏi xác nhận).
+ *
+ * @param action                mô tả thao tác, dùng trong câu lỗi
+ * @param pages                 các Page đang bật tự động đăng và bị ảnh hưởng
+ * @param confirmAutoPilotOff   người dùng đã đồng ý tắt tự động đăng chưa
+ * @param reason                lý do tắt — ghi vào thông báo cho chủ Page
+ */
+async function guardAutoPilot(
+  action: string,
+  pages: AutoPilotImpact[],
+  confirmAutoPilotOff: boolean,
+  reason: string
+): Promise<BrandState> {
+  if (pages.length === 0) return null;
+
+  const names = pages.map((p) => p.pageName);
+
+  if (!confirmAutoPilotOff) {
+    // Chưa xác nhận: KHÔNG thực hiện gì cả, chỉ báo để giao diện hỏi lại.
+    return {
+      ok: false,
+      error: autoPilotBlockedError(action, names),
+      needsAutoPilotConfirmation: true,
+      affectedPages: names,
+    };
+  }
+
+  await disableAutoPilotForPages(pages, reason);
+  return null;
+}
 
 const str = (fd: FormData, key: string) => String(fd.get(key) ?? "").trim();
 const nullable = (fd: FormData, key: string) => str(fd, key) || null;
@@ -136,22 +190,61 @@ export async function updateBrand(
  * - Page: bỏ gán (brandId -> null, Page giữ nguyên).
  * - Post: giữ nguyên bài, mất nhãn brand (SetNull theo schema).
  * - Hồ sơ / trụ cột / tài liệu: cascade theo Brand.
+ *
+ * BẢO VỆ AUTOPILOT: xoá Brand làm mọi Page của nó mất Brand → mất trụ cột và
+ * hồ sơ → AutoPilot hết dữ liệu để viết bài. Vì vậy phải xác nhận trước, và
+ * khi đồng ý thì tắt tự động đăng cho đúng những Page đó (bài đã lên lịch vẫn
+ * giữ nguyên). Trả `BrandState` thay vì `void` để giao diện hiện được lỗi —
+ * bản cũ nuốt lỗi im lặng.
+ *
+ * @param confirmAutoPilotOff người dùng đã đồng ý tắt tự động đăng chưa.
  */
-export async function deleteBrand(brandId: string): Promise<void> {
+export async function deleteBrand(
+  brandId: string,
+  confirmAutoPilotOff = false
+): Promise<BrandState> {
   const user = await requireCurrentUser();
   const brand = await ownedBrand(user.id, brandId);
-  if (!brand) return;
+  if (!brand) return { ok: false, error: "Thương hiệu không tồn tại." };
+
+  const pages = await autoPilotPagesForBrand(brandId);
+  const blocked = await guardAutoPilot(
+    `Xoá thương hiệu "${brand.name}"`,
+    pages,
+    confirmAutoPilotOff,
+    `Thương hiệu "${brand.name}" đã bị xoá.`
+  );
+  if (blocked) return blocked;
 
   await prisma.brand.delete({ where: { id: brandId } });
   revalidatePath("/brand");
   revalidatePath("/autopilot");
   revalidatePath("/pages");
+
+  return {
+    ok: true,
+    message:
+      pages.length > 0
+        ? `Đã xoá thương hiệu "${brand.name}" và tắt tự động đăng cho ${pages.length} Page.`
+        : `Đã xoá thương hiệu "${brand.name}".`,
+  };
 }
 
 // ============================================================
 // Hồ sơ thương hiệu (1-1 với Brand)
 // ============================================================
 
+/**
+ * Lưu hồ sơ thương hiệu.
+ *
+ * BẢO VỆ AUTOPILOT: nếu lần lưu này làm TRỐNG phần giới thiệu doanh nghiệp hoặc
+ * sản phẩm/dịch vụ thì AI không còn đủ dữ liệu để viết bài. Khi đó phải xác
+ * nhận và tắt tự động đăng cho các Page đang bật.
+ *
+ * Vì đây là action gắn với `useActionState` (chữ ký cố định prev/formData), cờ
+ * xác nhận đọc từ formData qua ô hidden `confirmAutoPilotOff` — giao diện hỏi
+ * xác nhận rồi gửi lại form kèm cờ này.
+ */
 export async function saveBrandProfile(
   _prev: BrandState,
   formData: FormData
@@ -192,6 +285,35 @@ export async function saveBrandProfile(
     }
   }
 
+  // Chỉ chặn khi lần lưu NÀY thật sự LÀM MẤT thông tin tối thiểu — tức trước đó
+  // đã có mà nay bị xoá trắng. Nếu hồ sơ vốn đã thiếu sẵn (dữ liệu cũ) thì người
+  // dùng đang bổ sung dở dang, chặn họ là phản tác dụng: AutoPilot vốn đã không
+  // chạy được, và việc họ đang làm chính là cách sửa nó.
+  const nextIsIncomplete = minimalProfileProblem({
+    hasDescription: Boolean(data.description?.trim()),
+    hasProducts: Boolean(data.products?.trim()),
+  });
+
+  const existingProfile = await prisma.brandProfile.findUnique({
+    where: { brandId },
+    select: { description: true, products: true },
+  });
+
+  const losesDescription =
+    Boolean(existingProfile?.description?.trim()) && !data.description?.trim();
+  const losesProducts = Boolean(existingProfile?.products?.trim()) && !data.products?.trim();
+
+  if (losesDescription || losesProducts) {
+    const pages = await autoPilotPagesForBrand(brandId);
+    const blocked = await guardAutoPilot(
+      `Lưu hồ sơ "${brand.name}" khi xoá mất thông tin doanh nghiệp`,
+      pages,
+      str(formData, "confirmAutoPilotOff") === "1",
+      `Hồ sơ thương hiệu "${brand.name}" đã bị xoá mất phần thông tin doanh nghiệp.`
+    );
+    if (blocked) return blocked;
+  }
+
   await prisma.brandProfile.upsert({
     where: { brandId },
     create: { userId: user.id, brandId, ...data },
@@ -200,12 +322,57 @@ export async function saveBrandProfile(
 
   revalidatePath("/brand");
   revalidatePath("/autopilot");
-  return { ok: true, message: `Đã lưu hồ sơ thương hiệu "${brand.name}".` };
+
+  const warning = nextIsIncomplete
+    ? " Lưu ý: hồ sơ đang thiếu thông tin doanh nghiệp nên chế độ tự động chưa chạy được."
+    : "";
+  return { ok: true, message: `Đã lưu hồ sơ thương hiệu "${brand.name}".${warning}` };
 }
 
 // ============================================================
 // Trụ cột nội dung (thuộc Brand — dùng chung mọi Page của brand)
 // ============================================================
+
+/**
+ * Cổng chặn cho các thao tác XOÁ hoặc TẮT một trụ cột.
+ *
+ * Chỉ có ý nghĩa khi thao tác đó làm Brand còn **0 trụ cột đang bật** — lúc đó
+ * AutoPilot không biết viết loại bài gì. Xoá/tắt một trụ cột trong khi vẫn còn
+ * trụ cột khác là chuyện bình thường, KHÔNG hỏi gì.
+ *
+ * `userId` là BẮT BUỘC: hàm này đọc `brandId` từ chính trụ cột rồi tắt AutoPilot
+ * cho mọi Page của Brand đó. Nếu không scope theo user, kẻ tấn công chỉ cần gửi
+ * lên id trụ cột của workspace khác là tắt được lịch đăng của họ.
+ *
+ * @param pillarId trụ cột đang bị xoá/tắt
+ * @returns `null` = cho phép đi tiếp, hoặc BrandState để dừng và hỏi xác nhận.
+ */
+async function guardLastEnabledPillar(
+  userId: string,
+  pillarId: string,
+  confirmAutoPilotOff: boolean
+): Promise<BrandState> {
+  const pillar = await prisma.contentPillar.findFirst({
+    where: { id: pillarId, userId },
+    select: { brandId: true, name: true, enabled: true },
+  });
+  // Trụ cột không tồn tại, không thuộc user này, hoặc đang TẮT sẵn → thao tác
+  // không thể làm giảm số trụ cột đang bật, nên không cần chặn.
+  if (!pillar || !pillar.enabled) return null;
+
+  const stillEnabled = await prisma.contentPillar.count({
+    where: { brandId: pillar.brandId, enabled: true, id: { not: pillarId } },
+  });
+  if (stillEnabled > 0) return null;
+
+  const pages = await autoPilotPagesForBrand(pillar.brandId);
+  return guardAutoPilot(
+    `Xoá/tắt trụ cột "${pillar.name}" (trụ cột đang bật cuối cùng)`,
+    pages,
+    confirmAutoPilotOff,
+    `Thương hiệu không còn trụ cột nội dung nào đang bật (trụ cột "${pillar.name}" đã bị xoá hoặc tắt).`
+  );
+}
 
 export async function createDefaultPillars(brandId: string): Promise<BrandState> {
   const user = await requireCurrentUser();
@@ -259,6 +426,18 @@ export async function savePillar(
   };
 
   if (id) {
+    // Sửa trụ cột đang bật thành TẮT mà đó là trụ cột bật cuối cùng → AutoPilot
+    // hết trụ cột. Form hiện không gửi được giá trị này (ô `enabled` là hidden,
+    // giữ nguyên trạng thái), nhưng vẫn chặn ở đây để không có đường lách.
+    if (data.enabled === false) {
+      const blocked = await guardLastEnabledPillar(
+        user.id,
+        id,
+        str(formData, "confirmAutoPilotOff") === "1"
+      );
+      if (blocked) return blocked;
+    }
+
     // Chỉ sửa trụ cột của chính Brand này — chặn sửa chéo workspace
     const updated = await prisma.contentPillar.updateMany({
       where: { id, brandId, userId: user.id },
@@ -280,18 +459,64 @@ export async function savePillar(
   return { ok: true, message: id ? "Đã cập nhật trụ cột." : `Đã thêm trụ cột "${name}".` };
 }
 
-export async function deletePillar(id: string): Promise<void> {
+/**
+ * Xoá một trụ cột.
+ *
+ * BẢO VỆ AUTOPILOT: nếu đây là trụ cột ĐANG BẬT cuối cùng của Brand thì xoá nó
+ * làm AutoPilot hết dữ liệu để viết bài → phải xác nhận và tắt tự động đăng.
+ * Trả `BrandState` thay vì `void` để giao diện hiện được yêu cầu xác nhận.
+ */
+export async function deletePillar(
+  id: string,
+  confirmAutoPilotOff = false
+): Promise<BrandState> {
   const user = await requireCurrentUser();
+
+  // Xác minh quyền sở hữu TRƯỚC khi xét ảnh hưởng — không để lộ thông tin
+  // của trụ cột thuộc user khác qua thông báo chặn.
+  const owned = await prisma.contentPillar.findFirst({
+    where: { id, userId: user.id },
+    select: { id: true },
+  });
+  if (!owned) return { ok: false, error: "Không tìm thấy trụ cột cần xoá." };
+
+  const blocked = await guardLastEnabledPillar(user.id, id, confirmAutoPilotOff);
+  if (blocked) return blocked;
+
   await prisma.contentPillar.deleteMany({ where: { id, userId: user.id } });
   revalidatePath("/brand");
   revalidatePath("/autopilot");
+  return { ok: true, message: "Đã xoá trụ cột." };
 }
 
-export async function togglePillar(id: string, enabled: boolean): Promise<void> {
+/**
+ * Bật/tắt một trụ cột.
+ *
+ * BẢO VỆ AUTOPILOT: tắt trụ cột ĐANG BẬT cuối cùng cũng làm AutoPilot hết dữ
+ * liệu — xử lý giống `deletePillar`. Bật lên thì không bao giờ chặn.
+ */
+export async function togglePillar(
+  id: string,
+  enabled: boolean,
+  confirmAutoPilotOff = false
+): Promise<BrandState> {
   const user = await requireCurrentUser();
+
+  const owned = await prisma.contentPillar.findFirst({
+    where: { id, userId: user.id },
+    select: { id: true },
+  });
+  if (!owned) return { ok: false, error: "Không tìm thấy trụ cột." };
+
+  if (!enabled) {
+    const blocked = await guardLastEnabledPillar(user.id, id, confirmAutoPilotOff);
+    if (blocked) return blocked;
+  }
+
   await prisma.contentPillar.updateMany({ where: { id, userId: user.id }, data: { enabled } });
   revalidatePath("/brand");
   revalidatePath("/autopilot");
+  return { ok: true, message: enabled ? "Đã bật trụ cột." : "Đã tắt trụ cột." };
 }
 
 // ============================================================

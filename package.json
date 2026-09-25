@@ -37,6 +37,7 @@
     "test:e2e:autopilot": "node scripts/e2e-autopilot.mjs",
     "test:e2e:autopilot:cycle": "node scripts/e2e-autopilot-fullcycle.mjs",
     "test:multi-workspace": "node scripts/test-multi-workspace.mjs",
+    "test:autopilot-guard": "node --experimental-strip-types --no-warnings scripts/test-autopilot-guard.mjs",
     "db:seed-admin": "node scripts/seed-admin.mjs",
     "db:seed-docs": "node scripts/seed-docs.mjs",
     "db:cleanup-notifications": "node scripts/cleanup-notifications.mjs",

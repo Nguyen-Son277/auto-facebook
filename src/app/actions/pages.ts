@@ -9,13 +9,63 @@ import {
   syncPagesToDb,
 } from "@/lib/facebook";
 import { resolveConnection, markConnectionSynced } from "@/lib/facebook-connection";
+import {
+  autoPilotBlockedError,
+  autoPilotPagesForPage,
+  disableAutoPilotForPages,
+  readinessProblem,
+  type AutoPilotImpact,
+  type PageReadiness,
+} from "@/lib/brand";
 
 export type PageActionState = {
   ok?: boolean;
   error?: string;
   message?: string;
   details?: string[];
+  /**
+   * true = thao tác bị hoãn vì sẽ làm Page đang tự động đăng mất thông tin
+   * doanh nghiệp (hoặc ngừng hoạt động). Giao diện hỏi xác nhận rồi gọi lại
+   * kèm `confirmAutoPilotOff = true`.
+   */
+  needsAutoPilotConfirmation?: boolean;
+  /** Tên các Page bị ảnh hưởng — để hiện trong hộp thoại xác nhận. */
+  affectedPages?: string[];
 } | null;
+
+/**
+ * Cổng chặn dùng chung cho các action đụng tới MỘT Page.
+ *
+ * Khác `guardAutoPilot` ở actions/brand.ts (vốn xét cả Brand), hàm này chỉ xét
+ * Page đang thao tác. Xem khối giải thích ở src/lib/brand-scope.ts.
+ *
+ * @param action              mô tả thao tác, dùng trong câu lỗi
+ * @param pages               Page đang bật tự động đăng và bị ảnh hưởng
+ * @param confirmAutoPilotOff người dùng đã đồng ý tắt tự động đăng chưa
+ * @param reason              lý do tắt — ghi vào thông báo cho chủ Page
+ */
+async function guardAutoPilotPage(
+  action: string,
+  pages: AutoPilotImpact[],
+  confirmAutoPilotOff: boolean,
+  reason: string
+): Promise<PageActionState> {
+  if (pages.length === 0) return null;
+
+  const names = pages.map((p) => p.pageName);
+
+  if (!confirmAutoPilotOff) {
+    return {
+      ok: false,
+      error: autoPilotBlockedError(action, names),
+      needsAutoPilotConfirmation: true,
+      affectedPages: names,
+    };
+  }
+
+  await disableAutoPilotForPages(pages, reason);
+  return null;
+}
 
 /**
  * Page + kiểm tra user là THÀNH VIÊN workspace sở hữu Page.
@@ -160,10 +210,35 @@ export async function syncFacebookPagesLegacy(
   return syncFacebookPages(null, fd);
 }
 
-export async function togglePageActive(pageId: string): Promise<void> {
+/**
+ * Tạm dừng / kích hoạt một Page.
+ *
+ * BẢO VỆ AUTOPILOT: tạm dừng Page làm bộ lập kế hoạch bỏ qua nó
+ * (`if (!page.isActive) continue` trong runAutopilotPlanner) — AutoPilot vẫn
+ * `enabled = true` nhưng không bao giờ tạo bài, và người dùng không hiểu vì sao.
+ * Vì vậy phải xác nhận rồi tắt tự động đăng. Kích hoạt lại thì không chặn.
+ *
+ * Trả `PageActionState` thay vì `void` để giao diện hiện được yêu cầu xác nhận.
+ */
+export async function togglePageActive(
+  pageId: string,
+  confirmAutoPilotOff = false
+): Promise<PageActionState> {
   const user = await requireCurrentUser();
   const page = await accessiblePage(pageId, user.id);
-  if (!page) return;
+  if (!page) return { ok: false, error: "Page không tồn tại hoặc bạn không có quyền." };
+
+  // Chỉ chặn khi thao tác là TẮT Page. Bật lại luôn an toàn.
+  if (page.isActive) {
+    const affected = await autoPilotPagesForPage(pageId);
+    const blocked = await guardAutoPilotPage(
+      `Tạm dừng Page "${page.name}"`,
+      affected,
+      confirmAutoPilotOff,
+      `Page "${page.name}" đã bị tạm dừng.`
+    );
+    if (blocked) return blocked;
+  }
 
   await prisma.facebookPage.update({
     where: { id: pageId },
@@ -172,16 +247,44 @@ export async function togglePageActive(pageId: string): Promise<void> {
   revalidatePath("/pages");
   revalidatePath("/dashboard");
   revalidatePath("/autopilot");
+
+  return {
+    ok: true,
+    message: page.isActive ? `Đã tạm dừng "${page.name}".` : `Đã kích hoạt "${page.name}".`,
+  };
 }
 
-export async function deletePage(pageId: string): Promise<void> {
+/**
+ * Xoá một Page khỏi hệ thống.
+ *
+ * BẢO VỆ AUTOPILOT: `AutoPilot.pageId` có `onDelete: Cascade`, nên xoá Page là
+ * xoá luôn cấu hình tự động. Khác các trường hợp khác, ở đây việc "tắt
+ * AutoPilot" chỉ có ý nghĩa thông báo — nhưng vẫn dùng chung cổng chặn để lấy
+ * xác nhận, vì người dùng cần biết mình đang làm mất một lịch đăng đang chạy.
+ */
+export async function deletePage(
+  pageId: string,
+  confirmAutoPilotOff = false
+): Promise<PageActionState> {
   const user = await requireCurrentUser();
   const page = await accessiblePage(pageId, user.id);
-  if (!page) return;
+  if (!page) return { ok: false, error: "Page không tồn tại hoặc bạn không có quyền." };
+
+  const affected = await autoPilotPagesForPage(pageId);
+  const blocked = await guardAutoPilotPage(
+    `Xoá Page "${page.name}"`,
+    affected,
+    confirmAutoPilotOff,
+    `Page "${page.name}" đã bị xoá khỏi hệ thống.`
+  );
+  if (blocked) return blocked;
 
   await prisma.facebookPage.delete({ where: { id: pageId } });
   revalidatePath("/pages");
   revalidatePath("/dashboard");
+  revalidatePath("/autopilot");
+
+  return { ok: true, message: `Đã xoá Page "${page.name}".` };
 }
 
 /**
@@ -198,7 +301,8 @@ export async function deletePage(pageId: string): Promise<void> {
  */
 export async function assignPageToBrand(
   pageId: string,
-  brandId: string | null
+  brandId: string | null,
+  confirmAutoPilotOff = false
 ): Promise<PageActionState> {
   const user = await requireCurrentUser();
 
@@ -241,6 +345,29 @@ export async function assignPageToBrand(
     }
   }
 
+  // ===== Bảo vệ AutoPilot =====
+  // Bỏ gắn Brand (brandId = null) hoặc chuyển sang Brand không đủ điều kiện đều
+  // làm Page đang tự động đăng hết dữ liệu để viết bài. Tính trạng thái SAU thao
+  // tác rồi mới quyết định — không đoán theo thao tác.
+  const affected = await autoPilotPagesForPage(pageId);
+  if (affected.length > 0) {
+    const after = await getPageReadinessAfterBrandChange(pageId, brandId);
+    const problem = after ? readinessProblem(after) : null;
+    if (problem) {
+      const blocked = await guardAutoPilotPage(
+        brandId
+          ? `Chuyển Page "${page.name}" sang thương hiệu "${brandName}"`
+          : `Bỏ gắn thương hiệu khỏi Page "${page.name}"`,
+        affected,
+        confirmAutoPilotOff,
+        brandId
+          ? `Page "${page.name}" đã được chuyển sang thương hiệu "${brandName}" — thương hiệu này chưa đủ thông tin để tự động viết bài.`
+          : `Page "${page.name}" đã bị bỏ gắn thương hiệu.`
+      );
+      if (blocked) return blocked;
+    }
+  }
+
   await prisma.facebookPage.update({
     where: { id: pageId },
     data: { brandId },
@@ -258,6 +385,39 @@ export async function assignPageToBrand(
       ? `Đã gắn "${page.name}" vào thương hiệu "${brandName}".`
       : `Đã bỏ gắn thương hiệu khỏi "${page.name}".`,
     details: details.length > 0 ? details : undefined,
+  };
+}
+
+/**
+ * Trạng thái sẵn sàng của Page NẾU gắn vào `brandId` cho trước.
+ *
+ * Vì sao cần hàm riêng thay vì `getPageReadiness`: hàm kia đọc brandId hiện tại
+ * của Page, còn ở đây ta phải đánh giá brand ĐÍCH trước khi ghi vào DB.
+ */
+async function getPageReadinessAfterBrandChange(
+  pageId: string,
+  brandId: string | null
+): Promise<PageReadiness | null> {
+  if (!brandId) {
+    // Bỏ gắn Brand: chắc chắn không đủ điều kiện (không còn trụ cột nào).
+    return { brandId: null, brandName: null, pillars: 0, hasDescription: false, hasProducts: false };
+  }
+
+  const [brand, pillars, profile] = await Promise.all([
+    prisma.brand.findUnique({ where: { id: brandId }, select: { name: true } }),
+    prisma.contentPillar.count({ where: { brandId, enabled: true } }),
+    prisma.brandProfile.findUnique({
+      where: { brandId },
+      select: { description: true, products: true },
+    }),
+  ]);
+
+  return {
+    brandId,
+    brandName: brand?.name ?? null,
+    pillars,
+    hasDescription: Boolean(profile?.description?.trim()),
+    hasProducts: Boolean(profile?.products?.trim()),
   };
 }
 

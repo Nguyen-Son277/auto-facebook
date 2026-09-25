@@ -154,7 +154,8 @@ export default async function AutopilotPage({
           }}
           readiness={{
             pillars: readinessState?.pillars ?? 0,
-            hasProfile: readinessState?.hasProfile ?? false,
+            hasDescription: readinessState?.hasDescription ?? false,
+            hasProducts: readinessState?.hasProducts ?? false,
             hasBrand: Boolean(readinessState?.brandId),
             issue: readinessIssue,
           }}

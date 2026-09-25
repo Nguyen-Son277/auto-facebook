@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { assignPageToBrand } from "@/app/actions/pages";
+import { assignPageToBrand, type PageActionState } from "@/app/actions/pages";
+import { autoPilotConfirmPrompt } from "@/lib/brand-scope";
 
 // ============================================================
 // Ô chọn thương hiệu cho một Facebook Page.
@@ -29,21 +30,44 @@ export default function PageBrandSelect({
 
   const noBrands = brands.length === 0;
 
-  const onChange = (next: string | null) => {
+  /**
+   * Gán/bỏ gắn thương hiệu — luồng 2 bước khi Page đang bật tự động đăng.
+   *
+   * Bỏ gắn Brand, hoặc chuyển sang Brand không đủ điều kiện, đều làm AutoPilot
+   * hết dữ liệu để viết bài. Server trả `needsAutoPilotConfirmation` kèm tên
+   * Page; ở đây hỏi lại rồi gọi lần hai kèm cờ xác nhận.
+   *
+   * Xem khối giải thích ở src/lib/brand-scope.ts.
+   */
+  const run = (next: string | null, confirmAutoPilotOff: boolean) => {
     setError(null);
     setNotice(null);
     startTransition(async () => {
-      const res = await assignPageToBrand(pageId, next).catch((err) => ({
+      // Annotate kiểu: nhánh catch không có các trường tuỳ chọn của PageActionState.
+      const res: PageActionState = await assignPageToBrand(pageId, next, confirmAutoPilotOff).catch((err) => ({
         ok: false as const,
         error: err instanceof Error ? err.message : String(err),
       }));
 
       if (res && res.ok) {
         setNotice(res.details?.[0] ?? "Đã lưu.");
-      } else {
-        setError(res?.error ?? "Không lưu được thương hiệu cho Page.");
+        return;
       }
+
+      if (res?.needsAutoPilotConfirmation) {
+        const verb = next ? "Chuyển Page sang thương hiệu khác" : "Bỏ gắn thương hiệu khỏi Page";
+        if (confirm(autoPilotConfirmPrompt(verb, res.affectedPages ?? []))) {
+          run(next, true);
+        }
+        return;
+      }
+
+      setError(res?.error ?? "Không lưu được thương hiệu cho Page.");
     });
+  };
+
+  const onChange = (next: string | null) => {
+    run(next, false);
   };
 
   return (

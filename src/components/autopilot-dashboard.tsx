@@ -877,7 +877,10 @@ export default function AutopilotDashboard({
   pendingReview: number;
   readiness: {
     pillars: number;
-    hasProfile: boolean;
+    /** Hồ sơ đã có phần giới thiệu doanh nghiệp chưa. */
+    hasDescription: boolean;
+    /** Hồ sơ đã có sản phẩm/dịch vụ chưa. */
+    hasProducts: boolean;
     /** Page đã gắn thương hiệu chưa — chưa gắn thì không thể có trụ cột. */
     hasBrand: boolean;
     /** Lý do chặn (nếu có), dùng chung câu chữ với server. */
@@ -956,15 +959,32 @@ export default function AutopilotDashboard({
             Thiết lập hồ sơ thương hiệu →
           </Link>
         </div>
-      ) : !readiness.hasProfile ? (
-        <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-800">
-          <p>
-            💡 Bạn đã có trụ cột nội dung nhưng chưa điền hồ sơ thương hiệu. Bài viết sẽ khá
-            chung chung.{" "}
-            <Link href="/brand" className="font-medium underline">
-              Điền hồ sơ →
-            </Link>
+      ) : !readiness.hasDescription || !readiness.hasProducts ? (
+        // Đây là ĐIỀU KIỆN CHẶN, không phải gợi ý: thiếu mô tả doanh nghiệp hoặc
+        // sản phẩm thì AI không có gì để bám vào — bài viết ra chung chung hoặc
+        // bịa. Bộ lập kế hoạch cũng dừng ở tầng dữ liệu (xem planForAutoPilot).
+        <div
+          className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800"
+          data-testid="ap-needs-profile"
+        >
+          <p className="font-medium">⚠ Hồ sơ thương hiệu còn thiếu thông tin doanh nghiệp</p>
+          <p className="mt-1 text-xs">
+            Cần có{" "}
+            {[
+              !readiness.hasDescription ? "giới thiệu doanh nghiệp" : null,
+              !readiness.hasProducts ? "sản phẩm/dịch vụ chính" : null,
+            ]
+              .filter(Boolean)
+              .join(" và ")}{" "}
+            để AI viết bài đúng ngành hàng. Chế độ tự động sẽ không tạo bài cho tới khi
+            bạn bổ sung.
           </p>
+          <Link
+            href="/brand"
+            className="mt-2 inline-block rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-700"
+          >
+            Bổ sung hồ sơ thương hiệu →
+          </Link>
         </div>
       ) : null}
 

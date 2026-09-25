@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useState } from "react";
+import { useActionState, useEffect, useRef, useState } from "react";
 import {
   createDefaultPillars,
   deleteKnowledgeDoc,
@@ -13,6 +13,7 @@ import {
   type BrandState,
 } from "@/app/actions/brand";
 import { TONES, GOALS, docKindLabel } from "@/lib/ai-prompts";
+import { autoPilotConfirmPrompt } from "@/lib/brand-scope";
 
 // ============================================================
 // Trang Hồ sơ thương hiệu — giao diện.
@@ -138,10 +139,53 @@ export type DocData = {
 
 function ProfileForm({ brandId, profile }: { brandId: string; profile: BrandProfileData }) {
   const [state, action, pending] = useActionState(saveBrandProfile, null);
+  const formRef = useRef<HTMLFormElement>(null);
+  const confirmRef = useRef<HTMLInputElement>(null);
+  // Đánh dấu đã hỏi cho lượt state hiện tại — tránh hỏi lặp khi React render lại
+  // mà `state` không đổi.
+  const askedRef = useRef<BrandState>(null);
+
+  /**
+   * Lưu hồ sơ có thể XOÁ MẤT thông tin doanh nghiệp tối thiểu (xoá trắng phần
+   * giới thiệu hoặc sản phẩm) → AutoPilot hết dữ liệu để viết bài.
+   *
+   * Vì form này dùng `useActionState`, cờ xác nhận đi qua ô hidden
+   * `confirmAutoPilotOff`: server trả yêu cầu xác nhận, ở đây hỏi người dùng rồi
+   * gửi lại form kèm cờ "1".
+   *
+   * Lưu ý: hồ sơ VỐN ĐÃ thiếu sẵn thì không bị chặn — người dùng đang bổ sung
+   * dở dang, và đó chính là cách sửa. Chỉ chặn khi lần lưu này làm mất thông tin.
+   *
+   * Xem khối giải thích ở src/lib/brand-scope.ts.
+   */
+  useEffect(() => {
+    if (!state?.needsAutoPilotConfirmation) {
+      // Lượt lưu đã xong (hoặc chưa từng bị chặn) → hạ cờ xuống, nếu không nó
+      // dính lại "1" và lần lưu sau sẽ tắt AutoPilot mà KHÔNG hỏi.
+      if (confirmRef.current) confirmRef.current.value = "0";
+      return;
+    }
+    if (askedRef.current === state) return;
+    askedRef.current = state;
+
+    if (
+      confirm(
+        autoPilotConfirmPrompt(
+          "Xoá thông tin doanh nghiệp khỏi hồ sơ",
+          state.affectedPages ?? []
+        )
+      )
+    ) {
+      if (confirmRef.current) confirmRef.current.value = "1";
+      formRef.current?.requestSubmit();
+    }
+  }, [state]);
 
   return (
-    <form action={action} className="space-y-5">
+    <form ref={formRef} action={action} className="space-y-5">
       <input type="hidden" name="brandId" value={brandId} />
+      {/* Cờ xác nhận tắt tự động đăng — chỉ đặt "1" sau khi người dùng đồng ý. */}
+      <input ref={confirmRef} type="hidden" name="confirmAutoPilotOff" defaultValue="0" />
 
       <Alert state={state} testId="brand-profile-alert" />
 
@@ -310,6 +354,43 @@ function PillarSection({ brandId, pillars }: { brandId: string; pillars: PillarD
   const [state, action, pending] = useActionState(savePillar, null);
   const [editing, setEditing] = useState<PillarData | null>(null);
   const [busy, setBusy] = useState(false);
+  const [guardError, setGuardError] = useState<string | null>(null);
+
+  /**
+   * Chạy một thao tác có thể làm Brand hết trụ cột đang bật (xoá hoặc tắt trụ
+   * cột cuối cùng). Server trả `needsAutoPilotConfirmation` kèm tên Page đang
+   * bật tự động đăng; ở đây hỏi lại rồi gọi lần hai kèm cờ xác nhận.
+   *
+   * Xem khối giải thích ở src/lib/brand-scope.ts.
+   */
+  const runGuarded = async (
+    verb: string,
+    exec: (confirmAutoPilotOff: boolean) => Promise<BrandState>
+  ) => {
+    setGuardError(null);
+
+    // Annotate kiểu: nhánh catch không có các trường tuỳ chọn của BrandState.
+    const first: BrandState = await exec(false).catch((err) => ({
+      ok: false as const,
+      error: err instanceof Error ? err.message : String(err),
+    }));
+    if (first?.ok) return;
+
+    if (first?.needsAutoPilotConfirmation) {
+      if (confirm(autoPilotConfirmPrompt(verb, first.affectedPages ?? []))) {
+        const second: BrandState = await exec(true).catch((err) => ({
+          ok: false as const,
+          error: err instanceof Error ? err.message : String(err),
+        }));
+        if (second && !second.ok) {
+          setGuardError(second.error ?? "Không thực hiện được thao tác.");
+        }
+      }
+      return;
+    }
+
+    setGuardError(first?.error ?? "Không thực hiện được thao tác.");
+  };
 
   const totalWeight = pillars.filter((p) => p.enabled).reduce((sum, p) => sum + p.weight, 0);
   const share = (w: number) => (totalWeight > 0 ? Math.round((w / totalWeight) * 100) : 0);
@@ -325,6 +406,15 @@ function PillarSection({ brandId, pillars }: { brandId: string; pillars: PillarD
       </div>
 
       <Alert state={state} testId="pillar-alert" />
+
+      {guardError ? (
+        <div
+          className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700"
+          data-testid="pillar-guard-error"
+        >
+          ✗ {guardError}
+        </div>
+      ) : null}
 
       {pillars.length === 0 ? (
         <div
@@ -384,16 +474,23 @@ function PillarSection({ brandId, pillars }: { brandId: string; pillars: PillarD
                     type="button"
                     className={btnGhost}
                     data-testid="pillar-toggle"
-                    onClick={() => togglePillar(p.id, !p.enabled)}
+                    onClick={() =>
+                      runGuarded(`Tắt trụ cột "${p.name}"`, (confirm) =>
+                        togglePillar(p.id, !p.enabled, confirm)
+                      )
+                    }
                   >
                     {p.enabled ? "Tắt" : "Bật"}
                   </button>
                   <button
                     type="button"
                     className={`${btnGhost} text-red-600`}
-                    onClick={() => {
-                      if (confirm(`Xóa trụ cột "${p.name}"?`)) deletePillar(p.id);
-                    }}
+                    data-testid="pillar-delete"
+                    onClick={() =>
+                      runGuarded(`Xoá trụ cột "${p.name}"`, (confirm) =>
+                        deletePillar(p.id, confirm)
+                      )
+                    }
                   >
                     Xóa
                   </button>

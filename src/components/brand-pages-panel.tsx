@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { assignPageToBrand } from "@/app/actions/pages";
+import { assignPageToBrand, type PageActionState } from "@/app/actions/pages";
+import { autoPilotConfirmPrompt } from "@/lib/brand-scope";
 
 // ============================================================
 // Panel "Page thuộc thương hiệu" — gán / bỏ gán ngay tại trang Thương hiệu.
@@ -26,16 +27,42 @@ export default function BrandPagesPanel({
   const linked = pages.filter((p) => p.brandId === brandId);
   const available = pages.filter((p) => p.brandId !== brandId);
 
-  const run = (pageId: string, nextBrandId: string | null) => {
+  /**
+   * Gán/bỏ gắn Page vào thương hiệu — luồng 2 bước khi Page đang bật tự động đăng.
+   *
+   * Bỏ gắn Brand khỏi một Page đang tự động đăng làm AutoPilot của Page đó hết
+   * dữ liệu để viết bài. Server trả `needsAutoPilotConfirmation`; ở đây hỏi lại
+   * rồi gọi lần hai kèm cờ xác nhận.
+   *
+   * Xem khối giải thích ở src/lib/brand-scope.ts.
+   */
+  const run = (pageId: string, nextBrandId: string | null, confirmAutoPilotOff = false) => {
     setError(null);
     startTransition(async () => {
-      const res = await assignPageToBrand(pageId, nextBrandId).catch((err) => ({
+      // Annotate kiểu: nhánh catch không có các trường tuỳ chọn của PageActionState.
+      const res: PageActionState = await assignPageToBrand(
+        pageId,
+        nextBrandId,
+        confirmAutoPilotOff
+      ).catch((err) => ({
         ok: false as const,
         error: err instanceof Error ? err.message : String(err),
       }));
-      if (!res || !res.ok) {
-        setError(res?.error ?? "Không lưu được thương hiệu cho Page.");
+
+      if (res && res.ok) return;
+
+      if (res?.needsAutoPilotConfirmation) {
+        const pageName = pages.find((p) => p.id === pageId)?.name ?? "Page này";
+        const verb = nextBrandId
+          ? `Chuyển "${pageName}" sang thương hiệu khác`
+          : `Bỏ gắn thương hiệu khỏi "${pageName}"`;
+        if (confirm(autoPilotConfirmPrompt(verb, res.affectedPages ?? []))) {
+          run(pageId, nextBrandId, true);
+        }
+        return;
       }
+
+      setError(res?.error ?? "Không lưu được thương hiệu cho Page.");
     });
   };
 

@@ -8,6 +8,7 @@ import {
   updateBrand,
   type BrandState,
 } from "@/app/actions/brand";
+import { autoPilotConfirmPrompt } from "@/lib/brand-scope";
 
 // ============================================================
 // Danh sách thương hiệu + tạo/sửa/xóa.
@@ -61,14 +62,57 @@ export default function BrandListClient({
   const [creating, setCreating] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const [createState, createAction, creating_] = useActionState(createBrand, null);
   const [editState, editAction, editing_] = useActionState(updateBrand, null);
 
   const busy = creating_ || editing_ || pending;
 
+  /**
+   * Xoá thương hiệu theo luồng 2 bước.
+   *
+   * Bước 1 (`confirmAutoPilotOff = false`): server trả về danh sách Page đang
+   * bật tự động đăng nếu thao tác này sẽ làm chúng mất thông tin doanh nghiệp.
+   * Bước 2: người dùng đồng ý → gọi lại kèm cờ `true` để server tắt AutoPilot
+   * rồi mới xoá. Xem src/lib/brand-scope.ts.
+   */
+  const runDelete = (brand: BrandItem, confirmAutoPilotOff: boolean) => {
+    setDeleteError(null);
+    startTransition(async () => {
+      // Annotate kiểu: nhánh catch không có các trường tuỳ chọn của BrandState.
+      const res: BrandState = await deleteBrand(brand.id, confirmAutoPilotOff).catch((err) => ({
+        ok: false as const,
+        error: err instanceof Error ? err.message : String(err),
+      }));
+
+      if (res && res.ok) return;
+
+      if (res?.needsAutoPilotConfirmation) {
+        if (
+          confirm(
+            autoPilotConfirmPrompt(`Xoá thương hiệu "${brand.name}"`, res.affectedPages ?? [])
+          )
+        ) {
+          runDelete(brand, true);
+        }
+        return;
+      }
+
+      setDeleteError(res?.error ?? "Không xoá được thương hiệu.");
+    });
+  };
+
   return (
     <div className="space-y-4">
+      {deleteError ? (
+        <div
+          className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700"
+          data-testid="brand-delete-error"
+        >
+          ✗ {deleteError}
+        </div>
+      ) : null}
       {/* ===== Form tạo thương hiệu ===== */}
       <div className="rounded-xl border border-gray-200 bg-white p-4" data-testid="brand-create-panel">
         <div className="flex items-center justify-between">
@@ -190,11 +234,10 @@ export default function BrandListClient({
                             `- Hồ sơ, trụ cột, tài liệu của thương hiệu sẽ bị xóa.\n` +
                             `- ${b.pageCount} Page (${pageNames || "không có"}) sẽ được giữ lại, chỉ bỏ gán.\n` +
                             `- ${b.postCount} bài đã đăng được giữ nguyên.`;
-                          if (confirm(msg)) {
-                            startTransition(async () => {
-                              await deleteBrand(b.id);
-                            });
-                          }
+                          // Hộp thoại này chỉ xác nhận việc xoá. Nếu thương hiệu
+                          // đang có Page bật tự động đăng, server sẽ trả về yêu
+                          // cầu xác nhận riêng (kèm tên Page) ở bước sau.
+                          if (confirm(msg)) runDelete(b, false);
                         }}
                         className={`${btnGhost} text-red-600 hover:bg-red-50`}
                         data-testid="brand-delete"

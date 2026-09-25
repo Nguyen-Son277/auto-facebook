@@ -519,6 +519,87 @@ try {
   check("tắt rồi thì KHÔNG tạo thêm bài mới", countAfter === countBefore, `${countBefore} → ${countAfter}`);
 
   // ============================================================
+  section("Bảo vệ AutoPilot: tắt trụ cột cuối phải hỏi xác nhận");
+  // ============================================================
+
+  // Kịch bản: AutoPilot đang bật, người dùng tắt trụ cột ĐANG BẬT CUỐI CÙNG →
+  // hệ thống phải hỏi xác nhận, và nếu đồng ý thì tắt AutoPilot trước khi thao
+  // tác chạy. Nếu không, AutoPilot vẫn `enabled = true` nhưng hết trụ cột, mỗi
+  // nhịp lại lỗi và bị chặn 15 phút lặp vô hạn.
+  db.prepare("UPDATE AutoPilot SET enabled = 1 WHERE pageId = ?").run(PAGE_ID);
+  db.prepare("UPDATE ContentPillar SET enabled = 0 WHERE brandId = ?").run(brandId);
+  const lastPillar = db
+    .prepare("SELECT id FROM ContentPillar WHERE brandId = ? ORDER BY position LIMIT 1")
+    .get(brandId);
+  db.prepare("UPDATE ContentPillar SET enabled = 1 WHERE id = ?").run(lastPillar.id);
+
+  // Ghi lại ĐÚNG danh sách bài đã lên lịch (không đếm) — bộ lập kế hoạch nền có
+  // thể chèn thêm bài trong lúc test, nên so số lượng sẽ báo lỗi giả.
+  const scheduledIdsBefore = db
+    .prepare("SELECT id FROM Post WHERE pageId = ? AND status = 'SCHEDULED'")
+    .all(PAGE_ID)
+    .map((r) => r.id);
+
+  let guardPrompt = "";
+  page.once("dialog", async (d) => {
+    guardPrompt = d.message();
+    await d.accept();
+  });
+
+  await page.goto(`${BASE}/brand?brand=${brandId}`);
+  await page.waitForLoadState("networkidle");
+  await page.click('[data-testid="brand-tab-pillars"]');
+  await page.waitForSelector('[data-testid="pillar-list"]', { timeout: 15000 });
+  // Chỉ bấm vào trụ cột ĐANG BẬT (data-enabled="1") — bấm vào trụ cột đang tắt
+  // là thao tác BẬT, không kích hoạt cổng chặn.
+  await page
+    .locator('[data-testid="pillar-item"][data-enabled="1"] [data-testid="pillar-toggle"]')
+    .first()
+    .click();
+  await page.waitForTimeout(3000);
+
+  check("hộp thoại xác nhận xuất hiện", guardPrompt.length > 0, "không thấy hộp thoại nào");
+  check(
+    "hộp thoại nói rõ sẽ TẮT tự động đăng",
+    guardPrompt.includes("TẮT tự động đăng"),
+    guardPrompt.slice(0, 150)
+  );
+  check(
+    "hộp thoại cam kết bài đã lên lịch KHÔNG bị xoá",
+    guardPrompt.includes("KHÔNG bị xoá"),
+    guardPrompt.slice(0, 150)
+  );
+  check(
+    "AutoPilot đã bị tắt sau khi đồng ý",
+    db.prepare("SELECT enabled FROM AutoPilot WHERE pageId = ?").get(PAGE_ID).enabled === 0
+  );
+  check(
+    "trụ cột cuối cùng đã bị tắt",
+    db.prepare("SELECT enabled FROM ContentPillar WHERE id = ?").get(lastPillar.id).enabled === 0
+  );
+
+  const scheduledIdsAfter = new Set(
+    db.prepare("SELECT id FROM Post WHERE pageId = ? AND status = 'SCHEDULED'").all(PAGE_ID).map((r) => r.id)
+  );
+  const lostScheduled = scheduledIdsBefore.filter((id) => !scheduledIdsAfter.has(id));
+  check(
+    "mọi bài đã lên lịch trước đó vẫn còn",
+    lostScheduled.length === 0,
+    `mất ${lostScheduled.length} bài`
+  );
+  check(
+    "chủ Page nhận thông báo giải thích vì sao bị tắt",
+    db
+      .prepare("SELECT COUNT(*) c FROM Notification WHERE userId = ? AND title LIKE '%tắt tự động đăng%'")
+      .get(user.id).c > 0
+  );
+
+  // Trả về trang Tự động đăng — các section sau dùng `page.reload()` và thao tác
+  // trên trang này, nên không được để trình duyệt đứng ở /brand.
+  await page.goto(`${BASE}/autopilot`);
+  await page.waitForLoadState("networkidle");
+
+  // ============================================================
   section("Nút 'Lên kế hoạch ngay' khi đang tắt");
   // ============================================================
   await page.reload();

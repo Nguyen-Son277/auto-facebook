@@ -19,7 +19,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { contentScopeForPage, readinessProblem } from "../src/lib/brand-scope.ts";
+import { contentScopeForPage, minimalProfileProblem, readinessProblem } from "../src/lib/brand-scope.ts";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -81,7 +81,8 @@ const noBrandMsg = readinessProblem({
   brandId: null,
   brandName: null,
   pillars: 0,
-  hasProfile: false,
+  hasDescription: false,
+  hasProducts: false,
 });
 
 check("Page chưa gắn Brand → có thông điệp chặn", typeof noBrandMsg === "string");
@@ -105,7 +106,8 @@ const brandNoPillarMsg = readinessProblem({
   brandId: "brand-1",
   brandName: "Rèm cửa",
   pillars: 0,
-  hasProfile: true,
+  hasDescription: true,
+  hasProducts: true,
 });
 check(
   "có Brand nhưng 0 trụ cột → báo thiếu trụ cột",
@@ -117,12 +119,92 @@ check(
 );
 
 check(
-  "có Brand + có trụ cột → đủ điều kiện (null)",
-  readinessProblem({ brandId: "b", brandName: "X", pillars: 4, hasProfile: false }) === null
+  "có Brand + trụ cột + hồ sơ đầy đủ → đủ điều kiện (null)",
+  readinessProblem({
+    brandId: "b",
+    brandName: "X",
+    pillars: 4,
+    hasDescription: true,
+    hasProducts: true,
+  }) === null
+);
+
+// ============================================================
+section("3b. Hồ sơ doanh nghiệp tối thiểu LÀ điều kiện chặn");
+// ============================================================
+
+// Đổi hành vi có chủ ý: trước đây thiếu hồ sơ chỉ là gợi ý. Nay thiếu mô tả
+// doanh nghiệp hoặc sản phẩm thì AutoPilot không được tạo bài — AI không có gì
+// để bám vào nên bài viết ra chung chung hoặc bịa.
+const noDescriptionMsg = readinessProblem({
+  brandId: "b",
+  brandName: "X",
+  pillars: 1,
+  hasDescription: false,
+  hasProducts: true,
+});
+check(
+  "thiếu giới thiệu doanh nghiệp → CHẶN",
+  Boolean(noDescriptionMsg && noDescriptionMsg.includes("giới thiệu doanh nghiệp")),
+  `nhận: ${noDescriptionMsg}`
+);
+
+const noProductsMsg = readinessProblem({
+  brandId: "b",
+  brandName: "X",
+  pillars: 1,
+  hasDescription: true,
+  hasProducts: false,
+});
+check(
+  "thiếu sản phẩm/dịch vụ → CHẶN",
+  Boolean(noProductsMsg && noProductsMsg.includes("sản phẩm/dịch vụ")),
+  `nhận: ${noProductsMsg}`
+);
+
+const emptyProfileMsg = readinessProblem({
+  brandId: "b",
+  brandName: "X",
+  pillars: 1,
+  hasDescription: false,
+  hasProducts: false,
+});
+check(
+  "thiếu cả hai → nêu đủ cả hai phần",
+  Boolean(
+    emptyProfileMsg &&
+      emptyProfileMsg.includes("giới thiệu doanh nghiệp") &&
+      emptyProfileMsg.includes("sản phẩm/dịch vụ")
+  ),
+  `nhận: ${emptyProfileMsg}`
 );
 check(
-  "thiếu hồ sơ thương hiệu KHÔNG chặn bật tự động",
-  readinessProblem({ brandId: "b", brandName: "X", pillars: 1, hasProfile: false }) === null
+  "thông điệp thiếu hồ sơ chỉ đường vào trang Thương hiệu",
+  Boolean(emptyProfileMsg && emptyProfileMsg.includes("Thương hiệu"))
+);
+
+// minimalProfileProblem là hàm thuần dùng chung cho action + planner.
+check(
+  "minimalProfileProblem: đủ cả hai → null",
+  minimalProfileProblem({ hasDescription: true, hasProducts: true }) === null
+);
+check(
+  "minimalProfileProblem: thiếu một phần → có thông điệp",
+  typeof minimalProfileProblem({ hasDescription: true, hasProducts: false }) === "string"
+);
+
+// Thứ tự ưu tiên: chưa Brand phải được báo TRƯỚC thiếu hồ sơ, nếu không người
+// dùng sẽ đi bổ sung hồ sơ trong khi vấn đề thật là Page chưa gắn thương hiệu.
+const priorityMsg = readinessProblem({
+  brandId: null,
+  brandName: null,
+  pillars: 0,
+  hasDescription: false,
+  hasProducts: false,
+});
+check(
+  "chưa gắn Brand được ưu tiên báo trước thiếu hồ sơ",
+  Boolean(priorityMsg && priorityMsg.includes("chưa gắn thương hiệu"))
 );
 
 // ============================================================
@@ -225,6 +307,89 @@ const pkg = JSON.parse(read("package.json"));
 check(
   "npm run db:cleanup-notifications đã được khai báo",
   typeof pkg.scripts?.["db:cleanup-notifications"] === "string"
+);
+
+// ============================================================
+section("8. Guard: mọi action làm hỏng AutoPilot đều phải qua cổng chặn");
+// ============================================================
+
+// Lỗi cần chống tái phát: người dùng xoá thương hiệu / tắt trụ cột cuối / bỏ
+// gắn Brand trong khi AutoPilot đang bật → AutoPilot hết dữ liệu nhưng vẫn
+// `enabled = true`, mỗi nhịp lại lỗi và bị chặn 15 phút, lặp vô hạn.
+//
+// Guard ở mức mã nguồn vì đây là ràng buộc BẢO MẬT/AN TOÀN: một action mới
+// thêm sau này quên gọi cổng chặn sẽ bị test bắt ngay.
+
+const brandActionsSrc = stripComments(read("src/app/actions/brand.ts"));
+check(
+  "actions/brand.ts định nghĩa guardAutoPilot dùng chung",
+  brandActionsSrc.includes("async function guardAutoPilot(")
+);
+check(
+  "actions/brand.ts có guardLastEnabledPillar cho trụ cột cuối",
+  brandActionsSrc.includes("async function guardLastEnabledPillar(")
+);
+
+// Mỗi action nguy hiểm phải tham chiếu cổng chặn tương ứng.
+const BRAND_GUARDED = [
+  ["deleteBrand", "guardAutoPilot("],
+  ["saveBrandProfile", "guardAutoPilot("],
+  ["deletePillar", "guardLastEnabledPillar("],
+  ["togglePillar", "guardLastEnabledPillar("],
+];
+for (const [fn, guard] of BRAND_GUARDED) {
+  check(
+    `actions/brand.ts: ${fn} đi qua ${guard}`,
+    brandActionsSrc.includes(fn) && brandActionsSrc.includes(guard)
+  );
+}
+
+const pagesActionsSrc = stripComments(read("src/app/actions/pages.ts"));
+check(
+  "actions/pages.ts định nghĩa guardAutoPilotPage dùng chung",
+  pagesActionsSrc.includes("async function guardAutoPilotPage(")
+);
+const PAGES_GUARDED = ["togglePageActive", "deletePage", "assignPageToBrand"];
+for (const fn of PAGES_GUARDED) {
+  check(
+    `actions/pages.ts: ${fn} đi qua guardAutoPilotPage`,
+    pagesActionsSrc.includes(`export async function ${fn}(`) &&
+      pagesActionsSrc.includes("guardAutoPilotPage(")
+  );
+}
+
+// MỌI giao diện gọi assignPageToBrand đều phải xử lý yêu cầu xác nhận — nếu
+// không, nút bấm sẽ thất bại im lặng khi Page đang bật tự động đăng.
+for (const rel of [
+  "src/components/page-brand-select.tsx",
+  "src/components/brand-pages-panel.tsx",
+]) {
+  const src = read(rel);
+  check(
+    `${rel} xử lý needsAutoPilotConfirmation`,
+    src.includes("needsAutoPilotConfirmation") && src.includes("autoPilotConfirmPrompt")
+  );
+}
+
+// Không action nào được tự ý bật lại AutoPilot mà bỏ qua điều kiện sẵn sàng.
+check(
+  "actions/autopilot.ts: readiness() dùng chung getPageReadiness",
+  autopilotAction.includes("await getPageReadiness(pageId)")
+);
+
+// Planner phải tự kiểm tra hồ sơ tối thiểu — lưới an toàn cho dữ liệu cũ hoặc
+// hàng ghi thẳng vào DB, không đi qua server action.
+const plannerSrc = stripComments(read("src/lib/autopilot.ts"));
+check(
+  "lib/autopilot.ts: planner chặn khi thiếu hồ sơ tối thiểu",
+  plannerSrc.includes("minimalProfileProblem(")
+);
+
+// Câu chữ dùng chung — không nơi nào tự viết lại thông báo.
+check(
+  "lib/brand-scope.ts xuất autoPilotConfirmPrompt/autoPilotBlockedError",
+  read("src/lib/brand-scope.ts").includes("export function autoPilotConfirmPrompt(") &&
+    read("src/lib/brand-scope.ts").includes("export function autoPilotBlockedError(")
 );
 
 // ============================================================

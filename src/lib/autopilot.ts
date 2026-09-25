@@ -20,6 +20,7 @@ import {
   type MediaSource,
 } from "./media-source";
 import { contentScopeForPage, loadBrandContext, resolvePageBrand } from "./brand";
+import { minimalProfileProblem } from "./brand-scope";
 import {
   addDays,
   decideMediaKind,
@@ -904,12 +905,33 @@ export async function planForAutoPilot(
   // Địa bàn hoạt động: lấy MỘT lần cho cả lượt lập kế hoạch rồi xoay vòng trong
   // bộ nhớ. Thương hiệu để trống → mảng rỗng → pickServiceArea trả null → hành
   // vi y hệt trước khi có tính năng này.
+  //
+  // Query này cũng lấy luôn `description` + `products` để kiểm tra hồ sơ tối
+  // thiểu ngay bên dưới — dùng chung một lượt đọc, không thêm round-trip.
   const brandProfile = brandId
     ? await prisma.brandProfile.findUnique({
         where: { brandId },
-        select: { serviceAreas: true },
+        select: { serviceAreas: true, description: true, products: true },
       })
     : null;
+
+  // ===== Lưới an toàn: hồ sơ doanh nghiệp tối thiểu =====
+  // Tầng server action đã chặn việc XOÁ thông tin này, nhưng dữ liệu cũ (hoặc
+  // hàng ghi thẳng vào DB) vẫn có thể rơi vào trạng thái thiếu. Không có mô tả
+  // doanh nghiệp và sản phẩm thì AI chỉ viết ra bài chung chung hoặc bịa — thà
+  // không tạo bài còn hơn đăng rác lên Page thật.
+  //
+  // Dừng ở đây cũng ghi `lastPlanError` (qua runAutopilotPlanner), nên giao
+  // diện hiện đúng lý do thay vì im lặng không tạo bài.
+  const profileProblem = minimalProfileProblem({
+    hasDescription: Boolean(brandProfile?.description?.trim()),
+    hasProducts: Boolean(brandProfile?.products?.trim()),
+  });
+  if (profileProblem) {
+    outcome.error = profileProblem;
+    return outcome;
+  }
+
   const serviceAreas = parseServiceAreas(brandProfile?.serviceAreas);
   const recentAreas = [...recent.serviceAreas];
 

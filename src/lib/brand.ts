@@ -3,10 +3,12 @@ import "server-only";
 import { prisma } from "./prisma";
 import type { BrandContext } from "./ai-prompts";
 import {
+  AUTO_PILOT_GUARD_TITLE,
+  autoPilotGuardNotice,
   contentScopeForPage,
-  readinessProblem,
   type PageReadiness,
 } from "./brand-scope";
+import { notify } from "./notify";
 
 // ============================================================
 // Hồ sơ thương hiệu — tầng dữ liệu.
@@ -135,7 +137,16 @@ export type BrandSource = {
 // "@/lib/brand".
 // ============================================================
 
-export { contentScopeForPage, readinessProblem };
+export {
+  contentScopeForPage,
+  minimalProfileProblem,
+  readinessProblem,
+  AUTO_PILOT_GUARD_TITLE,
+  autoPilotConfirmPrompt,
+  autoPilotBlockedError,
+  autoPilotGuardNotice,
+  formatPageNames,
+} from "./brand-scope";
 export type { PageReadiness };
 
 /** Brand của một Page. `null` = Page chưa gắn thương hiệu. */
@@ -172,8 +183,91 @@ export async function getPageReadiness(pageId: string): Promise<PageReadiness | 
     brandId: scope.brandId,
     brandName: scope.brandName,
     pillars,
-    hasProfile: Boolean(profile?.description?.trim() || profile?.products?.trim()),
+    // Tách riêng hai trường thay vì gộp thành `hasProfile`: giao diện cần chỉ
+    // đúng ô còn thiếu, và điều kiện bật tự động đòi CẢ HAI (xem
+    // minimalProfileProblem trong brand-scope.ts).
+    hasDescription: Boolean(profile?.description?.trim()),
+    hasProducts: Boolean(profile?.products?.trim()),
   };
+}
+
+// ============================================================
+// BẢO VỆ LỊCH ĐĂNG TỰ ĐỘNG — tầng dữ liệu.
+//
+// Xem khối giải thích ở ./brand-scope.ts. Tóm tắt: trước khi cho phép một thao
+// tác làm Page mất thông tin doanh nghiệp, phải biết CHÍNH XÁC Page nào đang
+// bật tự động đăng để (a) hỏi xác nhận và (b) tắt đúng những Page đó.
+//
+// Vì sao tra qua Brand chứ không qua Page: xoá Brand ảnh hưởng tới MỌI Page
+// gắn với nó, không chỉ một Page.
+// ============================================================
+
+/** Một Page đang bật tự động đăng và sẽ bị ảnh hưởng bởi thao tác. */
+export type AutoPilotImpact = {
+  pageId: string;
+  pageName: string;
+  /** Chủ Page — để gửi thông báo sau khi tự tắt. */
+  userId: string;
+};
+
+/** Mọi Page đang BẬT tự động đăng thuộc một Brand. */
+export async function autoPilotPagesForBrand(brandId: string): Promise<AutoPilotImpact[]> {
+  const rows = await prisma.facebookPage.findMany({
+    where: { brandId, autopilot: { enabled: true } },
+    select: { id: true, name: true, userId: true },
+    orderBy: { createdAt: "asc" },
+  });
+  return rows.map((r) => ({ pageId: r.id, pageName: r.name, userId: r.userId }));
+}
+
+/** Page này có đang bật tự động đăng không (dùng cho thao tác chỉ đụng 1 Page). */
+export async function autoPilotPagesForPage(pageId: string): Promise<AutoPilotImpact[]> {
+  const page = await prisma.facebookPage.findFirst({
+    where: { id: pageId, autopilot: { enabled: true } },
+    select: { id: true, name: true, userId: true },
+  });
+  if (!page) return [];
+  return [{ pageId: page.id, pageName: page.name, userId: page.userId }];
+}
+
+/**
+ * Tắt tự động đăng cho các Page đã cho và báo cho chủ Page.
+ *
+ * CỐ Ý không xoá bài đã lên lịch: người dùng chỉ mất việc tạo bài MỚI, còn lịch
+ * đã có vẫn đăng bình thường. Cũng không ghi `lastPlanError` — lần bật lại phải
+ * sạch, nếu không lớp nghỉ-sau-lỗi 15 phút sẽ chặn ngay lượt đầu.
+ *
+ * @returns số Page thực sự được tắt.
+ */
+export async function disableAutoPilotForPages(
+  pages: AutoPilotImpact[],
+  reason: string
+): Promise<number> {
+  if (pages.length === 0) return 0;
+
+  const result = await prisma.autoPilot.updateMany({
+    where: { pageId: { in: pages.map((p) => p.pageId) }, enabled: true },
+    data: { enabled: false, lastPlanError: null },
+  });
+
+  // Báo cho từng chủ Page — họ phải biết vì sao lịch đăng đột nhiên dừng.
+  // Lỗi gửi thông báo không được làm hỏng thao tác chính.
+  const body = autoPilotGuardNotice(
+    reason,
+    pages.map((p) => p.pageName)
+  );
+  for (const userId of [...new Set(pages.map((p) => p.userId))]) {
+    await notify(userId, {
+      type: "SYSTEM",
+      title: AUTO_PILOT_GUARD_TITLE,
+      body,
+      link: "/autopilot",
+    }).catch(() => {
+      // Không chặn luồng nếu không gửi được
+    });
+  }
+
+  return result.count;
 }
 
 /**
