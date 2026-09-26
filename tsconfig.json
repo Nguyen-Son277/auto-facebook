@@ -13,6 +13,17 @@
     "isolatedModules": true,
     "jsx": "react-jsx",
     "incremental": true,
+    // Cho phép import ghi rõ đuôi ".ts".
+    //
+    // VÌ SAO CẦN: các module logic thuần (insights-core, insights-report,
+    // learning-cycle, autopilot-plan) được kiểm thử bằng
+    // `node --experimental-strip-types` — xem scripts/test-insights.mjs. Node
+    // ESM KHÔNG tự thêm đuôi khi resolve, nên import giữa các module này phải
+    // ghi rõ ".ts" mới chạy được ngoài Next. Turbopack/webpack vẫn resolve
+    // bình thường với đuôi tường minh, nên một cách viết chạy ở cả hai nơi.
+    //
+    // An toàn vì "noEmit": true — không có bước biên dịch nào cần đổi đuôi.
+    "allowImportingTsExtensions": true,
     "plugins": [
       {
         "name": "next"

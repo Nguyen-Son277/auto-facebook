@@ -32,8 +32,10 @@ import {
   parseHm,
   parseServiceAreas,
   pickPillar,
+  pickPillarEvenly,
   pickServiceArea,
   planTimeSlots,
+  planTimeSlotsBiased,
   shouldAbortPage,
   startOfDay,
   videoQuotaForDay,
@@ -41,6 +43,14 @@ import {
   MAX_POSTS_PER_DAY,
   type PillarLike,
 } from "./autopilot-plan";
+import {
+  effectivePillars,
+  optimizationNoteOf,
+  probePromptLines,
+  computeLearningState,
+  type LearningState,
+} from "./insight-optimize";
+import { pickProbeHint, type ProbeHint } from "./learning-cycle";
 
 // Dùng lại logic thuần ở autopilot-plan.ts (kiểm thử được độc lập)
 export {
@@ -129,6 +139,13 @@ export type AutoPilotConfig = {
   lastPlanError: string | null;
   lastPlanCount: number;
   totalPlanned: number;
+  /** true = Page này đang tự tối ưu theo số liệu thật của Facebook. */
+  insightsEnabled: boolean;
+  /** PROBE | EXPLOIT | REPROBE — giai đoạn học hiện tại (cache). */
+  learningPhase: string;
+  lastReProbeAt: Date | null;
+  /** updatedAt của cấu hình — dùng phát hiện "vừa đổi cấu hình". */
+  updatedAt: Date;
 };
 
 // ============================================================
@@ -554,6 +571,13 @@ export type PlanOutcome = {
   mediaWarning?: string;
   /** Số bài bị thiếu ảnh trong lần chạy này. */
   missingMedia?: number;
+  /**
+   * Tối ưu theo số liệu đã áp cho lượt này (null = chưa bật hoặc chưa đủ dữ liệu).
+   * Giao diện dùng để giải thích "vì sao bài này được viết như vậy".
+   */
+  optimizationApplied?: { phase: string; note: string } | null;
+  /** Số bài DÒ tạo ra trong lượt này (giai đoạn khám phá/kiểm tra lại). */
+  probeCreated?: number;
 };
 
 /** Đếm số bài tự động đã có của một ngày (mọi trạng thái trừ bài đã hủy). */
@@ -621,6 +645,17 @@ async function createPlannedPost(input: {
   rotation: number;
   /** Địa bàn bài này nhắm tới (null = thương hiệu không cấu hình địa bàn). */
   serviceArea?: string | null;
+  /**
+   * Dòng số liệu hiệu quả đưa vào prompt (chỉ để chọn góc/cách trình bày).
+   * Rỗng = chưa bật tối ưu hoặc chưa đủ dữ liệu.
+   */
+  performanceLines?: string[];
+  /** Dòng chỉ thị dò tìm hướng (chỉ nói về CÁCH VIẾT). */
+  probeLines?: string[];
+  /** Ghi chú lưu vào Post.optimizationNote để giải thích vì sao bài này như vậy. */
+  optimizationNote?: string | null;
+  /** STANDARD | PROBE — đếm ngân sách dò từ cột này. */
+  probeKind?: "STANDARD" | "PROBE";
 }): Promise<
   | {
       ok: true;
@@ -682,6 +717,11 @@ async function createPlannedPost(input: {
         name: pillar.name,
         description: pillar.description ?? undefined,
       },
+      // Số liệu thật + chỉ thị dò. Cả hai đều chỉ nói về GÓC TIẾP CẬN và CÁCH
+      // TRÌNH BÀY; prompt có câu chặn cứng việc đổi thông tin thương hiệu
+      // (xem PERFORMANCE_SAFETY_CLAUSE trong lib/insights-report.ts).
+      ...(input.performanceLines?.length ? { performance: input.performanceLines } : {}),
+      ...(input.probeLines?.length ? { probe: input.probeLines } : {}),
     },
     recentTopics: input.recentTopics,
   });
@@ -777,6 +817,8 @@ async function createPlannedPost(input: {
       pillarName: pillar.name,
       topic: variant.angle || pillar.name,
       serviceArea: input.serviceArea ?? null,
+      probeKind: input.probeKind ?? "STANDARD",
+      optimizationNote: input.optimizationNote ?? null,
     },
   });
 
@@ -895,6 +937,48 @@ export async function planForAutoPilot(
       : "Page chưa gắn thương hiệu — vào trang Pages để gán Page vào một thương hiệu, rồi thêm trụ cột nội dung.";
     return outcome;
   }
+
+  // ===== Học từ số liệu thật (chỉ khi người dùng bật cho Page này) =====
+  //
+  // Bọc trong try/catch vì đây là tính năng PHỤ: lỗi ở đây (bảng chưa migrate,
+  // dữ liệu bất thường) tuyệt đối không được làm mất lượt lập kế hoạch — bài
+  // đăng vẫn phải chạy với trọng số gốc của người dùng.
+  //
+  // Chưa bật `insightsEnabled` → learning = null → mọi nhánh dưới giữ nguyên
+  // hành vi cũ (không thêm lệnh gọi mạng nào).
+  let learning: LearningState | null = null;
+  if (config.insightsEnabled) {
+    try {
+      learning = await computeLearningState(
+        config.pageId,
+        {
+          windowStart: config.windowStart,
+          windowEnd: config.windowEnd,
+          minGapMinutes: config.minGapMinutes,
+          mediaMix: config.mediaMix,
+          lastReProbeAt: config.lastReProbeAt,
+          updatedAt: config.updatedAt,
+        },
+        now,
+        pillars.map((p) => ({ name: p.name, weight: p.weight }))
+      );
+    } catch (err) {
+      console.error(
+        `[tự động] không tính được trạng thái học cho Page ${config.pageId}: ` +
+          (err instanceof Error ? err.message : String(err))
+      );
+      learning = null;
+    }
+  }
+
+  // Trụ cột dùng để chọn cho từng slot: trọng số hiệu dụng khi đã đủ dữ liệu,
+  // bằng nhau khi đang dò. Không truyền gì thì giữ nguyên `pillars`.
+  const planPillars = learning ? effectivePillars(pillars, learning) : pillars;
+  // Bộ đếm số lần đã dùng từng hướng trong LƯỢT NÀY — dùng cho chế độ dò
+  // (chọn hướng còn thiếu quota nhất). Không liên quan tới `recentNames`.
+  const probeUsage: Record<string, number> = {};
+  // Số bài dò đã tạo trong lượt này (cộng dồn vào ngân sách của Page).
+  let probeCreated = 0;
 
   const days = parseDaysOfWeek(config.daysOfWeek);
   const ahead = Math.min(Math.max(config.planAheadDays, 1), MAX_PLAN_AHEAD_DAYS);
@@ -1018,18 +1102,42 @@ export async function planForAutoPilot(
     // Với HÔM NAY: chỉ xếp được slot còn đủ xa hiện tại. Ngày khác không bị
     // giới hạn này — kể cả khi mốc neo là startDate trong tương lai.
     const notBefore = isToday ? leadCutoff : null;
-    const slots = planTimeSlots(config, day, notBefore, random, takenMs);
+
+    // Ưu tiên khung giờ chỉ áp dụng ở giai đoạn KHAI THÁC: đang dò thì cần
+    // trải đều các khung để biết khung nào tốt, dồn bài sớm là tự bịt mắt.
+    const bias = learning && learning.phase === "EXPLOIT" ? learning.timeBias : null;
+    const slots = planTimeSlotsBiased(config, day, notBefore, random, takenMs, bias);
     if (slots.length === 0) continue;
 
     const toCreate = Math.min(needed, slots.length, budget.remaining);
 
     for (let i = 0; i < toCreate; i++) {
-      const pillar = pickPillar(pillars, recentNames);
+      // Trong giai đoạn dò: chọn hướng còn thiếu quota nhất và chọn trụ cột
+      // PHÂN BỔ ĐỀU. Ngoài giai đoạn đó: xoay vòng theo trọng số hiệu dụng.
+      const probing = Boolean(
+        learning && (learning.phase === "PROBE" || learning.phase === "REPROBE")
+      );
+      const hint: ProbeHint | null =
+        probing && learning
+          ? // createdInBatch = bài dò đã có của Page (lượt trước) + lượt này.
+            // Truyền số này là bắt buộc: quota từng hướng cộng lại luôn lớn hơn
+            // ngân sách (một bài đóng góp nhiều hướng), nên nếu không đếm thì
+            // bộ dò tạo vượt ngân sách.
+            pickProbeHint(
+              learning.probePlan,
+              probeUsage,
+              learning.probePostsSoFar + probeCreated
+            )
+          : null;
+
+      const pillar = probing
+        ? pickPillarEvenly(planPillars, probeUsage)
+        : pickPillar(planPillars, recentNames);
       if (!pillar) break;
 
       // Ngày này bắt đầu từ bài đầu tiên (chỉ số 0) hay đã có bài từ lượt trước
       const dayStartIndex = Math.max(existing, 0);
-      const kind = decideMediaKind(
+      let kind = decideMediaKind(
         config.mediaMix ?? "IMAGE_ONLY",
         dayStartIndex + i,
         Math.min(config.postsPerDay, MAX_POSTS_PER_DAY),
@@ -1038,9 +1146,24 @@ export async function planForAutoPilot(
         random
       );
 
+      // Khi dò, tôn trọng chỉ thị media của hướng dò nếu người dùng đã chọn
+      // chế độ trộn — đây là cách duy nhất biết ảnh hay video hiệu quả hơn.
+      if (hint?.mediaKind && (config.mediaMix ?? "") === "MIXED") {
+        kind = hint.mediaKind;
+      }
+
       // Địa bàn cho bài này — xoay vòng để phủ đều các khu vực, tránh nhắm
       // trùng bài liền trước. null khi thương hiệu không cấu hình địa bàn.
       const serviceArea = pickServiceArea(serviceAreas, recentAreas);
+
+      // Ghi chú giải thích vì sao bài này được viết/đăng như vậy
+      const note = learning
+        ? optimizationNoteOf(learning, {
+            pillarName: pillar.name,
+            band: hint?.band ?? null,
+            hookStyle: hint?.hookStyle ?? null,
+          })
+        : null;
 
       const res = await createPlannedPost({
         config,
@@ -1056,6 +1179,13 @@ export async function planForAutoPilot(
         // Xoay vòng tệp trong thư mục Drive theo thứ tự bài trong ngày
         rotation: dayStartIndex + i,
         serviceArea,
+        // Số liệu thật (chỉ để chọn góc/cách trình bày — prompt có câu chặn
+        // cứng việc đổi thông tin thương hiệu)
+        performanceLines: learning?.performanceLines ?? [],
+        // Chỉ thị dò: chỉ nói về CÁCH VIẾT
+        probeLines: hint ? probePromptLines(hint.note) : [],
+        optimizationNote: note,
+        probeKind: probing ? "PROBE" : "STANDARD",
       });
 
       if (res.ok) {
@@ -1080,6 +1210,18 @@ export async function planForAutoPilot(
           recentAreas.unshift(res.serviceArea);
           if (recentAreas.length > RECENT_TOPIC_LIMIT) recentAreas.pop();
         }
+        // Ghi nhận hướng dò đã dùng để lượt sau chọn hướng còn thiếu quota
+        if (probing) {
+          probeCreated++;
+          for (const e of hint?.entries ?? [{ kind: "PILLAR", value: pillar.name }]) {
+            const key = `${e.kind}:${e.value}`;
+            probeUsage[key] = (probeUsage[key] ?? 0) + 1;
+          }
+          outcome.optimizationApplied = {
+            phase: learning!.phase,
+            note: note ?? "",
+          };
+        }
         continue;
       }
 
@@ -1100,6 +1242,7 @@ export async function planForAutoPilot(
   }
 
   if (lastError) outcome.error = lastError;
+  outcome.probeCreated = probeCreated;
   return outcome;
 }
 
@@ -1199,6 +1342,28 @@ export async function runAutopilotPlanner(
     result.created += outcome.created;
     result.skipped += outcome.skipped;
 
+    // ===== Bước kiểm tra (chỉ khi Page bật tối ưu theo số liệu) =====
+    //
+    // Chạy SAU khi tạo bài để trạng thái học phản ánh cả những bài vừa tạo.
+    // Không chờ kết quả vào luồng chính: `runVerifier` ghi vài bảng và có thể
+    // gửi thông báo, nhưng nếu nó lỗi thì lượt lập kế hoạch đã xong rồi.
+    if (config.insightsEnabled) {
+      try {
+        const { runVerifier } = await import("./insight-optimize");
+        const verified = await runVerifier(config.pageId, now);
+        if (verified?.phaseChanged) {
+          console.log(
+            `[tự động] Page ${page.name}: giai đoạn học ${verified.previousPhase} → ${verified.phase}`
+          );
+        }
+      } catch (err) {
+        console.error(
+          `[tự động] bước kiểm tra số liệu lỗi cho Page ${config.pageId}: ` +
+            (err instanceof Error ? err.message : String(err))
+        );
+      }
+    }
+
     await prisma.autoPilot
       .update({
         where: { id: config.id },
@@ -1259,11 +1424,29 @@ export type AutoPilotOverview = {
     /** Địa bàn bài này nhắm tới (null = thương hiệu không cấu hình địa bàn). */
     serviceArea: string | null;
     mediaCount: number;
+    /** Vì sao bài này được viết/đăng như vậy (null = chưa bật tối ưu). */
+    optimizationNote: string | null;
+    /** STANDARD | PROBE */
+    probeKind: string;
   }[];
   /** Số bài tạo tự động trong 7 ngày tới. */
   plannedNext7Days: number;
   /** Số bài đang chờ duyệt. */
   pendingReview: number;
+  /** Tiến độ học từ số liệu — null khi Page chưa bật tối ưu. */
+  learning: {
+    phase: string;
+    phaseLabel: string;
+    sampleSize: number;
+    missingForExploit: number;
+    probeUsed: number;
+    probeBudget: number;
+    probeExhausted: boolean;
+    reachAvailable: boolean;
+    lastFetchedAt: string | null;
+    insightsStatus: string;
+    headline: string;
+  } | null;
 };
 
 export async function getAutoPilotOverview(
@@ -1271,7 +1454,14 @@ export async function getAutoPilotOverview(
   pageId: string | null
 ): Promise<AutoPilotOverview> {
   if (!pageId) {
-    return { config: null, pageName: null, upcoming: [], plannedNext7Days: 0, pendingReview: 0 };
+    return {
+      config: null,
+      pageName: null,
+      upcoming: [],
+      plannedNext7Days: 0,
+      pendingReview: 0,
+      learning: null,
+    };
   }
 
   const now = new Date();
@@ -1279,7 +1469,15 @@ export async function getAutoPilotOverview(
 
   const [config, page, upcoming, plannedNext7Days, pendingReview] = await Promise.all([
     prisma.autoPilot.findUnique({ where: { pageId } }),
-    prisma.facebookPage.findFirst({ where: { id: pageId, userId }, select: { name: true } }),
+    prisma.facebookPage.findFirst({
+      where: { id: pageId, userId },
+      select: {
+        name: true,
+        brandId: true,
+        insightsStatus: true,
+        insightsLastFetchedAt: true,
+      },
+    }),
     prisma.post.findMany({
       where: {
         pageId,
@@ -1301,6 +1499,44 @@ export async function getAutoPilotOverview(
     prisma.post.count({ where: { pageId, origin: "AUTOPILOT", status: "PENDING_REVIEW" } }),
   ]);
 
+  // Trạng thái học chỉ tính khi Page đã bật tối ưu — tránh truy vấn nặng cho
+  // phần lớn Page không dùng tính năng này.
+  let learning: AutoPilotOverview["learning"] = null;
+  if (config?.insightsEnabled) {
+    try {
+      const { computeLearningState, learningProgressOf } = await import("./insight-optimize");
+      const pillars = await prisma.contentPillar.findMany({
+        where: { ...contentScopeForPage(page?.brandId ?? null, pageId), enabled: true },
+        select: { name: true, weight: true },
+      });
+      const state = await computeLearningState(
+        pageId,
+        {
+          windowStart: config.windowStart,
+          windowEnd: config.windowEnd,
+          minGapMinutes: config.minGapMinutes,
+          mediaMix: config.mediaMix,
+          lastReProbeAt: config.lastReProbeAt,
+          updatedAt: config.updatedAt,
+        },
+        now,
+        pillars
+      );
+      const progress = learningProgressOf(state);
+      learning = {
+        ...progress,
+        lastFetchedAt: page?.insightsLastFetchedAt?.toISOString() ?? null,
+        insightsStatus: page?.insightsStatus ?? "UNKNOWN",
+        headline: state.commentary.headline,
+      };
+    } catch (err) {
+      console.error(
+        `[tự động] không đọc được trạng thái học của Page ${pageId}: ` +
+          (err instanceof Error ? err.message : String(err))
+      );
+    }
+  }
+
   return {
     config: config ? (config as unknown as AutoPilotConfig) : null,
     pageName: page?.name ?? null,
@@ -1313,9 +1549,12 @@ export async function getAutoPilotOverview(
       topic: p.topic,
       serviceArea: p.serviceArea,
       mediaCount: p._count.media,
+      optimizationNote: p.optimizationNote,
+      probeKind: p.probeKind,
     })),
     plannedNext7Days,
     pendingReview,
+    learning,
   };
 }
 

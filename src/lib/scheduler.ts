@@ -538,6 +538,112 @@ export function kickAutopilotPlanner(force = false): boolean {
 }
 
 // ============================================================
+// Kích hoạt THU THẬP SỐ LIỆU HIỆU QUẢ (Insights).
+//
+// Vì sao tách thành hàm riêng thay vì nhét vào runSchedulerTick: lấy số liệu
+// gọi Graph API nhiều lần cho mỗi bài. Nếu chạy cùng luồng với việc đăng bài
+// thì một Page nhiều bài sẽ làm trễ bài đã tới giờ đăng — đúng vấn đề đã gặp
+// với bộ lập kế hoạch, nên dùng lại nguyên cách ly đó.
+//
+// HAI LỚP BẢO VỆ (giống kickAutopilotPlanner):
+//   1. Giãn cách trong tiến trình — khỏi đụng DB mỗi nhịp.
+//   2. Thuê bao trong DB — chặn 2 instance serverless chạy chồng.
+// ============================================================
+
+/** Giãn cách giữa 2 lượt thu thập số liệu (mặc định 60 phút). */
+export const INSIGHTS_INTERVAL_MS = Number(
+  process.env.INSIGHTS_INTERVAL_MS ?? 60 * 60 * 1000
+);
+
+const INSIGHTS_CLOCK = "__marketingInsightsLastRunAt" as const;
+
+/**
+ * Thời hạn thuê bao thu thập số liệu (mặc định 15 phút).
+ *
+ * Lớn hơn nhịp chạy vì một lượt có thể gọi tới MAX_API_CALLS_PER_RUN lệnh cho
+ * nhiều Page. Hết hạn sớm hơn thời gian chạy thật sẽ khiến nhịp sau chạy chồng.
+ */
+export const INSIGHTS_LEASE_MS = Number(
+  process.env.INSIGHTS_LEASE_MS ?? 15 * 60 * 1000
+);
+
+const INSIGHTS_LEASE_KEY = "scheduler.insightsLease";
+
+async function acquireInsightsLease(): Promise<boolean> {
+  const raw = await getSetting(INSIGHTS_LEASE_KEY).catch(() => null);
+  const last = raw ? Date.parse(raw) : NaN;
+  if (Number.isFinite(last) && Date.now() - last < INSIGHTS_LEASE_MS) return false;
+  await setSetting(INSIGHTS_LEASE_KEY, new Date().toISOString()).catch(() => {});
+  return true;
+}
+
+async function releaseInsightsLease(): Promise<void> {
+  await setSetting(
+    INSIGHTS_LEASE_KEY,
+    new Date(Date.now() - INSIGHTS_LEASE_MS).toISOString()
+  ).catch(() => {});
+}
+
+/**
+ * Xin thu thập số liệu hiệu quả. KHÔNG chờ kết quả — trả về ngay.
+ *
+ * Chỉ chạy cho Page đã BẬT tối ưu theo số liệu (`insightsEnabled`): Page không
+ * bật thì không tốn một lệnh gọi Graph API nào, đúng cam kết "bật mới chạy".
+ */
+export function kickInsightsRefresh(force = false): boolean {
+  const g = globalThis as Record<string, unknown>;
+  const last = typeof g[INSIGHTS_CLOCK] === "number" ? (g[INSIGHTS_CLOCK] as number) : 0;
+  const now = Date.now();
+
+  if (!force && now - last < INSIGHTS_INTERVAL_MS) return false;
+  g[INSIGHTS_CLOCK] = now;
+
+  void (async () => {
+    if (!(await acquireInsightsLease())) {
+      console.log("[số liệu] bỏ qua lượt thu thập — tiến trình khác đang giữ thuê bao.");
+      return;
+    }
+    try {
+      // Nạp động: giữ cho luồng đăng bài không phải tải sẵn module insights
+      const { pagesDueForInsights, refreshInsightsForPage, MAX_API_CALLS_PER_RUN } =
+        await import("./fb-insights");
+
+      const at = new Date();
+      const pageIds = await pagesDueForInsights(at);
+      if (pageIds.length === 0) return;
+
+      // Ngân sách dùng chung cho cả lượt: 3 Page × 20 lệnh là đã chạm trần,
+      // nên Page sau không được tiêu quá phần còn lại.
+      const budget = { remaining: MAX_API_CALLS_PER_RUN };
+      let updated = 0;
+
+      for (const pageId of pageIds) {
+        if (budget.remaining <= 0) break;
+        const outcome = await refreshInsightsForPage(pageId, { now: at, budget });
+        updated += outcome.updated;
+        if (outcome.error) {
+          console.warn(`[số liệu] ${outcome.pageName}: ${outcome.error}`);
+        }
+      }
+
+      if (updated > 0) {
+        console.log(
+          `[số liệu] đã cập nhật ${updated} bài của ${pageIds.length} Page (còn ${budget.remaining} lệnh gọi).`
+        );
+      }
+    } catch (err) {
+      console.error(
+        `[số liệu] lỗi khi thu thập: ${err instanceof Error ? err.message : String(err)}`
+      );
+    } finally {
+      await releaseInsightsLease();
+    }
+  })();
+
+  return true;
+}
+
+// ============================================================
 // Vòng lặp chạy NGAY TRONG tiến trình server web.
 //
 // Nhờ vậy không cần mở terminal chạy `npm run worker` nữa: chỉ cần app đang
@@ -580,6 +686,9 @@ export function startSchedulerLoop(intervalMs: number = TICK_INTERVAL_MS): void 
 
           // Lập kế hoạch chạy song song, KHÔNG chờ — để bài tới giờ đăng ngay
           kickAutopilotPlanner();
+          // Thu thập số liệu cũng chạy song song và tự giãn cách theo giờ,
+          // nên hầu hết nhịp gọi vào đây sẽ trả về false ngay lập tức.
+          kickInsightsRefresh();
 
           const result = await runSchedulerTick(new Date(), "server");
           guard.ticks += 1;
@@ -617,6 +726,7 @@ export function startSchedulerLoop(intervalMs: number = TICK_INTERVAL_MS): void 
     try {
       if (!(await isSchedulerEnabled())) return;
       kickAutopilotPlanner();
+      kickInsightsRefresh();
       const result = await runSchedulerTick(new Date(), "server");
       guard.ticks += 1;
       if (result.published || result.retrying || result.failed || result.recovered) {

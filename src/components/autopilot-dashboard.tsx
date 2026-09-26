@@ -104,6 +104,10 @@ export type PlannedPost = {
   /** Địa bàn bài này nhắm tới (null = thương hiệu không cấu hình địa bàn). */
   serviceArea: string | null;
   mediaCount: number;
+  /** Vì sao bài này được viết/đăng như vậy (null = chưa bật tối ưu số liệu). */
+  optimizationNote: string | null;
+  /** STANDARD | PROBE */
+  probeKind: string;
 };
 
 function Alert({ state, testId }: { state: AutoPilotState; testId?: string }) {
@@ -815,7 +819,26 @@ function PlanPreview({
                   {p.mediaCount > 0 ? (
                     <span className="text-gray-500">🖼 {p.mediaCount}</span>
                   ) : null}
+                  {p.probeKind === "PROBE" ? (
+                    <span
+                      className="rounded-full bg-indigo-50 px-2 py-0.5 text-indigo-700"
+                      title="Bài dò: hệ thống đang thử hướng này để tìm ra nội dung hiệu quả"
+                    >
+                      🔬 Dò
+                    </span>
+                  ) : null}
                 </div>
+
+                {/* Vì sao bài này được viết/đăng như vậy — chỉ có khi Page bật
+                    tối ưu theo số liệu. */}
+                {p.optimizationNote ? (
+                  <p
+                    className="mt-1 text-xs text-indigo-600"
+                    data-testid="ap-plan-optimization"
+                  >
+                    📈 {p.optimizationNote}
+                  </p>
+                ) : null}
 
                 <p className="mt-2 line-clamp-3 text-sm whitespace-pre-wrap text-gray-800">
                   {p.content}
@@ -870,6 +893,7 @@ export default function AutopilotDashboard({
   readiness,
   quota,
   media,
+  learning,
 }: {
   pageId: string;
   config: AutoPilotConfigView;
@@ -889,6 +913,20 @@ export default function AutopilotDashboard({
   quota: { used: number; limit: number; remaining: number; live: boolean; blocked: boolean };
   /** Trạng thái các nguồn media (Pexels / Google Drive) để chọn nguồn cho AutoPilot. */
   media: MediaSourceInfo;
+  /** Tiến độ học từ số liệu — null khi Page chưa bật tự tối ưu. */
+  learning: {
+    phase: string;
+    phaseLabel: string;
+    sampleSize: number;
+    missingForExploit: number;
+    probeUsed: number;
+    probeBudget: number;
+    probeExhausted: boolean;
+    reachAvailable: boolean;
+    lastFetchedAt: string | null;
+    insightsStatus: string;
+    headline: string;
+  } | null;
 }) {
   const enabled = config?.enabled ?? false;
 
@@ -989,6 +1027,51 @@ export default function AutopilotDashboard({
       ) : null}
 
       <PowerSwitch pageId={pageId} enabled={enabled} hasConfig={config !== null} />
+
+      {/* Thẻ Số liệu & tối ưu — nơi người dùng thấy hệ thống đang học gì.
+          Chỉ hiện khi có cấu hình (Page đã từng được thiết lập). */}
+      {config ? (
+        <div
+          className="rounded-xl border border-indigo-200 bg-indigo-50/60 p-4"
+          data-testid="ap-insights-card"
+        >
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-gray-900">
+                📈 Số liệu &amp; tự tối ưu
+                {learning ? (
+                  <span className="ml-2 rounded-full bg-white px-2 py-0.5 text-xs font-medium text-indigo-700">
+                    {learning.phaseLabel}
+                  </span>
+                ) : null}
+              </p>
+              <p className="mt-1 text-xs text-gray-600">
+                {!learning
+                  ? "Đang tắt. Bật lên để hệ thống đọc số liệu thật của bài đã đăng rồi tự điều chỉnh trụ cột, khung giờ và cách mở bài cho các bài sau."
+                  : learning.phase === "PROBE" || learning.phase === "REPROBE"
+                    ? `Đang dò tìm hướng đi: ${learning.probeUsed}/${learning.probeBudget} bài. Còn thiếu ${learning.missingForExploit} bài đã đăng để bắt đầu tối ưu.`
+                    : `Đang tối ưu theo ${learning.sampleSize} bài đã phân tích. ${learning.headline}`}
+              </p>
+            </div>
+            <div className="flex shrink-0 gap-2">
+              <Link
+                href={`/insights?page=${pageId}`}
+                className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-indigo-700"
+                data-testid="ap-insights-link"
+              >
+                Xem số liệu →
+              </Link>
+            </div>
+          </div>
+
+          {learning && learning.phase === "REPROBE" ? (
+            <p className="mt-2 text-xs text-amber-700">
+              ⚠ Số liệu đang giảm nên hệ thống đã tự chuyển sang dò lại hướng mới. Nội dung
+              thương hiệu vẫn giữ nguyên — chỉ đổi cách triển khai.
+            </p>
+          ) : null}
+        </div>
+      ) : null}
 
       {/* Hạn mức tìm ảnh Pexels — chỉ hiện khi Pexels thực sự là nguồn */}
       {config?.autoMedia && (config.mediaPrimary ?? "PEXELS") === "PEXELS" ? (

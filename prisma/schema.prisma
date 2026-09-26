@@ -190,6 +190,13 @@ model FacebookPage {
   accessToken    String // Page Access Token (long-lived, đã mã hóa khi lưu)
   tokenExpiresAt DateTime? @db.Timestamptz(3) // ngày hết hạn token (nếu biết)
   isActive       Boolean   @default(true)
+
+  // ---- Số liệu hiệu quả (Insights) ----
+  /// UNKNOWN | OK | PARTIAL | NO_PERMISSION | LOW_FANS | TOKEN_INVALID | ERROR
+  insightsStatus        String    @default("UNKNOWN")
+  insightsLastFetchedAt DateTime? @db.Timestamptz(3)
+  insightsLastError     String?
+
   createdAt      DateTime  @db.Timestamptz(3) @default(now())
   updatedAt      DateTime  @db.Timestamptz(3) @updatedAt
 
@@ -203,6 +210,12 @@ model FacebookPage {
   docs      KnowledgeDoc[]
   autopilot AutoPilot?
   usedMedia UsedMedia[]
+
+  // ---- Số liệu hiệu quả & học từ số liệu ----
+  insights   PostInsight[]
+  snapshots  PageInsightSnapshot[]
+  probeLog   ProbeEntry[]
+  directions ContentDirection[]
 
   @@unique([workspaceId, fbPageId])
   @@index([connectionId])
@@ -244,6 +257,14 @@ model Post {
   nextAttemptAt DateTime? @db.Timestamptz(3) // thời điểm thử lại sau lỗi (backoff)
   lockedAt      DateTime? @db.Timestamptz(3) // worker đang giữ bài này (chống 2 worker đăng trùng)
 
+  // ---- Học từ số liệu (Insights) ----
+  /// STANDARD = bài thường | PROBE = bài dò để tìm hướng đi ban đầu.
+  /// Đếm từ cột này (nguồn sự thật) chứ không dùng bộ đếm có thể lệch.
+  probeKind String @default("STANDARD")
+  /// Ghi chú ngắn về tối ưu đã áp cho bài này, ví dụ
+  /// "Dò: hook Danh sách · band Tối 18–22h". Null = chưa bật tối ưu theo số liệu.
+  optimizationNote String?
+
   createdAt DateTime @db.Timestamptz(3) @default(now())
   updatedAt DateTime @db.Timestamptz(3) @updatedAt
 
@@ -252,12 +273,15 @@ model Post {
   brand     Brand?        @relation(fields: [brandId], references: [id], onDelete: SetNull)
   page      FacebookPage? @relation(fields: [pageId], references: [id], onDelete: SetNull)
   media     Media[]
+  insight   PostInsight?
 
   // Truy vấn bài đến hạn của worker: lọc theo status + scheduledAt
   @@index([status, scheduledAt])
   @@index([status, nextAttemptAt])
   // Đếm bài đã lên kế hoạch theo Page + ngày (bộ lập kế hoạch tự động)
   @@index([pageId, origin, scheduledAt])
+  // Đếm bài đã đăng để suy ra giai đoạn học (PROBE/EXPLOIT)
+  @@index([pageId, origin, status, publishedAt])
   // Lọc theo workspace / brand cho đa tenant
   @@index([workspaceId, status, scheduledAt])
   @@index([workspaceId, brandId])
@@ -530,6 +554,23 @@ model AutoPilot {
   lastPlanCount Int       @default(0) // số bài tạo ra ở lần lập kế hoạch gần nhất
   totalPlanned  Int       @default(0) // tổng số bài đã tạo từ trước tới nay
 
+  // ---- Học từ số liệu (Insights) ----
+  /// true = AutoPilot đọc số liệu bài đã đăng để tự điều chỉnh trụ cột/giờ/góc.
+  /// Mặc định false: Page không bật thì lập kế hoạch y như trước.
+  insightsEnabled Boolean @default(false)
+  /// PROBE | EXPLOIT | REPROBE — suy ra được từ dữ liệu thật (Post + PostInsight);
+  /// lưu cache để giao diện và thông báo nhất quán.
+  learningPhase       String    @default("PROBE")
+  /// null = chưa từng dò. Chỉ để ghi nhận/thông báo, KHÔNG dùng tính ngân sách.
+  probeStartedAt      DateTime? @db.Timestamptz(3)
+  /// Tổng số bài dò đã tạo (cache hiển thị; ngân sách đếm từ Post.probeKind).
+  probeRedistributed  Int       @default(0)
+  lastReProbeAt       DateTime? @db.Timestamptz(3)
+  /// Kết luận/nhận xét gần nhất — CHỈ là cache, tái tạo được từ Post + PostInsight.
+  learningConclusion  String?
+  /// Kết luận suy ra lúc nào; quá LEARNING_SUMMARY_TTL_HOURS thì hiển thị "đang tính lại".
+  learningComputedAt  DateTime? @db.Timestamptz(3)
+
   createdAt DateTime @db.Timestamptz(3) @default(now())
   updatedAt DateTime @db.Timestamptz(3) @updatedAt
 
@@ -562,6 +603,221 @@ model UsedMedia {
   @@unique([pageId, providerId])
   // Truy vấn "ảnh đã dùng trong 60 ngày gần đây"
   @@index([pageId, usedAt])
+}
+
+// ============================================================
+// SỐ LIỆU HIỆU QUẢ CỦA BÀI ĐĂNG (Facebook Insights)
+//
+// VÌ SAO CẦN
+// AutoPilot hiện chỉ biết "đã đăng" chứ không biết bài đó có được người
+// xem hay không, nên nội dung dễ dậm chân tại chỗ hoặc sáo rỗng. Bảng này
+// lưu số liệu thật của từng bài để bộ lập kế hoạch chọn trụ cột, khung giờ
+// và góc trình bày cho các bài sau.
+//
+// PHÂN BIỆT 2 NHÓM SỐ LIỆU (rất quan trọng):
+//   - reactions/comments/shares: chỉ cần quyền `pages_read_engagement`
+//     (app đã có) → LUÔN lấy được.
+//   - impressions/mediaView/videoViews/clicks: cần thêm `read_insights`
+//     và Page phải đủ 100 lượt thích → có thể không có.
+// Vì vậy mọi cột số liệu phân phối đều NULLABLE, và `status` ghi rõ vì sao
+// thiếu. Khi thiếu, hệ thống vẫn xếp hạng được bằng tương tác — chỉ kém
+// chính xác hơn và giao diện sẽ nói rõ điều đó.
+//
+// LƯU Ý VỀ DEPRECATION: các metric `*_unique` (post_impressions_unique,
+// post_video_views_unique...) đã bị Meta ngừng hỗ trợ cho mọi phiên bản API
+// từ 15/06/2026. Bảng này dùng metric thay thế (`post_media_view`,
+// post_total_media_view_unique`) và giữ `post_impressions` (tổng) làm dự phòng.
+// Danh sách metric nằm ở src/lib/insights-core.ts (INSIGHT_METRIC_GROUPS) —
+// Meta đổi tiếp thì chỉ cần sửa một chỗ đó.
+// ============================================================
+
+model PostInsight {
+  id          String   @id @default(cuid())
+  /// Mỗi bài một dòng số liệu (upsert theo postId).
+  postId      String   @unique
+  /// Denormalize để truy vấn theo Page/workspace không phải join Post.
+  pageId      String
+  workspaceId String?
+  fbPostId    String
+
+  // ---- Phân phối: chỉ có khi token có `read_insights` ----
+  /// post_impressions (tổng — chưa bị ngừng hỗ trợ)
+  impressions     Int?
+  /// post_media_view — metric thay thế cho "lượt hiển thị"
+  mediaView       Int?
+  /// post_total_media_view_unique — metric thay thế cho "số người tiếp cận"
+  mediaViewUnique Int?
+  /// post_video_views (chỉ bài video)
+  videoViews      Int?
+  /// post_video_avg_time_watched (mili giây)
+  videoAvgTimeMs  Int?
+  /// post_clicks
+  clicks          Int?
+
+  // ---- Tương tác: LUÔN có (chỉ cần pages_read_engagement) ----
+  reactions Int @default(0)
+  comments  Int @default(0)
+  shares    Int @default(0)
+
+  /// OK | PARTIAL | FRESH | NO_PERMISSION | ERROR
+  /// - FRESH: bài chưa đủ 24h, Facebook chưa chốt số liệu → HIỂN THỊ nhưng
+  ///   KHÔNG dùng để học (tránh học từ bài còn đang tăng).
+  status         String  @default("OK")
+  /// JSON mảng metric Facebook từ chối — để giao diện nói rõ đang thiếu gì.
+  missingMetrics String?
+  errorMessage   String?
+  fetchedAt      DateTime @db.Timestamptz(3)
+  createdAt      DateTime @db.Timestamptz(3) @default(now())
+  updatedAt      DateTime @db.Timestamptz(3) @updatedAt
+
+  post      Post          @relation(fields: [postId], references: [id], onDelete: Cascade)
+  page      FacebookPage  @relation(fields: [pageId], references: [id], onDelete: Cascade)
+
+  @@index([pageId, fetchedAt])
+  @@index([workspaceId])
+  @@index([pageId, status])
+}
+
+// ============================================================
+// SỐ LIỆU CẤP PAGE THEO NGÀY
+//
+// Bổ sung bối cảnh mà số liệu từng bài không cho biết: Page đang tăng hay
+// mất người theo dõi, tổng lượt xem/tiếp cận của Page, và người theo dõi
+// tập trung ở đâu.
+//
+// `topCitiesJson` CHỈ ĐỂ HIỂN THỊ. Địa bàn dùng khi viết bài vẫn lấy từ
+// BrandProfile.serviceAreas do người dùng nhập — đổi địa bàn theo dữ liệu
+// Facebook sẽ khiến AI nhắc tên khu vực người dùng không phục vụ.
+//
+// dayKey là ngày theo LỊCH VIỆT NAM (formatDateKey) — không dùng ngày UTC,
+// vì một ngày lệch 7 tiếng sẽ gộp nhầm hai ngày số liệu.
+// ============================================================
+
+model PageInsightSnapshot {
+  id          String   @id @default(cuid())
+  pageId      String
+  workspaceId String?
+  /// "YYYY-MM-DD" theo giờ Việt Nam
+  dayKey      String
+
+  fans            Int?
+  follows         Int?
+  pageImpressions Int?
+  /// page_media_view
+  mediaView       Int?
+  /// page_total_media_view_unique
+  mediaViewUnique Int?
+  /// page_post_engagements
+  postEngagements Int?
+  /// page_views_total
+  pageViewsTotal  Int?
+  /// JSON [{ city, count }] — chỉ hiển thị
+  topCitiesJson   String?
+
+  missingMetrics String?
+  /// OK | PARTIAL | NO_PERMISSION | LOW_FANS | TOKEN_INVALID | ERROR
+  status         String  @default("OK")
+  errorMessage   String?
+  fetchedAt      DateTime @db.Timestamptz(3)
+  createdAt      DateTime @db.Timestamptz(3) @default(now())
+  updatedAt      DateTime @db.Timestamptz(3) @updatedAt
+
+  page FacebookPage @relation(fields: [pageId], references: [id], onDelete: Cascade)
+
+  @@unique([pageId, dayKey])
+  @@index([pageId, fetchedAt])
+  @@index([workspaceId])
+}
+
+// ============================================================
+// NHẬT KÝ DÒ TÌM HƯỚNG (Giai đoạn khám phá)
+//
+// Khi Page vừa bật tự động đăng, chưa có số liệu nào để học. Thay vì bám
+// ngay vào một trụ cột (dễ sai và khó sửa về sau), hệ thống chạy một đợt
+// "dò" có kiểm soát: phân bổ đều bài qua các trụ cột, 4 kiểu hook và các
+// khung giờ trong ngày, rồi xem hướng nào được người xem đáp lại.
+//
+// Bảng này ghi TỪNG HƯỚNG đã thử để:
+//   1. Lần dò sau không thử lại hướng đã thất bại (tránh lặp vô ích).
+//   2. Giải thích được cho người dùng: "đã thử gì, kết quả ra sao".
+//
+// Mọi hướng ở đây đều NẰM TRONG hồ sơ thương hiệu: trụ cột lấy từ
+// ContentPillar đang bật, kiểu hook từ bộ 4 kiểu đóng, khung giờ từ cấu
+// hình người dùng đặt. Không có "chủ đề mới" nào được sinh ra.
+// ============================================================
+
+model ProbeEntry {
+  id          String   @id @default(cuid())
+  pageId      String
+  workspaceId String?
+  /// Đợt dò (PROBE đầu tiên hoặc một lần REPROBE) — nhóm lại để báo cáo.
+  batchId     String
+  /// PILLAR | HOOK | TIME_BAND | MEDIA | SERVICE_AREA
+  kind        String
+  /// Giá trị cụ thể đã thử: tên trụ cột, "DanhSach", "TOI"...
+  value       String
+  /// Số bài đã tạo cho hướng này trong đợt (cache; nguồn thật là Post.probeKind).
+  postCount   Int     @default(0)
+  /// PENDING | GOOD | BAD | NEUTRAL
+  result      String  @default("PENDING")
+  /// Hiệu quả trung bình của hướng (robust z so với trung vị Page). Null = chưa đủ mẫu.
+  score       Float?
+  notes       String?
+  createdAt   DateTime @db.Timestamptz(3) @default(now())
+  updatedAt   DateTime @db.Timestamptz(3) @updatedAt
+
+  page FacebookPage @relation(fields: [pageId], references: [id], onDelete: Cascade)
+
+  /// Mỗi hướng chỉ một dòng trong một đợt
+  @@unique([pageId, batchId, kind, value])
+  @@index([pageId, createdAt])
+  @@index([workspaceId])
+}
+
+// ============================================================
+// HƯỚNG NỘI DUNG ĐANG TRIỂN KHAI (phần "nhận xét")
+//
+// Đây là bảng trả lời trực tiếp câu hỏi của người dùng: "nội dung hiện tại
+// đang triển khai theo hướng nào và số liệu ra sao?".
+//
+// Mỗi dòng = một hướng (một trụ cột, một kiểu hook, một khung giờ, một loại
+// media, một địa bàn) kèm trạng thái sống/chết của nó. Dữ liệu được TÍNH LẠI
+// từ Post + PostInsight mỗi lượt kiểm tra — bảng này chỉ là kết quả chiếu ra,
+// không phải nguồn sự thật thứ hai.
+//
+// estLifeDays là ƯỚC LƯỢNG THÔ ngoại suy từ chính dữ liệu của Page (độ dốc
+// của hiệu quả qua thời gian), KHÔNG phải dự báo của Facebook. Giao diện bắt
+// buộc ghi rõ điều này để người dùng không hiểu nhầm là số liệu chính thức.
+// ============================================================
+
+model ContentDirection {
+  id          String   @id @default(cuid())
+  pageId      String
+  workspaceId String?
+  /// PILLAR | HOOK | TIME_BAND | MEDIA_KIND | SERVICE_AREA
+  kind        String
+  value       String
+  /// EXPLORING | RISING | STABLE | DECLINING | EXHAUSTED
+  status      String   @default("EXPLORING")
+  /// Số bài dùng hướng này trong cửa sổ đánh giá
+  sampleSize   Int      @default(0)
+  avgScore     Float?
+  prevAvgScore Float?
+  /// % thay đổi so với kỳ trước (âm = đang tụt)
+  changePct    Float?
+  /// Ước lượng còn hiệu quả bao nhiêu ngày (kẹp 0–90). Null = chưa đủ dữ liệu.
+  estLifeDays  Int?
+  /// "Tăng tỉ trọng" | "Giữ nguyên" | "Giảm tỉ trọng" | "Tạm dừng hướng này"
+  recommendation String?
+  lastEvaluatedAt DateTime @db.Timestamptz(3)
+  createdAt       DateTime @db.Timestamptz(3) @default(now())
+  updatedAt       DateTime @db.Timestamptz(3) @updatedAt
+
+  page FacebookPage @relation(fields: [pageId], references: [id], onDelete: Cascade)
+
+  @@unique([pageId, kind, value])
+  @@index([pageId, status])
+  @@index([workspaceId])
 }
 
 // ============================================================

@@ -36,13 +36,21 @@ export type GraphContext = {
 
 export class FacebookApiError extends Error {
   code: number | undefined;
+  /**
+   * Mã phụ của Graph API. Cần thiết vì nhiều lỗi QUAN TRỌNG dùng chung code
+   * thô: `invalid metric` là code 3001 + subcode 1504028, còn code 100 vừa là
+   * "object không tồn tại" vừa là nhiều lỗi tham số khác nhau. Không có subcode
+   * thì không phân biệt được để chọn cách lùi đúng (xem lib/insights-core.ts).
+   */
+  subcode: number | undefined;
   fbTraceId: string | undefined;
 
-  constructor(message: string, code?: number, fbTraceId?: string) {
+  constructor(message: string, code?: number, fbTraceId?: string, subcode?: number) {
     super(message);
     this.name = "FacebookApiError";
     this.code = code;
     this.fbTraceId = fbTraceId;
+    this.subcode = subcode;
   }
 }
 
@@ -57,8 +65,12 @@ async function effectiveVersion(conn?: GraphContext | null): Promise<string> {
  * - GET  → tham số đưa vào query string.
  * - POST → tham số đưa vào body (form-urlencoded), đúng chuẩn Graph API cho
  *          các thao tác ghi (đăng bài, upload ảnh...).
+ *
+ * Export để module Insights (lib/fb-insights.ts) dùng CHUNG một client: nhờ vậy
+ * nó thừa hưởng nguyên phần xử lý lỗi (FacebookApiError có code + subcode) và
+ * cách chọn graph version theo connection của Page — không viết lại lần hai.
  */
-async function fbFetch(
+export async function fbFetch(
   path: string,
   accessToken: string,
   params: Record<string, string> = {},
@@ -99,7 +111,9 @@ async function parseGraphResponse(res: Response): Promise<Record<string, unknown
     throw new FacebookApiError(
       String(err?.message ?? `Graph API trả về mã ${res.status}`),
       typeof err?.code === "number" ? err.code : undefined,
-      typeof err?.fbtrace_id === "string" ? err.fbtrace_id : undefined
+      typeof err?.fbtrace_id === "string" ? err.fbtrace_id : undefined,
+      // error_subcode là trường riêng của Graph API, không nằm trong message
+      typeof err?.error_subcode === "number" ? err.error_subcode : undefined
     );
   }
   return data;

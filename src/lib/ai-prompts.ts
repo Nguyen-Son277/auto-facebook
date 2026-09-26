@@ -98,6 +98,19 @@ export type BrandContext = {
   knowledge?: { title: string; kind: string; content: string }[];
   /** Trụ cột nội dung của bài này (chế độ tự động). */
   pillar?: { name: string; description?: string };
+  /**
+   * Số liệu hiệu quả thật của các bài đã đăng (xem lib/insights-report.ts).
+   *
+   * CHỈ dùng để chọn GÓC TIẾP CẬN và CÁCH TRÌNH BÀY — không phải nguồn thông
+   * tin về thương hiệu. Khối này luôn đi kèm PERFORMANCE_SAFETY_CLAUSE để chặn
+   * việc model suy diễn ra giá/sản phẩm/địa bàn mới từ số liệu.
+   */
+  performance?: string[];
+  /**
+   * Chỉ thị dò tìm hướng (giai đoạn khám phá). Cũng chỉ nói về CÁCH VIẾT:
+   * mở bài theo kiểu nào, ưu tiên khung giờ nào.
+   */
+  probe?: string[];
 };
 
 export type GenerateInput = {
@@ -121,6 +134,27 @@ export type ChatMessage = {
   role: "system" | "user" | "assistant";
   content: string;
 };
+
+/**
+ * Ràng buộc an toàn BẮT BUỘC đi kèm mọi khối số liệu hiệu quả.
+ *
+ * Vì sao cần: số liệu là dữ liệu từ "thế giới bên ngoài" đối với hồ sơ thương
+ * hiệu. Không có ràng buộc này, model rất dễ suy diễn ngược — thấy hướng nào
+ * hiệu quả thì tự thêm sản phẩm, giá, khuyến mãi hay địa bàn để "đẩy" hướng đó,
+ * tức là bịa ra thông tin thương hiệu chưa từng có.
+ *
+ * Yêu cầu của người dùng là rõ: chỉ đổi CÁCH TRIỂN KHAI, tuyệt đối không đổi
+ * nội dung thương hiệu đã đề ra. Hằng số này là chốt chặn ở tầng prompt cho
+ * yêu cầu đó (guard tương ứng ở tầng mã nguồn: scripts/test-insights.mjs).
+ */
+export const PERFORMANCE_SAFETY_CLAUSE = [
+  "- Các số liệu này CHỈ được dùng để chọn GÓC TIẾP CẬN, LOẠI BÀI và CÁCH TRÌNH BÀY.",
+  "- TUYỆT ĐỐI KHÔNG vì số liệu mà thay đổi thông tin thương hiệu: giá, sản phẩm, dịch vụ,",
+  "  địa chỉ, địa bàn, chứng nhận, bảo hành, giọng điệu hay lời hứa. Hồ sơ thương hiệu ở trên",
+  "  vẫn là nguồn sự thật duy nhất.",
+  "- KHÔNG nhắc tới số liệu hiệu quả trong bài đăng (không viết \"bài này được nhiều người xem\",",
+  "  không nêu lượt xem, lượt tương tác, tỉ lệ).",
+].join("\n");
 
 const toneLabel = (t: Tone) => TONES.find((x) => x.value === t)?.label ?? t;
 const toneHint = (t: Tone) => TONES.find((x) => x.value === t)?.hint ?? "";
@@ -256,6 +290,27 @@ export function buildUserPrompt(input: GenerateInput): string {
         "Hãy viết một bài thuộc đúng loại nội dung này.",
       ""
     );
+  }
+
+  // Số liệu thật của các bài đã đăng — CHỈ để chọn góc và cách trình bày.
+  //
+  // Vì sao phải kèm câu chặn cứng: đây là dữ liệu từ "thế giới bên ngoài" đối
+  // với hồ sơ thương hiệu. Không có ràng buộc, model rất dễ suy diễn ngược —
+  // thấy hướng nào hiệu quả thì tự thêm sản phẩm/giá/khuyến mãi để "đẩy" hướng
+  // đó, tức là bịa ra thông tin thương hiệu chưa từng có. Người dùng yêu cầu rõ:
+  // chỉ đổi cách triển khai, KHÔNG đổi nội dung thương hiệu đã đề ra.
+  if (input.brand?.performance?.length) {
+    lines.push(
+      "=== SỐ LIỆU THẬT TỪ CÁC BÀI ĐÃ ĐĂNG (chỉ để chọn góc và cách trình bày) ===",
+      ...input.brand.performance,
+      PERFORMANCE_SAFETY_CLAUSE,
+      ""
+    );
+  }
+
+  // Chỉ thị dò tìm hướng (giai đoạn khám phá / kiểm tra lại).
+  if (input.brand?.probe?.length) {
+    lines.push(...input.brand.probe, "");
   }
 
   // Địa bàn: chỉ xuất hiện khi thương hiệu có cấu hình và bài này đã được

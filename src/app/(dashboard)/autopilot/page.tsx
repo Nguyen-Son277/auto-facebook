@@ -159,6 +159,7 @@ export default async function AutopilotPage({
             hasBrand: Boolean(readinessState?.brandId),
             issue: readinessIssue,
           }}
+          learning={overview.learning}
         />
       </div>
     );

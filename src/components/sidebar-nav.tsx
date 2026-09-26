@@ -7,6 +7,7 @@ const NAV_ITEMS = [
   { href: "/dashboard", label: "Tổng quan", icon: "📊" },
   { href: "/composer", label: "Soạn bài", icon: "✍️" },
   { href: "/autopilot", label: "Tự động đăng", icon: "🤖" },
+  { href: "/insights", label: "Số liệu", icon: "📈" },
   { href: "/brand", label: "Thương hiệu", icon: "🏷️" },
   { href: "/media", label: "Thư viện Media", icon: "🖼️" },
   { href: "/history", label: "Lịch sử đăng", icon: "🕘" },

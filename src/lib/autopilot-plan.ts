@@ -128,6 +128,85 @@ export function vnTime(
 }
 
 /**
+ * Rải `count` mốc giờ trong một khoảng, mỗi mốc nằm trong đoạn chia đều của nó,
+ * rồi ép giãn cách tối thiểu giữa các mốc.
+ *
+ * Tách ra để dùng chung cho cả đường thường và đường có ưu tiên khung giờ
+ * (planTimeSlotsBiased) — nhờ vậy hai đường luôn cùng một cách rải, không lệch
+ * nhau về sau. `gap` PHẢI được truyền vào (không dùng hằng số) vì đó là giãn
+ * cách người dùng đặt, có thể lớn hơn mức tối thiểu.
+ */
+function slotsInRange(
+  startMin: number,
+  endMin: number,
+  count: number,
+  gap: number,
+  random: () => number
+): number[] {
+  const span = endMin - startMin;
+  if (span <= 0 || count <= 0) return [];
+
+  const segLen = span / count;
+  const slots: number[] = [];
+
+  for (let i = 0; i < count; i++) {
+    const segStart = startMin + i * segLen;
+    // Chừa 25% cuối đoạn để bài không sát bài kế tiếp
+    slots.push(Math.round(segStart + random() * segLen * 0.75));
+  }
+
+  // Ép khoảng cách tối thiểu: slot nào quá gần slot trước thì đẩy ra
+  slots.sort((a, b) => a - b);
+  for (let i = 1; i < slots.length; i++) {
+    if (slots[i] - slots[i - 1] < gap) slots[i] = slots[i - 1] + gap;
+  }
+
+  return slots;
+}
+
+/**
+ * Biến danh sách "số phút trong ngày" thành instant, bỏ những mốc không dùng
+ * được: ngoài khung, trùng giờ bài đã có, hoặc quá sớm so với hiện tại.
+ *
+ * KHÔNG ép lại giãn cách ở đây — việc đó đã làm trong slotsInRange. Làm hai lần
+ * sẽ đẩy slot ra xa gấp đôi mức người dùng đặt.
+ */
+function finalizeSlots(
+  minutes: number[],
+  date: Date,
+  endMin: number,
+  gap: number,
+  notBefore: Date | null,
+  takenMs: number[]
+): Date[] {
+  // Đổi giờ của bài đã có sang "số phút trong ngày" (theo lịch VN) để so sánh
+  const midnight = startOfDay(date);
+  const takenMinutes = takenMs
+    .map((ms) => Math.round((ms - midnight.getTime()) / 60000))
+    .filter((m) => m >= 0 && m <= 24 * 60);
+
+  const result: Date[] = [];
+  const used = [...takenMinutes];
+
+  for (const slot of [...minutes].sort((a, b) => a - b)) {
+    if (slot > endMin) continue; // đẩy ra ngoài khung thì bỏ
+
+    // Bỏ slot trùng giờ với bài đã có — đây là lý do bài bị xếp sát nhau
+    // khi bộ lập kế hoạch chạy nhiều lượt cho cùng một ngày.
+    if (used.some((t) => Math.abs(t - slot) < gap)) continue;
+
+    // 00:00 giờ VN + số phút trong ngày → instant tuyệt đối, giống nhau ở mọi máy
+    const d = new Date(midnight.getTime() + slot * 60000);
+    if (notBefore && d.getTime() < notBefore.getTime()) continue;
+
+    used.push(slot);
+    result.push(d);
+  }
+
+  return result;
+}
+
+/**
  * Chia khung giờ thành các slot rải đều cho một ngày.
  *
  * Vì sao không chọn ngẫu nhiên hoàn toàn? Vì ngẫu nhiên hay dồn 3 bài vào
@@ -160,46 +239,156 @@ export function planTimeSlots(
   const count = Math.min(requested, maxFit);
   if (count <= 0) return [];
 
-  const segLen = span / count;
-  const slots: number[] = [];
+  const minutes = slotsInRange(startMin, endMin, count, gap, random);
 
-  for (let i = 0; i < count; i++) {
-    const segStart = startMin + i * segLen;
-    // Chừa 25% cuối đoạn để bài không sát bài kế tiếp
-    slots.push(Math.round(segStart + random() * segLen * 0.75));
-  }
-
-  // Ép khoảng cách tối thiểu: slot nào quá gần slot trước thì đẩy ra
-  slots.sort((a, b) => a - b);
-  for (let i = 1; i < slots.length; i++) {
-    if (slots[i] - slots[i - 1] < gap) slots[i] = slots[i - 1] + gap;
-  }
-
-  // Đổi giờ của bài đã có sang "số phút trong ngày" (theo lịch VN) để so sánh
-  const midnight = startOfDay(date);
-  const takenMinutes = takenMs
-    .map((ms) => Math.round((ms - midnight.getTime()) / 60000))
-    .filter((m) => m >= 0 && m <= 24 * 60);
-
-  const result: Date[] = [];
-  const used = [...takenMinutes];
-
-  for (const minutes of slots) {
-    if (minutes > endMin) continue; // đẩy ra ngoài khung thì bỏ
-
-    // Bỏ slot trùng giờ với bài đã có — đây là lý do bài bị xếp sát nhau
-    // khi bộ lập kế hoạch chạy nhiều lượt cho cùng một ngày.
-    if (used.some((t) => Math.abs(t - minutes) < gap)) continue;
-
-    // 00:00 giờ VN + số phút trong ngày → instant tuyệt đối, giống nhau ở mọi máy
-    const d = new Date(midnight.getTime() + minutes * 60000);
-    if (notBefore && d.getTime() < notBefore.getTime()) continue;
-
-    used.push(minutes);
-    result.push(d);
-  }
-  return result;
+  return finalizeSlots(minutes, date, endMin, gap, notBefore, takenMs);
 }
+
+// ============================================================
+// ƯU TIÊN KHUNG GIỜ THEO SỐ LIỆU
+//
+// Khi số liệu cho thấy một khung giờ có nhiều người xem hơn, dồn MỘT PHẦN bài
+// vào khung đó. Cố ý chỉ một phần (mặc định 50%): giờ đăng tốt nhất thay đổi
+// theo mùa và theo lịch sinh hoạt, nên phải luôn giữ bài ở các khung khác để
+// còn phát hiện khi khung "tốt nhất" hết tốt. Dồn hết 100% là tự bịt mắt.
+// ============================================================
+
+export type TimeBiasWindow = {
+  /** Phút tính từ 00:00 (giờ Việt Nam), đã cắt theo khung người dùng đặt. */
+  startMin: number;
+  endMin: number;
+  /** Tỉ lệ số bài nên nằm trong khung này (0–1). */
+  share: number;
+};
+
+/**
+ * Như `planTimeSlots` nhưng dồn một phần bài vào khung giờ ưu tiên.
+ *
+ * `bias === null` → trả về ĐÚNG kết quả của `planTimeSlots`. Đây là điều kiện
+ * quan trọng: Page chưa đủ dữ liệu (hoặc chưa bật tối ưu) phải có lịch đăng
+ * giống hệt trước khi có tính năng, không chỉ "gần giống".
+ */
+export function planTimeSlotsBiased(
+  config: SlotConfig,
+  date: Date,
+  notBefore: Date | null,
+  random: () => number,
+  takenMs: number[],
+  bias: TimeBiasWindow | null
+): Date[] {
+  if (!bias) return planTimeSlots(config, date, notBefore, random, takenMs);
+
+  const startMin = parseHm(config.windowStart) ?? 7 * 60;
+  const endMin = parseHm(config.windowEnd) ?? 21 * 60;
+  const span = endMin - startMin;
+  if (span <= 0) return [];
+
+  const gap = Math.max(config.minGapMinutes || 0, MIN_GAP_MINUTES);
+  const requested = Math.min(Math.max(config.postsPerDay || 1, 1), MAX_POSTS_PER_DAY);
+  const maxFit = Math.max(Math.floor(span / gap) + 1, 1);
+  const count = Math.min(requested, maxFit);
+  if (count <= 0) return [];
+
+  // Khung ưu tiên phải GIAO với khung người dùng đặt, và phần giao phải đủ
+  // rộng cho ít nhất một slot. Không thoả thì rơi về đường thường.
+  const from = Math.max(bias.startMin, startMin);
+  const to = Math.min(bias.endMin, endMin);
+  if (to - from < gap || to <= from) {
+    return planTimeSlots(config, date, notBefore, random, takenMs);
+  }
+
+  const biasedCount = Math.min(Math.max(Math.round(count * clampShare(bias.share)), 1), count - 1);
+  // count = 1 thì không tách được: dồn hết vào khung ưu tiên là hợp lý
+  const effectiveBiased = count === 1 ? 1 : biasedCount;
+
+  const minutes: number[] = [];
+
+  // Phần 1: trong khung ưu tiên. Không xếp nhiều hơn số slot band chứa được,
+  // nếu không finalizeSlots sẽ phải loại bớt và ta lại mất bài.
+  const bandFit = Math.max(Math.floor((to - from) / gap) + 1, 1);
+  const biasedSlots = Math.min(effectiveBiased, bandFit);
+  minutes.push(...slotsInRange(from, to, biasedSlots, gap, random));
+
+  // Phần 2: phần còn lại của khung, TRỪ khung ưu tiên.
+  //
+  // ⚠️ PHẢI chừa một khoảng `gap` ở hai mép khung ưu tiên (lỗi thật đã gặp):
+  // nếu xếp bài sát mép, slot ngoài và slot trong band có thể cách nhau 117
+  // phút khi người dùng đặt giãn cách 120 → finalizeSlots loại slot đó và người
+  // dùng mất bài mà không có cảnh báo. Chừa sẵn `gap` ở mép khiến mọi cặp slot
+  // (trong band ↔ ngoài band) luôn thoả giãn cách ngay từ lúc sinh.
+  //
+  // Ba trường hợp, theo thứ tự kiểm tra — thứ tự này quan trọng:
+  //   a. Cả hai bên đều đủ rộng  → chia số slot theo độ rộng từng bên.
+  //   b. Chỉ MỘT bên đủ rộng     → dồn hết phần còn lại vào bên đó.
+  //   c. Không bên nào đủ rộng   → lấy bù bên trong khung ưu tiên.
+  const restCount = count - biasedSlots;
+  if (restCount > 0) {
+    const beforeEnd = from - gap;
+    const afterStart = to + gap;
+    const beforeSpan = Math.max(beforeEnd - startMin, 0);
+    const afterSpan = Math.max(endMin - afterStart, 0);
+    const beforeUsable = beforeSpan >= gap;
+    const afterUsable = afterSpan >= gap;
+
+    if (beforeUsable && afterUsable) {
+      // (a) Chia theo độ rộng, đảm bảo cả hai bên đều nhận ít nhất 1 slot
+      const totalRest = beforeSpan + afterSpan;
+      let beforeCount = Math.round((restCount * beforeSpan) / totalRest);
+      beforeCount = Math.min(Math.max(beforeCount, 1), restCount - 1);
+      const afterCount = restCount - beforeCount;
+
+      minutes.push(...slotsInRange(startMin, beforeEnd, beforeCount, gap, random));
+      minutes.push(...slotsInRange(afterStart, endMin, afterCount, gap, random));
+    } else if (beforeUsable) {
+      // (b) Chỉ bên trước dùng được
+      minutes.push(...slotsInRange(startMin, beforeEnd, restCount, gap, random));
+    } else if (afterUsable) {
+      // (b) Chỉ bên sau dùng được
+      minutes.push(...slotsInRange(afterStart, endMin, restCount, gap, random));
+    } else {
+      // (c) Không còn chỗ ngoài khung ưu tiên → lấy bù bên trong
+      const extraFit = Math.max(Math.floor((to - from) / gap) + 1 - biasedSlots, 0);
+      if (extraFit > 0) {
+        minutes.push(...slotsInRange(from, to, Math.min(restCount, extraFit), gap, random));
+      }
+    }
+  }
+
+  return finalizeSlots(minutes, date, endMin, gap, notBefore, takenMs);
+}
+
+function clampShare(share: number): number {
+  if (!Number.isFinite(share)) return 0.5;
+  return Math.min(Math.max(share, 0), 0.8);
+}
+
+/**
+ * Chọn trụ cột cho GIAI ĐOẠN DÒ: phân bổ ĐỀU thay vì theo trọng số.
+ *
+ * Vì sao cần hàm riêng thay vì dùng `pickPillar`: `pickPillar` chia theo trọng
+ * số người dùng đặt, mà chính trọng số đó là thứ chưa được kiểm chứng khi Page
+ * mới bắt đầu. Dò để LẤY dữ liệu kiểm chứng, nên phải trải đều.
+ *
+ * Vẫn giữ hai hành vi tốt của `pickPillar`: chọn hướng ít dùng nhất, và tránh
+ * lặp lại y hệt bài liền trước.
+ */
+export function pickPillarEvenly(
+  pillars: PillarLike[],
+  usage: Record<string, number>
+): PillarLike | null {
+  if (pillars.length === 0) return null;
+  if (pillars.length === 1) return pillars[0];
+
+  const countOf = (p: PillarLike) => usage[p.name] ?? 0;
+
+  let best = pillars[0];
+  for (const p of pillars) {
+    if (countOf(p) < countOf(best)) best = p;
+  }
+
+  return best;
+}
+
 
 export type PillarLike = {
   id: string;

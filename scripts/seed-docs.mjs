@@ -371,6 +371,71 @@ Tài liệu thuộc **thương hiệu** (không thuộc Page) — dùng chung ch
 Ở trang [Facebook Pages](/pages), mỗi Page có thể gán vào một thương hiệu. Page được gán thương hiệu thì bài viết của Page luôn dùng đúng hồ sơ đó.`,
   },
   {
+    title: "Số liệu & tự tối ưu bài đăng",
+    notifyOnPublish: false,
+    body: `# Số liệu & tự tối ưu bài đăng
+
+Trang [Số liệu](/insights) cho biết **nội dung bạn đang triển khai đi theo hướng nào và số liệu ra sao**, đồng thời để AutoPilot tự điều chỉnh các bài sau cho hợp thị hiếu người xem.
+
+> 🔒 **Ranh giới quan trọng:** tính năng này **chỉ đổi CÁCH TRIỂN KHAI** — góc tiếp cận, loại bài, khung giờ, cách mở bài. Nó **không bao giờ** đổi thông tin thương hiệu: giá, sản phẩm, địa chỉ, địa bàn, giọng điệu, điều cấm. Hồ sơ thương hiệu bạn nhập vẫn là nguồn sự thật duy nhất. Trọng số trụ cột bạn đặt **không bị ghi đè**.
+
+## 1. Bật tự tối ưu
+
+Mặc định **TẮT** và bật riêng cho từng Page:
+
+1. Vào [Số liệu](/insights) → chọn Page.
+2. Bấm **🚀 Bật tự tối ưu theo số liệu**.
+
+Page không bật thì AutoPilot lập kế hoạch **y như trước** và **không phát sinh lệnh gọi Facebook nào**. Tắt lại **không xoá** số liệu đã thu thập.
+
+## 2. Cần quyền gì
+
+| Quyền | Bắt buộc? | Lấy được gì |
+|---|---|---|
+| \`pages_read_engagement\` | **Bắt buộc** (đã có sẵn) | Cảm xúc, bình luận, chia sẻ của từng bài |
+| \`read_insights\` | Tuỳ chọn | Lượt hiển thị, lượt xem, số người tiếp cận, lượt click |
+
+Thiếu \`read_insights\` thì tính năng **vẫn chạy**, chỉ xếp hạng theo tương tác (cảm xúc ×1 + bình luận ×3 + chia sẻ ×5) và trang sẽ nói rõ. Thêm quyền ở [Facebook Apps](/facebook-apps) rồi đồng bộ lại.
+
+Facebook chỉ trả số liệu Insights cho **Page từ 100 lượt thích trở lên**. Page chưa đủ sẽ hiện trạng thái riêng.
+
+## 3. Ba giai đoạn
+
+- 🔬 **Dò tìm hướng** — khi mới bật hoặc chưa đủ **8 bài** đã đăng. Hệ thống trải đều có kiểm soát qua các trụ cột, 4 kiểu mở bài (câu hỏi / con số / gạch đầu dòng / kể chuyện) và các khung giờ trong khung bạn đặt. Tối đa **12 bài dò**.
+- 🚀 **Khai thác** — đã đủ 8 bài và số liệu ổn định: áp trọng số, khung giờ và kiểu mở bài hiệu quả nhất.
+- 🔁 **Kiểm tra lại** — khi số liệu **giảm đáng kể**: tạm quên phần học và dò lại để bám xu hướng mới.
+
+Bạn cũng có thể tự bấm **🔁 Kiểm tra lại ngay** khi thấy tương tác giảm trên Facebook.
+
+## 4. Mức điều chỉnh (cố ý thận trọng)
+
+- Trọng số trụ cột đổi **tối đa ±30%**, không hạ dưới 50% giá trị gốc, và **tổng không đổi** → số bài/ngày của bạn giữ nguyên.
+- Chỉ trụ cột có **từ 3 bài** mới được điều chỉnh.
+- Khung giờ: dồn tối đa **50%** số bài vào khung tốt nhất, luôn **trong khung giờ bạn đặt**, chỉ khi đã đủ tin cậy.
+- Dưới **8 bài** thì chưa kết luận gì — tránh đoán bừa từ vài bài.
+
+## 5. Đọc nhận xét cho đúng
+
+Khối **"Nhận xét & hướng đang triển khai"** luôn kèm 3 dòng minh bạch:
+
+1. Số liệu cấp bài do Facebook cập nhật khoảng **24 giờ một lần**.
+2. **"Còn hiệu quả ~N ngày" là ước lượng thô** suy từ chính số liệu của Page bạn — **không phải dự báo của Facebook**.
+3. Khi thiếu \`read_insights\`, thứ hạng chỉ dựa trên tương tác.
+
+Bài dưới 24 giờ được đánh dấu "đang thu thập": vẫn hiển thị nhưng **không dùng để học**.
+
+## 6. Bốn khối còn lại
+
+- **Bài đăng mới nhất** — 20 bài gần nhất kèm lượt xem, ❤ 💬 ↗, điểm tương tác, tỉ lệ người xem đáp lại, nhãn **Tự động / Soạn tay**, nhãn **🔬 Dò**, và ghi chú vì sao bài đó được viết như vậy.
+- **Phân tích theo hướng** — xếp hạng theo trụ cột / khung giờ / kiểu mở bài / loại nội dung / địa bàn, kèm độ tin cậy và top–bottom 3 bài.
+- **Đang áp dụng gì** — so trọng số **bạn đặt** với trọng số **đang dùng**, khung giờ ưu tiên, kiểu mở bài ưu tiên, và **xem trước nội dung số liệu gửi cho AI**.
+- **Số liệu cấp Page** — 14 ngày gần nhất: người theo dõi, lượt xem Page, lượt xem nội dung, tương tác bài, thành phố đông người theo dõi (chỉ để tham khảo — địa bàn viết bài vẫn lấy từ hồ sơ thương hiệu).
+
+## 7. Vì sao thỉnh thoảng thiếu chỉ số
+
+Một số metric cũ (\`post_impressions_unique\`, \`post_video_views_unique\`…) **đã bị Meta ngừng hỗ trợ từ 15/06/2026**. Hệ thống dùng metric thay thế và khi Facebook từ chối một nhóm chỉ số thì **bỏ nhóm đó, lấy phần còn lại**, rồi hiện rõ đang thiếu gì.`,
+  },
+  {
     title: "Lịch đăng & lịch sử đăng bài",
     notifyOnPublish: false,
     body: `# Lịch đăng & lịch sử đăng bài

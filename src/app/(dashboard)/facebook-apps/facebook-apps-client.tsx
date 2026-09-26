@@ -50,7 +50,8 @@ function SyncForm({ conn }: { conn: ConnectionView }) {
       <label className="flex-1 text-xs">
         <span className="mb-1 block font-medium text-gray-600">
           User Access Token của App này (quyền pages_show_list,
-          pages_manage_posts, pages_read_engagement)
+          pages_manage_posts, pages_read_engagement — và read_insights nếu muốn
+          xem số lượt hiển thị/tiếp cận của bài đăng)
         </span>
         <input
           name="userToken"

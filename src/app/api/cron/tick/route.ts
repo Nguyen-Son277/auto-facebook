@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import {
   isSchedulerEnabled,
   kickAutopilotPlanner,
+  kickInsightsRefresh,
   runSchedulerTick,
   type TickSource,
 } from "@/lib/scheduler";
@@ -103,11 +104,17 @@ async function handle(request: Request) {
     // được lên kế hoạch bài mới y như khi vòng lặp chạy trong app.
     const plannerKicked = kickAutopilotPlanner();
 
+    // Thu thập số liệu hiệu quả cũng chạy song song ở đây — nhờ vậy người dùng
+    // chạy SCHEDULER_IN_PROCESS=0 + cron ngoài vẫn có số liệu mới cho phần tự
+    // tối ưu, không cần vòng lặp trong app.
+    const insightsKicked = kickInsightsRefresh();
+
     const result = await runSchedulerTick(new Date(), source);
     return NextResponse.json({
       ok: true,
       source,
       plannerKicked,
+      insightsKicked,
       durationMs: Date.now() - startedAt,
       ...result,
     });

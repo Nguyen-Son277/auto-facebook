@@ -88,6 +88,7 @@ App chỉ mở cho người dùng được admin cấp quyền:
 | `npm run dev` | Dev server (Turbopack) |
 | `npm run build` | Build production |
 | `npm run lint` | Kiểm tra ESLint |
+| `npm run test:insights` | Kiểm thử tính năng học từ số liệu (235 check, không cần DB/mạng) |
 | `npx prisma studio` | GUI xem/sửa dữ liệu |
 | `npx prisma migrate dev` | Tạo/áp dụng migration sau khi sửa `prisma/schema.prisma` |
 
@@ -97,7 +98,7 @@ App chỉ mở cho người dùng được admin cấp quyền:
 src/
 ├── app/
 │   ├── (auth)/            # /login, /register, /setup, /change-password
-│   ├── (dashboard)/       # Trang private (dashboard, composer, brand, autopilot, media, history, calendar, facebook-apps, pages, settings, admin)
+│   ├── (dashboard)/       # Trang private (dashboard, composer, brand, autopilot, insights, media, history, calendar, facebook-apps, pages, settings, admin)
 │   ├── api/uploads/       # Route Handler nhận/phát/xóa file video upload
 │   ├── api/cron/tick/     # Endpoint cho worker/cron chạy một vòng scheduler
 │   ├── actions/           # Server Actions: auth, admin, settings, pages, composer, media, publish, history, schedule, brand, autopilot
@@ -409,6 +410,127 @@ Facebook. Nó cũng chạy kiểu "bắn rồi quên", nên nếu nhà cung cấ
 
 Bài do hệ thống viết mang nhãn **🤖 kèm tên trụ cột** để phân biệt với bài bạn soạn tay.
 Bài đang chờ duyệt hiện nhãn tím **Chờ duyệt** kèm lối tắt sang trang duyệt.
+
+## 📈 Học từ số liệu bài đăng — tự tối ưu theo thời gian (trang `/insights`)
+
+AutoPilot không chỉ "đăng rồi quên": nó **đọc số liệu hiệu quả thật** của các bài đã đăng
+rồi tự điều chỉnh cách triển khai cho các bài sau. Mục tiêu là tránh nội dung sáo rỗng lặp
+khuôn và không tụt lại khi thị hiếu người xem đổi.
+
+> ⚠️ **Ranh giới bắt buộc:** tính năng này **chỉ đổi CÁCH TRIỂN KHAI** — góc tiếp cận, loại
+> bài, khung giờ, cách mở bài. Nó **không bao giờ** đổi thông tin thương hiệu (giá, sản phẩm,
+> địa chỉ, địa bàn, giọng điệu, điều cấm). Hồ sơ thương hiệu vẫn là nguồn sự thật duy nhất.
+> Trọng số trụ cột bạn đặt trong `ContentPillar` **không bị ghi đè** — bản điều chỉnh chỉ tồn
+> tại trong bộ nhớ của lượt lập kế hoạch.
+
+### Bật ở đâu
+
+Mặc định **TẮT**. Bật riêng cho từng Page: trang `/insights` → nút **🚀 Bật tự tối ưu theo số
+liệu** (hoặc thẻ 📈 trong trang `/autopilot`). Page không bật thì lập kế hoạch **y như trước**
+và **không phát sinh lệnh gọi Graph API nào**. Tắt lại không xoá dữ liệu đã thu thập.
+
+### Quyền cần có
+
+| Quyền | Bắt buộc? | Dùng để lấy gì |
+|---|---|---|
+| `pages_read_engagement` | **Bắt buộc** (app đã có) | Cảm xúc, bình luận, chia sẻ của từng bài |
+| `read_insights` | Tuỳ chọn | Lượt hiển thị / lượt xem / số người tiếp cận / lượt click |
+
+Thiếu `read_insights` thì tính năng **vẫn chạy**, chỉ kém chính xác hơn: thứ hạng dựa trên
+tương tác (cảm xúc ×1 + bình luận ×3 + chia sẻ ×5) và giao diện nói rõ điều đó. Thêm quyền ở
+trang `/facebook-apps` rồi đồng bộ lại.
+
+Facebook chỉ trả số liệu Insights cho **Page có từ 100 lượt thích trở lên**; Page chưa đủ sẽ
+hiện trạng thái riêng và không thử lại dày.
+
+### Ba giai đoạn học
+
+| Giai đoạn | Khi nào | Hệ thống làm gì |
+|---|---|---|
+| 🔬 **Dò tìm hướng** | Page vừa bật, hoặc chưa đủ **8 bài** AutoPilot đã đăng | Trải đều **có kiểm soát**: mỗi bài lần lượt nhắm các trụ cột đang bật, 4 kiểu mở bài (câu hỏi / con số / gạch đầu dòng / kể chuyện) và các khung giờ trong khung bạn đặt. Ngân sách tối đa **12 bài** — hết ngân sách mà chưa đủ dữ liệu thì thoát dò và làm việc với những gì đang có |
+| 🚀 **Khai thác** | Đã đủ 8 bài và số liệu ổn định | Áp trọng số trụ cột, khung giờ và kiểu mở bài hiệu quả nhất |
+| 🔁 **Kiểm tra lại** | Phát hiện số liệu **giảm đáng kể** | Tạm "quên" phần học, quay lại dò để bám xu hướng mới |
+
+**Phát hiện tụt** dựa trên 5 tín hiệu độc lập (xu hướng 7 ngày, nhiều hướng cùng giảm, vài bài
+mới nhất tụt hẳn, bão hoà một hướng, trung vị giảm so với lần phân tích trước). Để **không báo
+động giả**: cần 2 tín hiệu (hoặc 1 tín hiệu nặng khi đã đủ tin cậy), có **cooldown 14 ngày**,
+và bỏ qua khi bạn vừa đổi cấu hình trong 7 ngày.
+
+Bạn cũng có thể tự bấm **🔁 Kiểm tra lại ngay** khi thấy tương tác giảm trên Facebook — thao
+tác này bỏ qua cooldown vì đó là quyết định của con người.
+
+### Giới hạn điều chỉnh (cố ý thận trọng)
+
+- Trọng số trụ cột chỉ đổi **tối đa ±30%** mỗi lượt, **không hạ dưới 50%** giá trị gốc, và
+  **tổng trọng số không đổi** — nên số bài/ngày của bạn không bị thay đổi.
+- Chỉ trụ cột có **từ 3 bài trở lên** mới được điều chỉnh; trụ cột chưa đủ mẫu giữ nguyên.
+- Khung giờ: chỉ dồn **50%** số bài vào khung tốt nhất, luôn nằm **trong khung giờ bạn đặt**,
+  và chỉ khi đã đủ tin cậy (≥20 bài, band đó ≥5 bài). Giữ 50% ở khung khác để còn phát hiện khi
+  khung "tốt nhất" hết tốt.
+- Cần **tối thiểu 8 bài** đã đăng mới bắt đầu kết luận; dưới ngưỡng thì không đổi gì.
+
+### Nhận xét nội dung đang triển khai
+
+Sau mỗi lần lấy số liệu, trang `/insights` hiện khối **"Nhận xét & hướng đang triển khai"**:
+
+- Một câu tóm tắt + mô tả nội dung đang nghiêng về hướng nào.
+- Bảng hướng: số bài, hiệu quả trung bình, **% so kỳ trước**, trạng thái
+  (Đang lên / Ổn định / Đang giảm / Đã bão hoà / Đang thử), **ước lượng còn hiệu quả ~N ngày**
+  và khuyến nghị (tăng / giữ / giảm / tạm dừng).
+- Việc nên làm tiếp.
+
+Nhận xét được sinh bằng **hàm thuần từ chính dữ liệu** (không gọi AI viết nhận xét), nên cùng
+một bộ số liệu luôn cho cùng một câu và bạn kiểm chứng được. Kèm theo luôn có 3 dòng minh bạch:
+
+1. Số liệu cấp bài do Facebook cập nhật khoảng **24 giờ một lần**.
+2. **"Còn hiệu quả ~N ngày" là ước lượng thô**, ngoại suy từ chính số liệu của Page bạn —
+   **không phải dự báo của Facebook** và không phải mô hình học máy.
+3. Khi thiếu `read_insights`, thứ hạng chỉ dựa trên tương tác.
+
+### Bốn khối còn lại của trang `/insights`
+
+| Khối | Nội dung |
+|---|---|
+| **Bài đăng mới nhất** | 20 bài gần nhất kèm lượt xem, ❤ 💬 ↗, điểm tương tác, tỉ lệ người xem đáp lại, nhãn **Tự động / Soạn tay** và **🔬 Dò**, cùng ghi chú vì sao bài đó được viết như vậy |
+| **Phân tích theo hướng** | Bảng xếp hạng theo trụ cột / khung giờ / kiểu mở bài / loại nội dung / địa bàn, kèm độ tin cậy và top–bottom 3 bài |
+| **Đang áp dụng gì** | So sánh trọng số **bạn đặt** với trọng số **đang dùng**, khung giờ ưu tiên, kiểu mở bài ưu tiên, và **xem trước nội dung số liệu gửi cho AI** |
+| **Số liệu cấp Page** | 14 ngày gần nhất: người theo dõi, lượt xem Page, lượt xem nội dung, tương tác bài, thành phố đông người theo dõi (chỉ để tham khảo) |
+
+### Nhịp thu thập & hạn mức
+
+- Số liệu được thu thập **nền, mỗi 60 phút** (`INSIGHTS_INTERVAL_MS`), có thuê bao riêng trong
+  DB nên nhiều instance serverless không chạy chồng. Cron ngoài gọi `/api/cron/tick` cũng kích
+  hoạt được — không cần vòng lặp trong app.
+- Chạy **song song**, không nằm trong luồng đăng bài, nên không làm trễ bài tới giờ.
+- Hạn mức mỗi lượt: **3 Page**, **60 lệnh gọi Graph API**, **25 bài** cập nhật tương tác/Page,
+  **15 bài** lấy insights sâu/Page.
+- Làm mới theo trạng thái: bình thường 18h; bài còn "nóng" (dưới 24h) 6h; lỗi quyền / Page ít
+  người thích / token hỏng **7 ngày** (không đập vào tường).
+- **Bài dưới 24h** được đánh dấu "đang thu thập": vẫn hiển thị nhưng **không dùng để học** —
+  Facebook chưa chốt số liệu, học từ đó sẽ khiến hệ thống đổi hướng vì nhiễu.
+
+### Metric nào đang dùng (và đã bị Meta bỏ)
+
+Các metric `*_unique` kiểu cũ (`post_impressions_unique`, `post_video_views_unique`…) **đã bị
+Meta ngừng hỗ trợ cho mọi phiên bản API từ 15/06/2026**; gọi vào chúng trả lỗi `3001 /
+1504028`. Hệ thống dùng metric thay thế (`post_media_view`, `post_total_media_view_unique`) và
+giữ `post_impressions` (tổng) làm dự phòng. Khi Facebook từ chối một nhóm metric, hệ thống **bỏ
+nhóm đó và lấy phần còn lại** (trạng thái `PARTIAL`) rồi hiện rõ metric nào đang thiếu.
+
+Meta đổi tiếp thì **chỉ cần sửa một chỗ**: `INSIGHT_METRIC_GROUPS` trong
+[src/lib/insights-core.ts](src/lib/insights-core.ts).
+
+### Kiểm thử
+
+```bash
+npm run test:insights     # 235 kiểm thử — không cần DB, không cần mạng
+```
+
+Bộ test phủ: đọc payload Graph (kể cả payload hỏng), phân loại lỗi, nhịp làm mới, phân tích
+hiệu quả (median/MAD, mức tin cậy, xu hướng), giới hạn điều chỉnh (±30%, tổng không đổi),
+vòng đời học (giai đoạn, 5 tín hiệu tụt, chống báo động giả, ngân sách dò, hướng nội dung),
+nhận xét, và **guard đọc mã nguồn** khẳng định tính năng không ghi vào `ContentPillar` /
+`BrandProfile`.
 
 ## Lịch đăng (Content Calendar)
 
