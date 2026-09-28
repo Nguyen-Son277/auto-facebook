@@ -12,6 +12,11 @@ import { buildMessage, deliverToFacebook } from "@/lib/deliver";
 import type { GraphContext } from "@/lib/facebook";
 import { getSetting, setSetting } from "@/lib/settings";
 import { attachedFromDbMedia, validateAttachments, type AttachedMedia } from "@/lib/posts";
+import {
+  hasRoomForPost,
+  makeDeadline,
+  type PlannerDeadline,
+} from "./autopilot-plan";
 
 // ============================================================
 // Worker tự động đăng bài theo lịch.
@@ -388,13 +393,16 @@ export const PLANNER_INTERVAL_MS = Number(
 );
 
 /**
- * Ngân sách thời gian cho MỘT lượt lập kế hoạch chạy nền (mặc định 40 giây).
+ * Ngân sách thời gian cho MỘT lượt lập kế hoạch chạy nền (mặc định 45 giây).
  *
  * PHẢI nhỏ hơn trần thời gian của function (xem `maxDuration` ở
  * app/api/cron/tick/route.ts). Trước đây planner chạy không có hạn nên với
  * ~20 giây/bài, một lượt 12 bài kéo dài ~170 giây và bị nền tảng kill giữa
  * chừng: lease không được nhả, sổ theo dõi không được ghi, lỗi thật không được
  * lưu. Nay planner tự dừng trước hạn; phần còn lại do nhịp cron sau trám.
+ *
+ * 45 giây (không phải 60) vì còn phải chừa chỗ cho `runSchedulerTick` trước đó
+ * và cho `runInsightsRefreshTask` chạy sau trong cùng một function.
  */
 export const PLANNER_BUDGET_MS = Number(
   process.env.PLANNER_BUDGET_MS ?? 40_000
@@ -467,8 +475,6 @@ async function releasePlannerLease(): Promise<void> {
  * tới hạn `maxDuration` — xem src/app/api/cron/tick/route.ts.
  */
 export async function runAutopilotPlannerTask(): Promise<void> {
-  const { makeDeadline } = await import("./autopilot-plan");
-
   if (!(await acquirePlannerLease())) {
     console.log(
       "[tự động] bỏ qua lượt lập kế hoạch — một tiến trình khác đang giữ thuê bao."
@@ -487,10 +493,21 @@ export async function runAutopilotPlannerTask(): Promise<void> {
     const { runAutopilotPlannerSafely } = await import("./autopilot");
     // Hạn chót: planner tự dừng trước khi nền tảng kill, phần còn lại do nhịp
     // cron kế tiếp trám (planner idempotent).
+    const plannedAt = Date.now();
     const result = await runAutopilotPlannerSafely(
       new Date(),
       makeDeadline(PLANNER_BUDGET_MS)
     );
+    // Log thời lượng thật của lượt: nếu nó thường xuyên sát/vượt ngân sách thì
+    // function đang bị nền tảng treo hoặc provider chậm — khác hẳn "planner lỗi".
+    if (result) {
+      console.log(
+        `[tự động] lượt lập kế hoạch ${((Date.now() - plannedAt) / 1000).toFixed(1)}s` +
+          ` (ngân sách ${Math.round(PLANNER_BUDGET_MS / 1000)}s) — tạo ${result.created},` +
+          ` bỏ qua ${result.skipped}, Page lỗi ${result.pages.filter((p) => p.error).length}` +
+          (result.stoppedEarly ? ", dừng sớm do hết ngân sách" : "")
+      );
+    }
     if (result && (result.created > 0 || result.skipped > 0)) {
       console.log(
         `[tự động] đã tạo ${result.created} bài cho ${result.pages.length} Page` +
@@ -638,18 +655,40 @@ async function releaseInsightsLease(): Promise<void> {
 }
 
 /**
+ * Thời gian tối thiểu còn lại của function để còn đáng bắt đầu thu thập số liệu.
+ *
+ * Nếu không đủ mà vẫn chạy thì lượt thu thập bị nền tảng cắt giữa chừng → `finally`
+ * không chạy → thuê bao insights bị giữ tới hết `INSIGHTS_LEASE_MS` (15 phút), và
+ * lượt sau cũng không chạy được. Thà bỏ lượt này và nhả thuê bao ngay.
+ */
+export const INSIGHTS_MIN_BUDGET_MS = Number(
+  process.env.INSIGHTS_MIN_BUDGET_MS ?? 15_000
+);
+
+/**
  * Chạy một lượt thu thập số liệu tới cùng (đã bọc thuê bao).
  *
  * Trả về Promise để caller có thể `await` trong `after()` của route cron — cùng
  * lý do với `runAutopilotPlannerTask`: bắn rồi quên thì trên serverless instance
  * bị freeze ngay sau khi trả response, và phần việc đang dở bị bỏ.
+ *
+ * @param deadline hạn còn lại của function; không đủ `INSIGHTS_MIN_BUDGET_MS` thì
+ *                 bỏ lượt này (nhả thuê bao) để không bị cắt giữa chừng.
  */
-export async function runInsightsRefreshTask(): Promise<void> {
+export async function runInsightsRefreshTask(
+  deadline: PlannerDeadline | null = null
+): Promise<void> {
   if (!(await acquireInsightsLease())) {
     console.log("[số liệu] bỏ qua lượt thu thập — tiến trình khác đang giữ thuê bao.");
     return;
   }
   try {
+    if (!hasRoomForPost(deadline, new Date(), INSIGHTS_MIN_BUDGET_MS)) {
+      console.log(
+        "[số liệu] bỏ qua lượt thu thập — không đủ thời gian còn lại của function."
+      );
+      return;
+    }
     // Nạp động: giữ cho luồng đăng bài không phải tải sẵn module insights
     const { pagesDueForInsights, refreshInsightsForPage, MAX_API_CALLS_PER_RUN } =
       await import("./fb-insights");

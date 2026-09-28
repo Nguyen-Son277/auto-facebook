@@ -33,7 +33,27 @@ export const MIN_GAP_MINUTES = 30;
  * băng vào bundle trình duyệt và âm thầm bỏ qua cấu hình phía server. Phần đọc
  * env nằm ở module server-only — xem `AI_CALL_TIMEOUT_MS` trong lib/ai.ts.
  */
-export const DEFAULT_AI_CALL_TIMEOUT_MS = 30_000;
+export const DEFAULT_AI_CALL_TIMEOUT_MS = 35_000;
+
+/**
+ * Thời gian tối thiểu để BẮT ĐẦU một bài (ms).
+ *
+ * Một bài cần 1 lời gọi AI viết nội dung (~10 s) + 1 lời gọi AI xin từ khóa ảnh
+ * (~6 s) + ít nhất 1 lời gọi Pexels. Nếu chỉ còn ít hơn mức này mà vẫn khởi động
+ * thì lời gọi chắc chắn đứt vì hạn chờ bị kẹp theo phần ngân sách còn lại —
+ * vừa tốn nốt thời gian vừa ghi một LỖI GIẢ (đã gặp thật: "Model không trả lời
+ * trong 3 giây"), và lỗi giả đó lại kích hoạt lớp nghỉ-sau-lỗi.
+ */
+export const MIN_POST_BUDGET_MS = 25_000;
+
+/**
+ * Thời gian tối thiểu để THỬ lấy ảnh (ms).
+ *
+ * Dưới mức này thì bỏ qua bước ảnh hẳn (không gọi AI từ khóa, không gọi Pexels)
+ * và tạo bài dạng chỉ có chữ — vì "có bài còn hơn mất bài", và vì bước ảnh
+ * KHÔNG được phép đẩy lượt chạy vượt hạn của function.
+ */
+export const MIN_MEDIA_BUDGET_MS = 8_000;
 
 /** Hạn chót của một lượt lập kế hoạch (mốc epoch ms). */
 export type PlannerDeadline = { at: number };
@@ -77,6 +97,55 @@ export function aiTimeoutMs(
   const left = remainingBudgetMs(deadline, now);
   if (!Number.isFinite(left)) return capMs;
   return Math.max(Math.min(capMs, left), 1);
+}
+
+/**
+ * Còn đủ thời gian để bắt đầu một việc cần `minMs` không.
+ *
+ * Khác `deadlineExceeded` (chỉ hỏi "đã quá hạn chưa"): hàm này hỏi "có đủ thời
+ * gian để làm XONG không". Dùng trước mỗi bài và trước bước ảnh để không bao
+ * giờ khởi động một việc chắc chắn đứt vì hết giờ.
+ */
+export function hasRoomForPost(
+  deadline: PlannerDeadline | null | undefined,
+  now: Date = new Date(),
+  minMs: number = MIN_POST_BUDGET_MS
+): boolean {
+  if (!deadline) return true;
+  return remainingBudgetMs(deadline, now) >= minMs;
+}
+
+/**
+ * Hạn chờ cho một lời gọi mạng: không vượt `baseMs` và không vượt phần ngân sách
+ * còn lại, nhưng luôn ít nhất `floorMs` để lời gọi còn cơ hội trả về lỗi rõ ràng
+ * thay vì bị treo.
+ *
+ * Vì sao cần: `searchMedia` từng hardcode 20 giây và lặp tối đa 3 lần cho MỘT
+ * bài (~60 giây) — nằm NGOÀI hạn của lượt, đủ để đẩy function vượt `maxDuration`
+ * và bị kill giữa chừng (đúng lại lỗi gốc: thuê bao không được nhả, sổ không ghi).
+ */
+export function boundedTimeout(
+  baseMs: number,
+  deadline: PlannerDeadline | null | undefined,
+  now: Date = new Date(),
+  floorMs = 1_000
+): number {
+  const left = remainingBudgetMs(deadline, now);
+  if (!Number.isFinite(left)) return baseMs;
+  return Math.max(Math.min(baseMs, left), floorMs);
+}
+
+/**
+ * Lỗi này có phải loại CHẶN lập kế hoạch không.
+ *
+ * Cảnh báo thiếu ảnh KHÔNG phải lỗi chặn — chính code ghi rõ "có bài còn hơn mất
+ * bài". Nhưng cảnh báo đó được lưu CHUNG cột `lastPlanError` với lỗi thật, nên
+ * nếu dùng thẳng cột đó làm điều kiện nghỉ-sau-lỗi thì một bài thiếu ảnh sẽ khoá
+ * việc lập kế hoạch của cả Page — đã gặp thật.
+ */
+export function isBlockingPlanError(message: string | null | undefined): boolean {
+  if (!message) return false;
+  return !message.includes("không tìm được ảnh");
 }
 
 /** Cấu hình tối thiểu để tính slot giờ. */

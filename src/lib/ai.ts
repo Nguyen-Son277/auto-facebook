@@ -211,6 +211,19 @@ export async function chatCompletion(input: {
     return JSON.stringify(body);
   };
 
+  // Log THỜI LƯỢNG mỗi lời gọi: không có nó thì không thể phân biệt "provider
+  // chậm" với "function bị nền tảng treo", và mọi chẩn đoán chỉ là phỏng đoán.
+  // Xuất hiện trong Vercel logs với tiền tố [AI].
+  const startedAt = Date.now();
+  const finish = (result: ChatResult): ChatResult => {
+    const ms = Date.now() - startedAt;
+    console.log(
+      `[AI] ${result.ok ? "ok" : "lỗi"} ${ms}ms model=${result.model || "-"} hạn=${timeoutSec}s` +
+        (result.ok ? "" : ` — ${(result.error ?? "").slice(0, 140)}`)
+    );
+    return result;
+  };
+
   const call = async (withTuning: boolean) =>
     fetch(`${url}/chat/completions`, {
       method: "POST",
@@ -238,52 +251,52 @@ export async function chatCompletion(input: {
     }
 
     if (!res.ok) {
-      return {
+      return finish({
         ok: false,
         content: "",
         model,
         error: `Model "${model}" trả về lỗi ${res.status}. ${bodyText.slice(0, 300)}`,
-      };
+      });
     }
 
     let data: unknown;
     try {
       data = JSON.parse(bodyText);
     } catch {
-      return {
+      return finish({
         ok: false,
         content: "",
         model,
         error: `Provider trả về dữ liệu không phải JSON: ${bodyText.slice(0, 200)}`,
-      };
+      });
     }
 
     const content = readContent(data).trim();
     if (!content) {
-      return {
+      return finish({
         ok: false,
         content: "",
         model,
         error: "Model trả về nội dung rỗng — thử lại hoặc đổi model khác.",
-      };
+      });
     }
 
-    return {
+    return finish({
       ok: true,
       content,
       model,
       usage: readUsage((data as Record<string, unknown>)?.usage),
-    };
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    return {
+    return finish({
       ok: false,
       content: "",
       model,
       error: /abort|timeout/i.test(message)
         ? `Model không trả lời trong ${timeoutSec} giây (hạn chờ của lượt này) — thử lại hoặc chọn model nhanh hơn.`
         : `Không gọi được AI Provider: ${message}`,
-    };
+    });
   }
 }
 

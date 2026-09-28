@@ -1699,8 +1699,12 @@ section("7. Hạn mức & URL Graph API (stub fetch)");
   // nhân gốc của lỗi "AutoPilot không tự tạo bài" trong khi model vẫn bình thường.
   const src = fs.readFileSync(path.join(ROOT, "src/lib/autopilot.ts"), "utf8");
   check(
-    "planner kiểm tra hạn trước khi tạo bài",
-    /deadlineExceeded\(deadline\)[\s\S]{0,200}stoppedEarly/.test(src)
+    "planner CHỈ bắt đầu một bài khi còn đủ thời gian cho trọn bài",
+    /hasRoomForPost\(deadline, new Date\(\), MIN_POST_BUDGET_MS\)[\s\S]{0,200}stoppedEarly/.test(src)
+  );
+  check(
+    "không còn cổng cũ chỉ hỏi 'quá hạn chưa' trước khi tạo bài",
+    !/if \(deadlineExceeded\(deadline\)\) \{\s*\n\s*stopped = true;/.test(src)
   );
   check("planner có cờ stoppedEarly (khác với lỗi)", src.includes("stoppedEarly"));
   check(
@@ -1715,6 +1719,23 @@ section("7. Hạn mức & URL Graph API (stub fetch)");
     "một Page lỗi KHÔNG làm mất sổ theo dõi của chính nó",
     /catch \(err\) \{[\s\S]{0,300}outcome = \{[\s\S]{0,200}pageId: config\.pageId/.test(src)
   );
+  check(
+    "bước tìm ảnh bị buộc theo hạn của lượt (không chạy 3×20 giây ngoài hạn)",
+    src.includes("boundedTimeout(20_000, deadline)")
+  );
+  check(
+    "bỏ qua bước ảnh khi không đủ thời gian (bài vẫn được tạo)",
+    /MIN_MEDIA_BUDGET_MS/.test(src) && /hasRoomForPost\(deadline, new Date\(\), MIN_MEDIA_BUDGET_MS\)/.test(src)
+  );
+  check(
+    "lớp nghỉ-sau-lỗi CHỈ tính lỗi chặn (cảnh báo thiếu ảnh không khoá Page)",
+    /isBlockingPlanError\(config\.lastPlanError\)/.test(src)
+  );
+  check(
+    "nghỉ-sau-lỗi ngắn (≤ 3 phút) để không khoá Page quá lâu",
+    /RETRY_AFTER_ERROR_MS = (\d+) \* 60 \* 1000/.test(src) &&
+      Number(src.match(/RETRY_AFTER_ERROR_MS = (\d+) \* 60 \* 1000/)[1]) <= 3
+  );
 
   const schedSrc = fs.readFileSync(path.join(ROOT, "src/lib/scheduler.ts"), "utf8");
   check(
@@ -1726,6 +1747,19 @@ section("7. Hạn mức & URL Graph API (stub fetch)");
     /finally \{[\s\S]{0,300}releasePlannerLease\(\)/.test(schedSrc)
   );
   check("có ngân sách thời gian cho planner", schedSrc.includes("PLANNER_BUDGET_MS"));
+  check(
+    "insights có ngân sách còn lại tối thiểu (không bị cắt giữa chừng)",
+    schedSrc.includes("INSIGHTS_MIN_BUDGET_MS")
+  );
+  check(
+    "insights nhận hạn từ route cron",
+    schedSrc.includes("runInsightsRefreshTask(deadline") ||
+      /export async function runInsightsRefreshTask\(\s*\n?\s*deadline/.test(schedSrc)
+  );
+  check(
+    "log thời lượng lượt lập kế hoạch (để đọc được trên Vercel logs)",
+    /lượt lập kế hoạch \$\{/.test(schedSrc)
+  );
 }
 
 {

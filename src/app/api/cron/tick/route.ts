@@ -33,9 +33,21 @@ export const dynamic = "force-dynamic";
  * "planner chết giữa chừng" trước đây.
  *
  * 60 là mức trần của gói Vercel Hobby (miễn phí). Ngân sách thực tế của planner
- * nhỏ hơn nhiều (PLANNER_BUDGET_MS, mặc định 40 giây) để luôn kết thúc trước hạn.
+ * nhỏ hơn nhiều (PLANNER_BUDGET_MS, mặc định 45 giây) để luôn kết thúc trước hạn.
  */
 export const maxDuration = 60;
+
+/**
+ * Hạn của TOÀN BỘ việc chạy nền trong `after()`, tính từ lúc bắt đầu request.
+ *
+ * Chừa 2 giây dưới `maxDuration` để còn kịp ghi log/kết thúc sạch: nếu sát trần,
+ * nền tảng cắt ngang và `finally` (nhả thuê bao) không chạy.
+ *
+ * Để 58 (không phải 55) và planner chỉ dùng 40: khi hàng đợi đã đủ bài thì planner
+ * xong rất nhanh nên insights có trọn thời gian; khi hàng đợi trống thì planner
+ * dùng hết ngân sách và insights nhường lượt sau. Hai việc tự cân nhau.
+ */
+const BACKGROUND_BUDGET_MS = 58_000;
 
 /** Lấy IP của client từ header của proxy (nếu có). */
 function clientIp(request: Request): string {
@@ -129,7 +141,13 @@ async function handle(request: Request) {
       // Planner có ngân sách riêng (PLANNER_BUDGET_MS) nên luôn tự dừng sạch;
       // phần bài còn thiếu do nhịp cron kế tiếp trám.
       await runAutopilotPlannerTask();
-      await runInsightsRefreshTask();
+      // Insights chỉ chạy nếu còn đủ thời gian — nếu bị cắt giữa chừng thì thuê
+      // bao của nó bị giữ 15 phút và lượt sau cũng không chạy.
+      await runInsightsRefreshTask({ at: startedAt + BACKGROUND_BUDGET_MS });
+      console.log(
+        `[cron] việc nền xong sau ${((Date.now() - startedAt) / 1000).toFixed(1)}s` +
+          ` (hạn ${Math.round(BACKGROUND_BUDGET_MS / 1000)}s)`
+      );
     });
 
     return NextResponse.json({

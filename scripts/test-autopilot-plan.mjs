@@ -9,11 +9,14 @@
 
 import {
   aiTimeoutMs,
+  boundedTimeout,
   clampPlanAheadDays,
   clampPostsPerDay,
   clampVideoPercent,
   deadlineExceeded,
   decideMediaKind,
+  hasRoomForPost,
+  isBlockingPlanError,
   makeDeadline,
   orderDaysByNeed,
   remainingBudgetMs,
@@ -29,6 +32,8 @@ import {
   planTimeSlots,
   startOfDay,
   DEFAULT_AI_CALL_TIMEOUT_MS,
+  MIN_MEDIA_BUDGET_MS,
+  MIN_POST_BUDGET_MS,
   MAX_CONSECUTIVE_SLOT_FAILURES,
 } from "../src/lib/autopilot-plan.ts";
 
@@ -556,6 +561,93 @@ section("Ngân sách thời gian (deadline) — planner tự dừng trước khi
   check(
     "trần truyền vào được tôn trọng",
     aiTimeoutMs(d, t0, 1_000) === 1_000
+  );
+}
+
+// ============================================================
+section("Cổng 'đủ thời gian mới bắt đầu' — không tạo lỗi giả");
+// ============================================================
+// Bối cảnh: bản đầu chỉ kiểm `deadlineExceeded` (còn > 0 ms) nên vẫn khởi động
+// một bài cần ~10 giây khi chỉ còn 3 giây → lời gọi đứt chắc chắn và ghi một lỗi
+// GIẢ ("Model không trả lời trong 3 giây"), rồi lỗi giả đó lại kích hoạt lớp
+// nghỉ-sau-lỗi. Đã gặp thật trên production.
+{
+  const t0 = new Date("2026-09-28T00:00:00.000Z");
+  const d = makeDeadline(40_000, t0); // hạn ở t0 + 40s
+
+  check("không có hạn → luôn đủ thời gian", hasRoomForPost(null, t0, MIN_POST_BUDGET_MS) === true);
+  check(
+    "còn 40s → đủ cho 1 bài",
+    hasRoomForPost(d, t0, MIN_POST_BUDGET_MS) === true
+  );
+  check(
+    "còn đúng bằng ngưỡng → vẫn đủ (biên trên)",
+    hasRoomForPost(d, new Date(t0.getTime() + 40_000 - MIN_POST_BUDGET_MS), MIN_POST_BUDGET_MS) === true
+  );
+  check(
+    "thiếu 1ms so với ngưỡng → KHÔNG bắt đầu",
+    hasRoomForPost(d, new Date(t0.getTime() + 40_000 - MIN_POST_BUDGET_MS + 1), MIN_POST_BUDGET_MS) === false
+  );
+  check(
+    "còn 3s → KHÔNG bắt đầu (đúng ca lỗi giả đã gặp)",
+    hasRoomForPost(d, new Date(t0.getTime() + 37_000), MIN_POST_BUDGET_MS) === false
+  );
+  check(
+    "còn 5s → không đủ cho bước ảnh",
+    hasRoomForPost(d, new Date(t0.getTime() + 35_000), MIN_MEDIA_BUDGET_MS) === false
+  );
+  check(
+    "còn 20s → đủ cho bước ảnh",
+    hasRoomForPost(d, new Date(t0.getTime() + 20_000), MIN_MEDIA_BUDGET_MS) === true
+  );
+}
+
+// ============================================================
+section("boundedTimeout — bước ảnh không được vượt hạn của lượt");
+// ============================================================
+// searchMedia từng hardcode 20 giây và được gọi tối đa 3 lần cho MỘT bài
+// (~60 giây) nằm ngoài hạn → đủ đẩy function vượt maxDuration và bị kill.
+{
+  const t0 = new Date("2026-09-28T00:00:00.000Z");
+  const d = makeDeadline(40_000, t0);
+
+  check("không có hạn → giữ mặc định 20s", boundedTimeout(20_000, null, t0) === 20_000);
+  check("còn nhiều thời gian → giữ 20s", boundedTimeout(20_000, d, t0) === 20_000);
+  check(
+    "còn 5s → kẹp xuống 5s (không chờ 20s)",
+    boundedTimeout(20_000, d, new Date(t0.getTime() + 35_000)) === 5_000
+  );
+  check(
+    "đã quá hạn → sàn 1s (không trả 0/âm)",
+    boundedTimeout(20_000, d, new Date(t0.getTime() + 99_000)) === 1_000
+  );
+  check("sàn truyền vào được tôn trọng", boundedTimeout(20_000, d, new Date(t0.getTime() + 99_000), 2_500) === 2_500);
+}
+
+// ============================================================
+section("isBlockingPlanError — cảnh báo thiếu ảnh KHÔNG phải lỗi chặn");
+// ============================================================
+// Cảnh báo thiếu ảnh được lưu CHUNG cột lastPlanError với lỗi thật. Nếu dùng
+// thẳng cột đó làm điều kiện nghỉ-sau-lỗi thì một bài thiếu ảnh sẽ khoá việc lập
+// kế hoạch của cả Page — đã gặp thật trên production.
+{
+  check("null → không chặn", isBlockingPlanError(null) === false);
+  check("chuỗi rỗng → không chặn", isBlockingPlanError("") === false);
+  check(
+    "cảnh báo thiếu ảnh → KHÔNG chặn",
+    isBlockingPlanError("1 bài không tìm được ảnh: Không tìm được ảnh/video phù hợp trên Pexels.") === false
+  );
+  check(
+    "nhiều bài thiếu ảnh → KHÔNG chặn",
+    isBlockingPlanError("3 bài không tìm được ảnh: hết thời gian của lượt này") === false
+  );
+  check(
+    "timeout model → CHẶN",
+    isBlockingPlanError("Model không trả lời trong 35 giây (hạn chờ của lượt này) — thử lại.") === true
+  );
+  check(
+    "thiếu API key → CHẶN",
+    isBlockingPlanError("Không gọi được AI Provider: fetch failed") === true
   );
 }
 

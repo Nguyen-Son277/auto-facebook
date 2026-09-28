@@ -158,7 +158,16 @@ function readQuotaHeaders(userId: string, res: Response): void {
 async function pexelsFetch(
   userId: string,
   path: string,
-  params: Record<string, string | number | undefined>
+  params: Record<string, string | number | undefined>,
+  /**
+   * Hạn chờ request (ms). Mặc định 20 giây cho thao tác tay ở /media.
+   *
+   * Bộ tự động PHẢI truyền vào hạn còn lại của lượt lập kế hoạch: bước ảnh có
+   * thể gọi tới 3 lần cho một bài, nên nếu lần nào cũng chờ 20 giây thì riêng
+   * phần ảnh đã có thể vượt hạn của cả function và làm lượt chạy bị kill giữa
+   * chừng (thuê bao không được nhả, sổ theo dõi không được ghi).
+   */
+  timeoutMs = 20_000
 ): Promise<{ ok: boolean; data?: unknown; error?: string }> {
   const apiKey = await getPexelsKeyForUser(userId);
   if (!apiKey) {
@@ -194,7 +203,7 @@ async function pexelsFetch(
   try {
     const res = await fetch(url.toString(), {
       headers: { Authorization: apiKey },
-      signal: AbortSignal.timeout(20_000),
+      signal: AbortSignal.timeout(timeoutMs),
     });
 
     // Ghi lại quota thật từ header (có trong cả response lỗi lẫn thành công)
@@ -341,6 +350,11 @@ export type SearchMediaInput = {
   shuffle?: boolean;
   /** Nguồn ngẫu nhiên — cho phép test tái lập kết quả. */
   random?: () => number;
+  /**
+   * Hạn chờ request (ms). Bộ tự động truyền phần ngân sách còn lại của lượt để
+   * bước ảnh không đẩy lượt chạy vượt hạn của function. Bỏ trống = 20 giây.
+   */
+  timeoutMs?: number;
 };
 
 /**
@@ -405,12 +419,17 @@ export async function searchMedia(input: SearchMediaInput): Promise<PexelsSearch
   }
 
   const path = type === "VIDEO" ? "/videos/search" : "/v1/search";
-  const res = await pexelsFetch(input.userId, path, {
-    query,
-    page,
-    per_page: perPage,
-    orientation: input.orientation,
-  });
+  const res = await pexelsFetch(
+    input.userId,
+    path,
+    {
+      query,
+      page,
+      per_page: perPage,
+      orientation: input.orientation,
+    },
+    input.timeoutMs
+  );
 
   if (!res.ok || !res.data) {
     return {

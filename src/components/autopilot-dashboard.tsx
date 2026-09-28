@@ -15,7 +15,7 @@ import {
   type AutoPilotState,
 } from "@/app/actions/autopilot";
 import { TONES } from "@/lib/ai-prompts";
-import { formatDateKey, videoQuotaForDay } from "@/lib/autopilot-plan";
+import { formatDateKey, isBlockingPlanError, videoQuotaForDay } from "@/lib/autopilot-plan";
 import { pushToast } from "./toast-provider";
 import { statusBadgeOf } from "@/lib/posts";
 import { startDriveConnect } from "@/lib/drive-connect";
@@ -948,7 +948,9 @@ export default function AutopilotDashboard({
   useEffect(() => {
     if (!lastPlanError || shownErrorRef.current === lastPlanError) return;
     shownErrorRef.current = lastPlanError;
-    const onlyMedia = lastPlanError.includes("không tìm được ảnh");
+    // Dùng chung hàm phân loại với tầng lập kế hoạch: cảnh báo thiếu ảnh KHÔNG
+    // phải lỗi chặn (bài vẫn được tạo), nên không được hiển thị như lỗi.
+    const onlyMedia = !isBlockingPlanError(lastPlanError);
     // Kèm MỐC THỜI GIAN của lần lập kế hoạch gần nhất: `lastPlanError` có thể là
     // thông báo cũ đóng băng từ nhiều ngày trước, nên nếu chỉ hiện nội dung lỗi
     // thì người dùng đọc như lỗi vừa xảy ra và đi kiểm tra model — trong khi

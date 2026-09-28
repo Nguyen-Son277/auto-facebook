@@ -24,10 +24,13 @@ import { minimalProfileProblem } from "./brand-scope";
 import {
   addDays,
   aiTimeoutMs,
+  boundedTimeout,
   deadlineExceeded,
   decideMediaKind,
   formatDateKey,
   formatHm,
+  hasRoomForPost,
+  isBlockingPlanError,
   isoDayOf,
   makeDeadline,
   orderDaysByNeed,
@@ -45,6 +48,8 @@ import {
   videoQuotaForDay,
   MAX_PLAN_AHEAD_DAYS,
   MAX_POSTS_PER_DAY,
+  MIN_MEDIA_BUDGET_MS,
+  MIN_POST_BUDGET_MS,
   type PillarLike,
   type PlannerDeadline,
 } from "./autopilot-plan";
@@ -60,9 +65,12 @@ import { pickProbeHint, type ProbeHint } from "./learning-cycle";
 // Dùng lại logic thuần ở autopilot-plan.ts (kiểm thử được độc lập)
 export {
   aiTimeoutMs,
+  boundedTimeout,
   deadlineExceeded,
   decideMediaKind,
   formatHm,
+  hasRoomForPost,
+  isBlockingPlanError,
   isoDayOf,
   makeDeadline,
   parseDaysOfWeek,
@@ -72,6 +80,8 @@ export {
   remainingBudgetMs,
   startOfDay,
   videoQuotaForDay,
+  MIN_MEDIA_BUDGET_MS,
+  MIN_POST_BUDGET_MS,
 };
 export type { PillarLike, PlannerDeadline };
 import type { AttachedMedia } from "./posts";
@@ -95,7 +105,15 @@ import { GOALS, LENGTHS, TONES, type Goal, type PostLength, type Tone } from "./
 /** Số bài tối đa tạo ra trong một lần chạy (chặn chi phí AI bất ngờ). */
 export const MAX_POSTS_PER_RUN = 12;
 /** Nếu lần trước lỗi thì chờ ngần này mới thử lại (tránh spam AI khi hỏng). */
-export const RETRY_AFTER_ERROR_MS = 15 * 60 * 1000;
+/**
+ * Nếu lượt trước có lỗi CHẶN thì chờ ngần này mới thử lại Page đó.
+ *
+ * Để NGẮN (3 phút) vì từ khi planner có ngân sách thời gian, mỗi lượt chỉ chạy
+ * ~45 giây nên không thể "gọi AI liên tục" như trước. Bản cũ để 15 phút: mỗi lần
+ * provider lỡ chậm một nhịp là Page bị khoá 15 phút, trở thành nút thắt chính
+ * khiến hàng đợi không được trám. Nhịp cron 5 phút (hoặc 1 phút) đã đủ giãn cách.
+ */
+export const RETRY_AFTER_ERROR_MS = 3 * 60 * 1000;
 /** Bài của hôm nay phải cách hiện tại ít nhất ngần này mới xếp lịch. */
 export const MIN_LEAD_MS = 20 * 60 * 1000;
 /** Số chủ đề gần đây đưa vào prompt để AI không lặp lại. */
@@ -266,6 +284,8 @@ export async function pickMediaForContent(
     brandId?: string | null;
     /** Hạn chờ lời gọi AI xin từ khóa ảnh (ms), theo ngân sách còn lại. */
     aiTimeout?: number;
+    /** Hạn chót của lượt — bước ảnh không được vượt qua mốc này. */
+    deadline?: PlannerDeadline | null;
   },
   random: () => number = Math.random
 ): Promise<MediaPickResult> {
@@ -319,7 +339,8 @@ export async function pickMediaForContent(
         kind,
         wanted,
         random,
-        config.aiTimeout
+        config.aiTimeout,
+        config.deadline
       );
       if (res.media.length > 0) {
         return {
@@ -364,8 +385,22 @@ async function pickPexelsMedia(
   kind: "IMAGE" | "VIDEO",
   wanted: number,
   random: () => number,
-  aiTimeout?: number
+  aiTimeout?: number,
+  deadline?: PlannerDeadline | null
 ): Promise<MediaPickResult> {
+  // Không đủ thời gian cho bước ảnh → bỏ qua HẲN (không gọi AI từ khóa, không
+  // gọi Pexels). Bài vẫn được tạo dạng chỉ có chữ; "có bài còn hơn mất bài", và
+  // quan trọng hơn: bước ảnh không được kéo lượt chạy vượt hạn của function.
+  if (!hasRoomForPost(deadline, new Date(), MIN_MEDIA_BUDGET_MS)) {
+    return {
+      media: [],
+      calls: 0,
+      error:
+        "Hết thời gian của lượt này nên bỏ qua bước tìm ảnh — bài được tạo dạng chỉ có chữ, " +
+        "ảnh sẽ được bổ sung ở nhịp lập kế hoạch sau.",
+    };
+  }
+
   // Hết quota → dừng sớm, KHÔNG gọi AI xin từ khóa (đỡ tốn tiền AI vô ích)
   if (!hasPexelsBudget(userId)) {
     const q = getPexelsQuota(userId);
@@ -406,6 +441,11 @@ async function pickPexelsMedia(
       if (picked.length >= wanted) break;
       if (calls >= MAX_PEXELS_CALLS_PER_POST) break;
 
+      // Mỗi lời gọi Pexels bị buộc theo phần ngân sách còn lại: mặc định 20
+      // giây nhưng không bao giờ vượt hạn của lượt. Không có chốt này, 3 lời gọi
+      // × 20 giây cho một bài đủ sức đẩy function vượt `maxDuration`.
+      if (!hasRoomForPost(deadline, new Date(), MIN_MEDIA_BUDGET_MS)) break;
+
       calls++;
       const probe = await searchMedia({
         userId,
@@ -417,6 +457,7 @@ async function pickPexelsMedia(
         noCache: true,
         shuffle: true,
         random,
+        timeoutMs: boundedTimeout(20_000, deadline),
       });
 
       if (!probe.ok) {
@@ -695,6 +736,11 @@ async function createPlannedPost(input: {
    * Không truyền = dùng mặc định của lib/ai.ts.
    */
   aiTimeout?: number;
+  /**
+   * Hạn chót của lượt — bước tìm ảnh PHẢI bị buộc theo hạn này, nếu không nó có
+   * thể chạy tới 3 lời gọi Pexels × 20 giây và đẩy function vượt `maxDuration`.
+   */
+  deadline?: PlannerDeadline | null;
 }): Promise<
   | {
       ok: true;
@@ -812,6 +858,7 @@ async function createPlannedPost(input: {
       driveAllowVideo: input.driveAllowVideo,
       rotation: input.rotation,
       aiTimeout: input.aiTimeout,
+      deadline: input.deadline,
     });
     media = picked.media;
     if (media.length === 0) {
@@ -1113,8 +1160,10 @@ export async function planForAutoPilot(
     if (budget.remaining <= 0) break;
 
     // Hết ngân sách thời gian → dừng SẠCH trước khi nền tảng kill. Phần việc
-    // còn lại do nhịp cron kế tiếp trám (planner idempotent).
-    if (deadlineExceeded(deadline)) {
+    // còn lại do nhịp cron kế tiếp trám (planner idempotent). Dùng `hasRoomForPost`
+    // (không phải `deadlineExceeded`) để không khởi động một bài khi phần ngân
+    // sách còn lại không đủ cho trọn một bài.
+    if (!hasRoomForPost(deadline, new Date(), MIN_POST_BUDGET_MS)) {
       stopped = true;
       outcome.stoppedEarly = true;
       break;
@@ -1170,8 +1219,10 @@ export async function planForAutoPilot(
 
     for (let i = 0; i < toCreate; i++) {
       // Kiểm tra lại TRƯỚC mỗi bài: một lời gọi AI có thể vừa ăn hết phần ngân
-      // sách còn lại, nên không được bắt đầu bài mới khi đã chạm hạn.
-      if (deadlineExceeded(deadline)) {
+      // sách còn lại, nên không được bắt đầu bài mới khi không còn đủ thời gian
+      // cho trọn một bài (nếu không sẽ tạo ra lỗi GIẢ "Model không trả lời trong
+      // vài giây" và lỗi giả đó lại kích hoạt lớp nghỉ-sau-lỗi).
+      if (!hasRoomForPost(deadline, new Date(), MIN_POST_BUDGET_MS)) {
         stopped = true;
         outcome.stoppedEarly = true;
         break;
@@ -1257,6 +1308,7 @@ export async function planForAutoPilot(
           optimizationNote: note,
           probeKind: probing ? "PROBE" : "STANDARD",
           aiTimeout: aiTimeoutMs(deadline, new Date(), AI_CALL_TIMEOUT_MS),
+          deadline,
         });
       } catch (err) {
         res = {
@@ -1430,9 +1482,13 @@ export async function runAutopilotPlanner(
       });
     }
 
-    // Vừa lỗi gần đây → chờ, tránh gọi AI liên tục khi provider đang hỏng
+    // Vừa lỗi CHẶN gần đây → chờ, tránh gọi AI liên tục khi provider đang hỏng.
+    //
+    // CHỈ tính lỗi chặn: cảnh báo thiếu ảnh được lưu CHUNG cột `lastPlanError`
+    // nhưng KHÔNG phải lỗi (bài vẫn được tạo), nên nếu tính nó ở đây thì một bài
+    // thiếu ảnh sẽ khoá việc lập kế hoạch của cả Page — đã gặp thật.
     if (
-      config.lastPlanError &&
+      isBlockingPlanError(config.lastPlanError) &&
       config.lastPlannedAt &&
       now.getTime() - config.lastPlannedAt.getTime() < RETRY_AFTER_ERROR_MS
     ) {
