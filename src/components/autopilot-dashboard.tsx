@@ -1,6 +1,6 @@
 "use client";
 
-import { APP_TIME_ZONE } from "@/lib/format-date";
+import { APP_TIME_ZONE, formatDateTime } from "@/lib/format-date";
 
 import Link from "next/link";
 import { useActionState, useEffect, useRef, useState, useTransition } from "react";
@@ -949,17 +949,25 @@ export default function AutopilotDashboard({
     if (!lastPlanError || shownErrorRef.current === lastPlanError) return;
     shownErrorRef.current = lastPlanError;
     const onlyMedia = lastPlanError.includes("không tìm được ảnh");
+    // Kèm MỐC THỜI GIAN của lần lập kế hoạch gần nhất: `lastPlanError` có thể là
+    // thông báo cũ đóng băng từ nhiều ngày trước, nên nếu chỉ hiện nội dung lỗi
+    // thì người dùng đọc như lỗi vừa xảy ra và đi kiểm tra model — trong khi
+    // model hoàn toàn bình thường. Dùng giờ tuyệt đối (không phải "x ngày
+    // trước") để tránh lệch hydration giữa server và trình duyệt.
+    const when = config?.lastPlannedAt
+      ? ` (lần lập kế hoạch gần nhất: ${formatDateTime(config.lastPlannedAt)})`
+      : "";
     pushToast({
       kind: onlyMedia ? "info" : "error",
       title: onlyMedia
         ? "Lần lập kế hoạch gần nhất thiếu ảnh"
         : "Lần lập kế hoạch gần nhất bị lỗi",
       body: onlyMedia
-        ? `${lastPlanError} — bài vẫn được tạo dạng chỉ có chữ. Kiểm tra Pexels API Key ở trang Cài đặt.`
-        : lastPlanError,
+        ? `${lastPlanError} — bài vẫn được tạo dạng chỉ có chữ. Kiểm tra Pexels API Key ở trang Cài đặt.${when}`
+        : `${lastPlanError}${when}`,
       testId: "ap-last-error",
     });
-  }, [lastPlanError]);
+  }, [lastPlanError, config?.lastPlannedAt]);
 
   return (
     <div className="space-y-5">

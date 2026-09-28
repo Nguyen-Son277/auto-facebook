@@ -1672,7 +1672,60 @@ section("7. Hạn mức & URL Graph API (stub fetch)");
   );
 
   const cronSrc = fs.readFileSync(path.join(ROOT, "src/app/api/cron/tick/route.ts"), "utf8");
-  check("cron ngoài cũng kích hoạt thu thập số liệu", cronSrc.includes("kickInsightsRefresh"));
+  // Cron ngoài giờ `await` hàm task (không dùng bản bắn-rồi-quên): trên
+  // serverless, response trả xong là instance bị freeze nên việc bắn rồi quên
+  // bị bỏ dở giữa chừng.
+  check(
+    "cron ngoài cũng kích hoạt thu thập số liệu (dạng await được)",
+    cronSrc.includes("runInsightsRefreshTask")
+  );
+  check(
+    "cron ngoài await lập kế hoạch (không bắn rồi quên)",
+    cronSrc.includes("runAutopilotPlannerTask")
+  );
+  check(
+    "cron ngoài chạy việc nền trong after() để nền tảng giữ instance sống",
+    cronSrc.includes("after(") && cronSrc.includes('from "next/server"')
+  );
+  check(
+    "cron ngoài khai báo maxDuration",
+    /export const maxDuration = \d+/.test(cronSrc)
+  );
+}
+
+{
+  // Bộ lập kế hoạch phải tự dừng trước hạn: đây là điều kiện để một lượt chạy
+  // gọi AI cho từng bài (~170 giây) không bị nền tảng kill giữa chừng — nguyên
+  // nhân gốc của lỗi "AutoPilot không tự tạo bài" trong khi model vẫn bình thường.
+  const src = fs.readFileSync(path.join(ROOT, "src/lib/autopilot.ts"), "utf8");
+  check(
+    "planner kiểm tra hạn trước khi tạo bài",
+    /deadlineExceeded\(deadline\)[\s\S]{0,200}stoppedEarly/.test(src)
+  );
+  check("planner có cờ stoppedEarly (khác với lỗi)", src.includes("stoppedEarly"));
+  check(
+    "mỗi lời gọi AI dùng hạn chờ theo ngân sách còn lại",
+    src.includes("aiTimeoutMs(deadline")
+  );
+  check(
+    "Page lâu chưa lập kế hoạch được xử lý trước (không bỏ đói Page sau)",
+    src.includes("lastPlannedAt") && /sort\(\(a, b\)[\s\S]{0,200}lastPlannedAt/.test(src)
+  );
+  check(
+    "một Page lỗi KHÔNG làm mất sổ theo dõi của chính nó",
+    /catch \(err\) \{[\s\S]{0,300}outcome = \{[\s\S]{0,200}pageId: config\.pageId/.test(src)
+  );
+
+  const schedSrc = fs.readFileSync(path.join(ROOT, "src/lib/scheduler.ts"), "utf8");
+  check(
+    "có hàm task await được cho planner",
+    schedSrc.includes("export async function runAutopilotPlannerTask")
+  );
+  check(
+    "nhả thuê bao luôn nằm trong finally (không giữ khoá khi chết)",
+    /finally \{[\s\S]{0,300}releasePlannerLease\(\)/.test(schedSrc)
+  );
+  check("có ngân sách thời gian cho planner", schedSrc.includes("PLANNER_BUDGET_MS"));
 }
 
 {

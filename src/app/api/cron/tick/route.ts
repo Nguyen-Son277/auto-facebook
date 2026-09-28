@@ -1,8 +1,8 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import {
   isSchedulerEnabled,
-  kickAutopilotPlanner,
-  kickInsightsRefresh,
+  runAutopilotPlannerTask,
+  runInsightsRefreshTask,
   runSchedulerTick,
   type TickSource,
 } from "@/lib/scheduler";
@@ -23,6 +23,19 @@ import {
 // ============================================================
 
 export const dynamic = "force-dynamic";
+
+/**
+ * Trần thời gian của function (giây).
+ *
+ * Cần thiết vì lập kế hoạch + thu thập số liệu được đẩy vào `after()`: nền tảng
+ * giữ instance sống thêm tới hạn này để phần việc nền chạy xong. Không khai báo
+ * thì hạn mặc định của nền tảng (rất thấp) sẽ cắt ngang lượt chạy — đúng lỗi
+ * "planner chết giữa chừng" trước đây.
+ *
+ * 60 là mức trần của gói Vercel Hobby (miễn phí). Ngân sách thực tế của planner
+ * nhỏ hơn nhiều (PLANNER_BUDGET_MS, mặc định 40 giây) để luôn kết thúc trước hạn.
+ */
+export const maxDuration = 60;
 
 /** Lấy IP của client từ header của proxy (nếu có). */
 function clientIp(request: Request): string {
@@ -99,22 +112,30 @@ async function handle(request: Request) {
     sourceParam === "worker" ? "worker" : sourceParam === "cron" ? "cron" : "worker";
 
   try {
-    // Kích hoạt bộ lập kế hoạch của chế độ tự động (chạy song song, không
-    // chờ). Nhờ vậy người dùng chạy SCHEDULER_IN_PROCESS=0 + cron ngoài vẫn
-    // được lên kế hoạch bài mới y như khi vòng lặp chạy trong app.
-    const plannerKicked = kickAutopilotPlanner();
-
-    // Thu thập số liệu hiệu quả cũng chạy song song ở đây — nhờ vậy người dùng
-    // chạy SCHEDULER_IN_PROCESS=0 + cron ngoài vẫn có số liệu mới cho phần tự
-    // tối ưu, không cần vòng lặp trong app.
-    const insightsKicked = kickInsightsRefresh();
-
+    // Đăng bài đến hạn TRƯỚC và `await`: việc này không gọi AI nên nhanh, và
+    // cần nhịp tim `scheduler.lastRunAt` được ghi ngay để giao diện biết worker
+    // còn sống. Không đẩy vào `after()` vì sẽ làm trễ giờ đăng thật.
     const result = await runSchedulerTick(new Date(), source);
+
+    // Lập kế hoạch + thu thập số liệu đẩy vào `after()`: response trả về NGAY
+    // (cron bên ngoài không bị timeout), nhưng nền tảng vẫn giữ instance sống
+    // tới `maxDuration` để hai việc gọi AI/mạng này chạy xong.
+    //
+    // ĐÂY LÀ ĐIỂM SỬA CHÍNH: bản cũ gọi `kickAutopilotPlanner()` kiểu bắn rồi
+    // quên rồi trả response ngay, nên trên serverless instance bị freeze và
+    // planner bị bỏ dở giữa chừng — thuê bao không được nhả, sổ theo dõi không
+    // được ghi, lỗi thật không được lưu.
+    after(async () => {
+      // Planner có ngân sách riêng (PLANNER_BUDGET_MS) nên luôn tự dừng sạch;
+      // phần bài còn thiếu do nhịp cron kế tiếp trám.
+      await runAutopilotPlannerTask();
+      await runInsightsRefreshTask();
+    });
+
     return NextResponse.json({
       ok: true,
       source,
-      plannerKicked,
-      insightsKicked,
+      background: true,
       durationMs: Date.now() - startedAt,
       ...result,
     });

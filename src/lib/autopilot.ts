@@ -2,7 +2,7 @@ import "server-only";
 
 import { prisma } from "./prisma";
 import { formatDateTime } from "./format-date";
-import { generatePostVariants, suggestMediaKeywords } from "./ai";
+import { generatePostVariants, suggestMediaKeywords, AI_CALL_TIMEOUT_MS } from "./ai";
 import { notify, notifyOncePer } from "./notify";
 import { userHasAiConfig, userHasPexelsKey } from "./settings";
 import {
@@ -23,10 +23,13 @@ import { contentScopeForPage, loadBrandContext, resolvePageBrand } from "./brand
 import { minimalProfileProblem } from "./brand-scope";
 import {
   addDays,
+  aiTimeoutMs,
+  deadlineExceeded,
   decideMediaKind,
   formatDateKey,
   formatHm,
   isoDayOf,
+  makeDeadline,
   orderDaysByNeed,
   parseDaysOfWeek,
   parseHm,
@@ -36,12 +39,14 @@ import {
   pickServiceArea,
   planTimeSlots,
   planTimeSlotsBiased,
+  remainingBudgetMs,
   shouldAbortPage,
   startOfDay,
   videoQuotaForDay,
   MAX_PLAN_AHEAD_DAYS,
   MAX_POSTS_PER_DAY,
   type PillarLike,
+  type PlannerDeadline,
 } from "./autopilot-plan";
 import {
   effectivePillars,
@@ -54,17 +59,21 @@ import { pickProbeHint, type ProbeHint } from "./learning-cycle";
 
 // Dùng lại logic thuần ở autopilot-plan.ts (kiểm thử được độc lập)
 export {
+  aiTimeoutMs,
+  deadlineExceeded,
   decideMediaKind,
   formatHm,
   isoDayOf,
+  makeDeadline,
   parseDaysOfWeek,
   parseHm,
   pickPillar,
   planTimeSlots,
+  remainingBudgetMs,
   startOfDay,
   videoQuotaForDay,
 };
-export type { PillarLike };
+export type { PillarLike, PlannerDeadline };
 import type { AttachedMedia } from "./posts";
 import { GOALS, LENGTHS, TONES, type Goal, type PostLength, type Tone } from "./ai-prompts";
 
@@ -255,6 +264,8 @@ export async function pickMediaForContent(
     /** Số thứ tự bài trong ngày — dùng để luân phiên tệp Drive. */
     rotation?: number;
     brandId?: string | null;
+    /** Hạn chờ lời gọi AI xin từ khóa ảnh (ms), theo ngân sách còn lại. */
+    aiTimeout?: number;
   },
   random: () => number = Math.random
 ): Promise<MediaPickResult> {
@@ -301,7 +312,15 @@ export async function pickMediaForContent(
     }
 
     if (source === "PEXELS") {
-      const res = await pickPexelsMedia(userId, content, config, kind, wanted, random);
+      const res = await pickPexelsMedia(
+        userId,
+        content,
+        config,
+        kind,
+        wanted,
+        random,
+        config.aiTimeout
+      );
       if (res.media.length > 0) {
         return {
           ...res,
@@ -344,7 +363,8 @@ async function pickPexelsMedia(
   config: { pageId?: string; industry?: string; products?: string },
   kind: "IMAGE" | "VIDEO",
   wanted: number,
-  random: () => number
+  random: () => number,
+  aiTimeout?: number
 ): Promise<MediaPickResult> {
   // Hết quota → dừng sớm, KHÔNG gọi AI xin từ khóa (đỡ tốn tiền AI vô ích)
   if (!hasPexelsBudget(userId)) {
@@ -358,10 +378,16 @@ async function pickPexelsMedia(
     };
   }
 
-  const kw = await suggestMediaKeywords(userId, content, KEYWORD_COUNT, {
-    industry: config.industry,
-    products: config.products,
-  });
+  const kw = await suggestMediaKeywords(
+    userId,
+    content,
+    KEYWORD_COUNT,
+    {
+      industry: config.industry,
+      products: config.products,
+    },
+    { timeoutMs: aiTimeout }
+  );
   if (!kw.ok || kw.keywords.length === 0) {
     return { media: [], calls: 0, error: kw.error ?? "AI không gợi ý được từ khóa tìm ảnh." };
   }
@@ -578,6 +604,14 @@ export type PlanOutcome = {
   optimizationApplied?: { phase: string; note: string } | null;
   /** Số bài DÒ tạo ra trong lượt này (giai đoạn khám phá/kiểm tra lại). */
   probeCreated?: number;
+  /**
+   * Lượt này dừng vì HẾT NGÂN SÁCH THỜI GIAN, không phải vì lỗi.
+   *
+   * Phần việc còn lại do nhịp cron kế tiếp trám — planner idempotent nên chạy
+   * lại chỉ tạo phần còn thiếu. UI phải phân biệt rõ với `error`, nếu không
+   * người dùng lại tưởng model hỏng.
+   */
+  stoppedEarly?: boolean;
 };
 
 /** Đếm số bài tự động đã có của một ngày (mọi trạng thái trừ bài đã hủy). */
@@ -656,6 +690,11 @@ async function createPlannedPost(input: {
   optimizationNote?: string | null;
   /** STANDARD | PROBE — đếm ngân sách dò từ cột này. */
   probeKind?: "STANDARD" | "PROBE";
+  /**
+   * Hạn chờ mỗi lời gọi AI của bài này (ms), đã tính theo ngân sách còn lại.
+   * Không truyền = dùng mặc định của lib/ai.ts.
+   */
+  aiTimeout?: number;
 }): Promise<
   | {
       ok: true;
@@ -724,7 +763,7 @@ async function createPlannedPost(input: {
       ...(input.probeLines?.length ? { probe: input.probeLines } : {}),
     },
     recentTopics: input.recentTopics,
-  });
+  }, { timeoutMs: input.aiTimeout });
 
   if (!res.ok || res.variants.length === 0) {
     return { ok: false, error: res.error ?? "AI không trả về nội dung." };
@@ -772,6 +811,7 @@ async function createPlannedPost(input: {
       driveFileCount: input.driveFileCount,
       driveAllowVideo: input.driveAllowVideo,
       rotation: input.rotation,
+      aiTimeout: input.aiTimeout,
     });
     media = picked.media;
     if (media.length === 0) {
@@ -866,7 +906,13 @@ export async function planForAutoPilot(
   now: Date,
   pageName: string,
   budget: { remaining: number },
-  random: () => number = Math.random
+  random: () => number = Math.random,
+  /**
+   * Hạn chót của lượt này. Hết hạn thì DỪNG SẠCH và trả về phần đã làm —
+   * KHÔNG được chạy tiếp cho tới khi bị nền tảng kill (xem autopilot-plan.ts).
+   * `null`/không truyền = không giới hạn (giữ hành vi cũ cho test tay).
+   */
+  deadline: PlannerDeadline | null = null
 ): Promise<PlanOutcome> {
   const outcome: PlanOutcome = {
     pageId: config.pageId,
@@ -1060,8 +1106,19 @@ export async function planForAutoPilot(
   const ordered = orderDaysByNeed(dayPlans, config.postsPerDay);
 
   // ===== Bước 3: tạo bài theo thứ tự ưu tiên =====
+  // `stopped` = dừng vì HẾT NGÂN SÁCH THỜI GIAN (khác hẳn "hết lỗi cho phép"),
+  // để phân biệt trong báo cáo và trên UI.
+  let stopped = false;
   for (const { day, existing, needed, isToday } of ordered) {
     if (budget.remaining <= 0) break;
+
+    // Hết ngân sách thời gian → dừng SẠCH trước khi nền tảng kill. Phần việc
+    // còn lại do nhịp cron kế tiếp trám (planner idempotent).
+    if (deadlineExceeded(deadline)) {
+      stopped = true;
+      outcome.stoppedEarly = true;
+      break;
+    }
 
     const dayEnd = addDays(day, 1);
 
@@ -1112,6 +1169,14 @@ export async function planForAutoPilot(
     const toCreate = Math.min(needed, slots.length, budget.remaining);
 
     for (let i = 0; i < toCreate; i++) {
+      // Kiểm tra lại TRƯỚC mỗi bài: một lời gọi AI có thể vừa ăn hết phần ngân
+      // sách còn lại, nên không được bắt đầu bài mới khi đã chạm hạn.
+      if (deadlineExceeded(deadline)) {
+        stopped = true;
+        outcome.stoppedEarly = true;
+        break;
+      }
+
       // Trong giai đoạn dò: chọn hướng còn thiếu quota nhất và chọn trụ cột
       // PHÂN BỔ ĐỀU. Ngoài giai đoạn đó: xoay vòng theo trọng số hiệu dụng.
       const probing = Boolean(
@@ -1165,28 +1230,40 @@ export async function planForAutoPilot(
           })
         : null;
 
-      const res = await createPlannedPost({
-        config,
-        pageId: config.pageId,
-        pageName,
-        scheduledAt: slots[i],
-        pillar,
-        recentTopics,
-        kind,
-        drive,
-        driveFileCount,
-        driveAllowVideo,
-        // Xoay vòng tệp trong thư mục Drive theo thứ tự bài trong ngày
-        rotation: dayStartIndex + i,
-        serviceArea,
-        // Số liệu thật (chỉ để chọn góc/cách trình bày — prompt có câu chặn
-        // cứng việc đổi thông tin thương hiệu)
-        performanceLines: learning?.performanceLines ?? [],
-        // Chỉ thị dò: chỉ nói về CÁCH VIẾT
-        probeLines: hint ? probePromptLines(hint.note) : [],
-        optimizationNote: note,
-        probeKind: probing ? "PROBE" : "STANDARD",
-      });
+      // Bọc try/catch: một sự cố bất ngờ (mạng, DB, provider) KHÔNG được làm
+      // mất cả lượt — những bài đã tạo vẫn phải được báo cáo và ghi sổ. Hạn chờ
+      // AI của bài này lấy theo phần ngân sách còn lại.
+      let res: Awaited<ReturnType<typeof createPlannedPost>>;
+      try {
+        res = await createPlannedPost({
+          config,
+          pageId: config.pageId,
+          pageName,
+          scheduledAt: slots[i],
+          pillar,
+          recentTopics,
+          kind,
+          drive,
+          driveFileCount,
+          driveAllowVideo,
+          // Xoay vòng tệp trong thư mục Drive theo thứ tự bài trong ngày
+          rotation: dayStartIndex + i,
+          serviceArea,
+          // Số liệu thật (chỉ để chọn góc/cách trình bày — prompt có câu chặn
+          // cứng việc đổi thông tin thương hiệu)
+          performanceLines: learning?.performanceLines ?? [],
+          // Chỉ thị dò: chỉ nói về CÁCH VIẾT
+          probeLines: hint ? probePromptLines(hint.note) : [],
+          optimizationNote: note,
+          probeKind: probing ? "PROBE" : "STANDARD",
+          aiTimeout: aiTimeoutMs(deadline, new Date(), AI_CALL_TIMEOUT_MS),
+        });
+      } catch (err) {
+        res = {
+          ok: false,
+          error: `Lỗi khi tạo bài: ${err instanceof Error ? err.message : String(err)}`,
+        };
+      }
 
       if (res.ok) {
         consecutiveFailures = 0;
@@ -1238,7 +1315,8 @@ export async function planForAutoPilot(
       if (shouldAbortPage(consecutiveFailures)) break;
     }
 
-    if (shouldAbortPage(consecutiveFailures)) break;
+    // Dừng vì hết ngân sách thời gian, hoặc vì lỗi lặp lại quá nhiều.
+    if (stopped || shouldAbortPage(consecutiveFailures)) break;
   }
 
   if (lastError) outcome.error = lastError;
@@ -1256,6 +1334,8 @@ export type PlannerRunResult = {
   created: number;
   skipped: number;
   skippedThrottled: number;
+  /** Lượt này bị cắt do hết ngân sách thời gian (không phải lỗi). */
+  stoppedEarly?: boolean;
 };
 
 /** Chặn 2 lượt lập kế hoạch chạy chồng nhau (AI có thể chậm hàng phút). */
@@ -1268,13 +1348,17 @@ export function isPlannerRunning(): boolean {
 /**
  * Chạy bộ lập kế hoạch cho MỌI Page đang bật chế độ tự động.
  *
- * Được gọi từ vòng lặp scheduler (src/lib/scheduler.ts) nhưng chạy song song,
- * KHÔNG chặn việc đăng bài — vì gọi AI có thể mất hàng chục giây.
+ * `deadline` là hạn chót của cả lượt. Vì một lượt gọi AI cho từng bài (~20 s/bài)
+ * có thể vượt xa thời gian sống của một function serverless, hàm này PHẢI tự
+ * dừng trước hạn và trả về phần đã làm; phần còn lại do nhịp cron kế tiếp trám.
  */
 export async function runAutopilotPlanner(
   now: Date = new Date(),
-  random: () => number = Math.random
+  random: () => number = Math.random,
+  /** Hạn chót của lượt này. Không truyền = không giới hạn. */
+  options: { deadline?: PlannerDeadline | null } = {}
 ): Promise<PlannerRunResult> {
+  const deadline = options.deadline ?? null;
   const result: PlannerRunResult = {
     ranAt: now.toISOString(),
     pages: [],
@@ -1287,8 +1371,20 @@ export async function runAutopilotPlanner(
   // vẫn giữ cấu hình để người dùng bật lại Page là chạy tiếp.
   const all = await prisma.autoPilot.findMany({ where: { enabled: true } });
 
+  // SẮP XẾP: Page lâu chưa được lập kế hoạch nhất chạy trước (null lên đầu).
+  //
+  // Vì sao bắt buộc: các Page được xử lý TUẦN TỰ trong một lượt có ngân sách
+  // hữu hạn. Giữ nguyên thứ tự DB trả về thì Page đầu luôn ăn hết ngân sách và
+  // Page sau KHÔNG BAO GIỜ tới lượt — đúng cảnh Page "Rèm cửa TP HCM" đứng im
+  // từ 2026-09-26 trong khi Page kia vẫn được lập kế hoạch.
+  const ordered = [...all].sort((a, b) => {
+    const ta = a.lastPlannedAt?.getTime() ?? 0;
+    const tb = b.lastPlannedAt?.getTime() ?? 0;
+    return ta - tb;
+  });
+
   const withPage = await Promise.all(
-    all.map(async (c) => ({
+    ordered.map(async (c) => ({
       config: c as unknown as AutoPilotConfig,
       page: await prisma.facebookPage.findUnique({
         where: { id: c.pageId },
@@ -1302,6 +1398,13 @@ export async function runAutopilotPlanner(
   for (const { config, page } of withPage) {
     if (!page || !page.isActive) continue;
     if (budget.remaining <= 0) break;
+
+    // Hết ngân sách thời gian → nhường các Page còn lại cho nhịp cron sau,
+    // thay vì chạy tiếp cho tới khi bị nền tảng kill.
+    if (deadlineExceeded(deadline)) {
+      result.stoppedEarly = true;
+      break;
+    }
 
     // Chủ Page chưa tự nhập key → không thể soạn bài. Báo MỘT lần/6 giờ
     // để họ vào Cài đặt, thay vì im lặng bỏ qua mãi mãi.
@@ -1337,10 +1440,24 @@ export async function runAutopilotPlanner(
       continue;
     }
 
-    const outcome = await planForAutoPilot(config, now, page.name, budget, random);
+    // Bọc try/catch để một Page lỗi KHÔNG làm mất sổ theo dõi của chính nó —
+    // đây là điều kiện để UI thôi hiển thị lỗi cũ đóng băng nhiều ngày.
+    let outcome: PlanOutcome;
+    try {
+      outcome = await planForAutoPilot(config, now, page.name, budget, random, deadline);
+    } catch (err) {
+      outcome = {
+        pageId: config.pageId,
+        pageName: page.name,
+        created: 0,
+        skipped: 0,
+        error: `Lỗi khi lập kế hoạch: ${err instanceof Error ? err.message : String(err)}`,
+      };
+    }
     result.pages.push(outcome);
     result.created += outcome.created;
     result.skipped += outcome.skipped;
+    if (outcome.stoppedEarly) result.stoppedEarly = true;
 
     // ===== Bước kiểm tra (chỉ khi Page bật tối ưu theo số liệu) =====
     //
@@ -1395,13 +1512,14 @@ export async function runAutopilotPlanner(
 
 /** Bọc `runAutopilotPlanner` bằng khóa chống chạy chồng. */
 export async function runAutopilotPlannerSafely(
-  now: Date = new Date()
+  now: Date = new Date(),
+  deadline: PlannerDeadline | null = null
 ): Promise<PlannerRunResult | null> {
   const g = globalThis as Record<string, unknown>;
   if (g[RUN_GUARD]) return null;
   g[RUN_GUARD] = true;
   try {
-    return await runAutopilotPlanner(now);
+    return await runAutopilotPlanner(now, Math.random, { deadline });
   } finally {
     g[RUN_GUARD] = false;
   }
@@ -1576,6 +1694,14 @@ export type AutoPilotConfigRow = {
   daysOfWeek: string;
   plannedNext7Days: number;
   lastPlanError: string | null;
+  /**
+   * Lần lập kế hoạch gần nhất (ISO) — để giao diện hiển thị TUỔI của lỗi.
+   *
+   * Vì sao cần: `lastPlanError` có thể là thông báo cũ đóng băng từ nhiều ngày
+   * trước. Không kèm mốc thời gian thì người dùng đọc nó như lỗi vừa xảy ra và
+   * đi kiểm tra model — trong khi model hoàn toàn bình thường.
+   */
+  lastPlannedAt: string | null;
   hasConfig: boolean;
 };
 
@@ -1603,6 +1729,7 @@ export async function listAutoPilotConfigs(userId: string): Promise<AutoPilotCon
           windowEnd: true,
           daysOfWeek: true,
           lastPlanError: true,
+          lastPlannedAt: true,
         },
       },
     },
@@ -1641,6 +1768,7 @@ export async function listAutoPilotConfigs(userId: string): Promise<AutoPilotCon
     daysOfWeek: p.autopilot?.daysOfWeek ?? "0,1,2,3,4,5,6",
     plannedNext7Days: plannedByPage.get(p.id) ?? 0,
     lastPlanError: p.autopilot?.lastPlanError ?? null,
+    lastPlannedAt: p.autopilot?.lastPlannedAt?.toISOString() ?? null,
     hasConfig: Boolean(p.autopilot),
   }));
 }

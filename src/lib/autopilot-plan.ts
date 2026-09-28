@@ -11,6 +11,74 @@ export const MAX_POSTS_PER_DAY = 10;
 export const MAX_PLAN_AHEAD_DAYS = 7;
 export const MIN_GAP_MINUTES = 30;
 
+// ============================================================
+// NGÂN SÁCH THỜI GIAN CỦA MỘT LƯỢT LẬP KẾ HOẠCH
+//
+// Vì sao cần: một lượt lập kế hoạch gọi AI cho từng bài (2 Page × 2 bài/ngày ×
+// 3 ngày = 12 bài ≈ 170 giây). Trên Vercel (gói Hobby) một function chỉ sống
+// được vài chục giây, nên lượt chạy bị KILL giữa chừng: lease không được nhả,
+// phần ghi sổ (lastPlannedAt/totalPlanned) không chạy, và lỗi thật không được
+// lưu — người dùng chỉ thấy thông báo lỗi CŨ đóng băng, tưởng model hỏng.
+//
+// Giải pháp: planner tự biết hạn của mình và DỪNG SẠCH trước khi bị kill. Phần
+// việc còn lại do nhịp cron kế tiếp trám (planner vốn idempotent vì đếm bài đã
+// có rồi chỉ tạo phần thiếu). Nhờ vậy mỗi lượt luôn kết thúc trong ngân sách.
+// ============================================================
+
+/**
+ * Trần thời gian MẶC ĐỊNH cho một lời gọi AI (ms).
+ *
+ * Cố ý là hằng số THUẦN, KHÔNG đọc process.env: file này được import bởi client
+ * component (`autopilot-dashboard.tsx`) nên biến môi trường đọc ở đây sẽ bị đóng
+ * băng vào bundle trình duyệt và âm thầm bỏ qua cấu hình phía server. Phần đọc
+ * env nằm ở module server-only — xem `AI_CALL_TIMEOUT_MS` trong lib/ai.ts.
+ */
+export const DEFAULT_AI_CALL_TIMEOUT_MS = 30_000;
+
+/** Hạn chót của một lượt lập kế hoạch (mốc epoch ms). */
+export type PlannerDeadline = { at: number };
+
+/** Tạo hạn chót từ ngân sách. `null`/không hợp lệ = không giới hạn. */
+export function makeDeadline(
+  budgetMs: number,
+  now: Date = new Date()
+): PlannerDeadline | null {
+  if (!Number.isFinite(budgetMs) || budgetMs <= 0) return null;
+  return { at: now.getTime() + budgetMs };
+}
+
+/** Đã chạm hạn chưa. `null` = không giới hạn → luôn false. */
+export function deadlineExceeded(
+  deadline: PlannerDeadline | null | undefined,
+  now: Date = new Date()
+): boolean {
+  if (!deadline) return false;
+  return now.getTime() >= deadline.at;
+}
+
+/** Thời gian còn lại (ms). Không có hạn → trả về `Infinity`. */
+export function remainingBudgetMs(
+  deadline: PlannerDeadline | null | undefined,
+  now: Date = new Date()
+): number {
+  if (!deadline) return Number.POSITIVE_INFINITY;
+  return Math.max(deadline.at - now.getTime(), 0);
+}
+
+/**
+ * Thời gian tối đa cho MỘT lời gọi AI: ngắn hơn trần chung và không vượt phần
+ * ngân sách còn lại, để lời gọi cuối cùng vẫn kịp kết thúc trước hạn.
+ */
+export function aiTimeoutMs(
+  deadline: PlannerDeadline | null | undefined,
+  now: Date = new Date(),
+  capMs: number = DEFAULT_AI_CALL_TIMEOUT_MS
+): number {
+  const left = remainingBudgetMs(deadline, now);
+  if (!Number.isFinite(left)) return capMs;
+  return Math.max(Math.min(capMs, left), 1);
+}
+
 /** Cấu hình tối thiểu để tính slot giờ. */
 export type SlotConfig = {
   postsPerDay: number;

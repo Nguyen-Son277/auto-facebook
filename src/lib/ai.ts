@@ -1,6 +1,7 @@
 import "server-only";
 
 import { getAiConfigForUser } from "./settings";
+import { DEFAULT_AI_CALL_TIMEOUT_MS } from "./autopilot-plan";
 import {
   buildKeywordMessages,
   buildPostMessages,
@@ -44,6 +45,20 @@ export type ChatResult = {
 /** Lỗi cấu hình dùng chung để thông báo cho người dùng biết cần vào Cài đặt. */
 export const AI_NOT_CONFIGURED =
   "Bạn chưa tự cấu hình AI Provider — vào trang Cài đặt để nhập Base URL + API Key và chọn model (key của riêng bạn, không dùng chung).";
+
+/**
+ * Trần thời gian chờ provider cho MỘT lời gọi AI (ms).
+ *
+ * PHẢI nhỏ hơn thời gian sống còn lại của function gọi nó. Bản cũ hardcode 120
+ * giây — lớn hơn cả giới hạn của một function trên Vercel — nên khi model chậm,
+ * function bị kill TRƯỚC khi timeout kịp bắn: không lỗi nào được ghi lại, và
+ * người dùng chỉ thấy thông báo lỗi CŨ đóng băng, tưởng model hỏng.
+ *
+ * Đọc env ở đây (không đọc ở autopilot-plan.ts) vì file này là server-only.
+ */
+export const AI_CALL_TIMEOUT_MS = Number(
+  process.env.AI_CALL_TIMEOUT_MS ?? DEFAULT_AI_CALL_TIMEOUT_MS
+);
 
 export async function fetchAiModels(
   userId: string,
@@ -153,6 +168,11 @@ function readContent(raw: unknown): string {
  * Tham số `temperature`/`maxTokens` là tùy chọn: một số model mới (reasoning)
  * từ chối các tham số này, nên nếu provider trả 400 vì lý do đó thì tự động
  * thử lại một lần mà không gửi chúng.
+ *
+ * `timeoutMs` PHẢI nhỏ hơn thời gian sống còn lại của function gọi nó. Nếu để
+ * mặc định 120 giây như trước, trên Vercel (giới hạn vài chục giây) function bị
+ * kill TRƯỚC khi timeout kịp bắn — không có lỗi nào được ghi lại, và người dùng
+ * chỉ thấy thông báo lỗi cũ, tưởng model hỏng.
  */
 export async function chatCompletion(input: {
   /** Chat dùng key AI của user nào — bắt buộc, không có key toàn cục. */
@@ -160,9 +180,13 @@ export async function chatCompletion(input: {
   messages: ChatMessage[];
   temperature?: number;
   maxTokens?: number;
+  /** Hạn chờ provider trả lời (ms). Mặc định AI_CALL_TIMEOUT_MS. */
+  timeoutMs?: number;
 }): Promise<ChatResult> {
   const { baseUrl, apiKey, model } = await getAiConfigForUser(input.userId);
   const url = (baseUrl ?? "").replace(/\/+$/, "");
+  const timeoutMs = input.timeoutMs ?? AI_CALL_TIMEOUT_MS;
+  const timeoutSec = Math.max(Math.round(timeoutMs / 1000), 1);
 
   if (!url || !apiKey) {
     return { ok: false, content: "", model: model ?? "", error: AI_NOT_CONFIGURED };
@@ -195,7 +219,7 @@ export async function chatCompletion(input: {
         Authorization: `Bearer ${apiKey}`,
       },
       body: buildBody(withTuning),
-      signal: AbortSignal.timeout(120_000),
+      signal: AbortSignal.timeout(timeoutMs),
     });
 
   try {
@@ -257,7 +281,7 @@ export async function chatCompletion(input: {
       content: "",
       model,
       error: /abort|timeout/i.test(message)
-        ? "Model phản hồi quá lâu (quá 120 giây) — thử lại hoặc chọn model nhanh hơn."
+        ? `Model không trả lời trong ${timeoutSec} giây (hạn chờ của lượt này) — thử lại hoặc chọn model nhanh hơn.`
         : `Không gọi được AI Provider: ${message}`,
     };
   }
@@ -276,7 +300,8 @@ export type GeneratePostResult = {
 };
 
 export async function generatePostVariants(
-  input: GenerateInput
+  input: GenerateInput,
+  options: { timeoutMs?: number } = {}
 ): Promise<GeneratePostResult> {
   if (!input.topic.trim()) {
     return { ok: false, variants: [], error: "Vui lòng nhập chủ đề bài đăng." };
@@ -286,6 +311,7 @@ export async function generatePostVariants(
     userId: input.userId,
     messages: buildPostMessages(input),
     temperature: 0.8,
+    timeoutMs: options.timeoutMs,
   });
 
   if (!res.ok) return { ok: false, variants: [], error: res.error };
@@ -322,7 +348,8 @@ export async function suggestMediaKeywords(
   userId: string,
   content: string,
   count = 6,
-  context: KeywordContext = {}
+  context: KeywordContext = {},
+  options: { timeoutMs?: number } = {}
 ): Promise<SuggestKeywordsResult> {
   const text = content.trim();
   if (text.length < 10) {
@@ -337,6 +364,7 @@ export async function suggestMediaKeywords(
     userId,
     messages: buildKeywordMessages(text, count, context),
     temperature: 0.4,
+    timeoutMs: options.timeoutMs,
   });
 
   if (!res.ok) return { ok: false, keywords: [], error: res.error };

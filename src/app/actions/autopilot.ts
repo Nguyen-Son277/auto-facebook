@@ -5,7 +5,7 @@ import { formatDateTime } from "@/lib/format-date";
 import { revalidatePath } from "next/cache";
 import { requireCurrentUser } from "@/lib/dal";
 import { prisma } from "@/lib/prisma";
-import { kickAutopilotPlanner } from "@/lib/scheduler";
+import { kickAutopilotPlanner, PLANNER_NOW_BUDGET_MS } from "@/lib/scheduler";
 import { runAutopilotPlanner, type PlannerRunResult } from "@/lib/autopilot";
 import { getPageReadiness, readinessProblem } from "@/lib/brand";
 import {
@@ -13,6 +13,7 @@ import {
   clampPlanAheadDays,
   clampPostsPerDay,
   formatDateKey,
+  makeDeadline,
   parseDaysOfWeek,
   parseHm,
   startOfDay,
@@ -292,8 +293,12 @@ export async function runPlannerNowAction(pageId: string): Promise<AutoPilotStat
 
   let result: PlannerRunResult;
   try {
-    // Chạy đồng bộ ở đây (khác vòng lặp nền) để trả kết quả thật cho người dùng
-    result = await runAutopilotPlanner(new Date());
+    // Chạy đồng bộ ở đây (khác vòng lặp nền) để trả kết quả thật cho người dùng.
+    // Có hạn chót NGẮN: đây là Server Action có người đang chờ, nên thà trả kết
+    // quả một phần còn hơn để request bị timeout giữa chừng và không trả gì.
+    result = await runAutopilotPlanner(new Date(), Math.random, {
+      deadline: makeDeadline(PLANNER_NOW_BUDGET_MS),
+    });
   } catch (err) {
     return {
       ok: false,
@@ -309,6 +314,20 @@ export async function runPlannerNowAction(pageId: string): Promise<AutoPilotStat
   if (!mine) {
     return { ok: true, message: "Không có gì để làm — kế hoạch các ngày tới đã đủ bài." };
   }
+
+  // Dừng vì HẾT NGÂN SÁCH THỜI GIAN không phải lỗi: đây là hành vi cố ý để
+  // không vượt giới hạn thời gian của function. Phải nói rõ để người dùng không
+  // tưởng hệ thống hỏng và không đi kiểm tra model.
+  if (mine.stoppedEarly) {
+    return {
+      ok: true,
+      message:
+        mine.created > 0
+          ? `Đã tạo ${mine.created} bài. Còn bài sẽ được tạo tiếp ở nhịp kế tiếp (khoảng vài phút).`
+          : "Lượt này chưa tạo được bài do hết thời gian cho phép — hệ thống sẽ tự tiếp tục ở nhịp kế tiếp (khoảng vài phút).",
+    };
+  }
+
   if (mine.created === 0) {
     return {
       ok: false,

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useTransition } from "react";
 import { toggleAllAutoPilots, toggleAutoPilot, type AutoPilotState } from "@/app/actions/autopilot";
 import type { AutoPilotConfigRow } from "@/lib/autopilot";
+import { formatDateTime } from "@/lib/format-date";
 import { pushToast } from "@/components/toast-provider";
 
 const DAYS_SHORT = ["CN", "T2", "T3", "T4", "T5", "T6", "T7"];
@@ -76,11 +77,25 @@ export default function AutopilotListClient({
                 </td>
                 <td className="px-4 py-3">
                   {c.lastPlanError ? (
-                    <span
-                      className="rounded-full bg-red-100 px-2.5 py-1 text-xs font-medium text-red-700"
-                      title={c.lastPlanError}
-                    >
-                      ⚠ Lỗi
+                    // Kèm mốc lập kế hoạch gần nhất: lỗi này có thể đã cũ nhiều
+                    // ngày. Không có mốc thời gian thì người dùng đọc nó như lỗi
+                    // vừa xảy ra và đi kiểm tra model — trong khi model bình thường.
+                    <span className="inline-flex flex-col gap-0.5">
+                      <span
+                        className="rounded-full bg-red-100 px-2.5 py-1 text-xs font-medium text-red-700"
+                        title={
+                          c.lastPlannedAt
+                            ? `${c.lastPlanError}\n(lần lập kế hoạch gần nhất: ${formatDateTime(c.lastPlannedAt)})`
+                            : c.lastPlanError
+                        }
+                      >
+                        ⚠ Lỗi
+                      </span>
+                      {c.lastPlannedAt ? (
+                        <span className="text-[11px] text-gray-400">
+                          thử lúc {formatDateTime(c.lastPlannedAt)}
+                        </span>
+                      ) : null}
                     </span>
                   ) : c.enabled ? (
                     <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-medium text-emerald-700">

@@ -8,11 +8,15 @@
 // ============================================================
 
 import {
+  aiTimeoutMs,
   clampPlanAheadDays,
   clampPostsPerDay,
   clampVideoPercent,
+  deadlineExceeded,
   decideMediaKind,
+  makeDeadline,
   orderDaysByNeed,
+  remainingBudgetMs,
   shouldAbortPage,
   videoQuotaForDay,
   formatHm,
@@ -24,6 +28,7 @@ import {
   pickServiceArea,
   planTimeSlots,
   startOfDay,
+  DEFAULT_AI_CALL_TIMEOUT_MS,
   MAX_CONSECUTIVE_SLOT_FAILURES,
 } from "../src/lib/autopilot-plan.ts";
 
@@ -500,6 +505,59 @@ check(
   check("bỏ dòng trống + khử trùng + tách dấu phẩy", r.length === 2, JSON.stringify(r));
 }
 check("đầu vào rỗng → mảng rỗng", parseServiceAreas(null).length === 0);
+
+// ============================================================
+section("Ngân sách thời gian (deadline) — planner tự dừng trước khi bị kill");
+// ============================================================
+// Bối cảnh: một lượt lập kế hoạch gọi AI cho từng bài nên mất ~170 giây, vượt
+// xa thời gian sống của một function serverless. Bản cũ chạy tới xong nên bị
+// kill giữa chừng: thuê bao không được nhả, sổ theo dõi không được ghi, và lỗi
+// thật không được lưu. Các hàm dưới đây là chốt chặn cho việc tự dừng sạch.
+
+{
+  const t0 = new Date("2026-09-28T00:00:00.000Z");
+
+  // Không truyền / ngân sách vô lệ => KHÔNG giới hạn (giữ hành vi cũ cho test tay)
+  check("makeDeadline(0) → null (không giới hạn)", makeDeadline(0, t0) === null);
+  check("makeDeadline(-1) → null", makeDeadline(-1, t0) === null);
+  check("makeDeadline(NaN) → null", makeDeadline(Number.NaN, t0) === null);
+
+  const d = makeDeadline(40_000, t0);
+  check("makeDeadline cộng đúng ngân sách", d !== null && d.at === t0.getTime() + 40_000);
+
+  check("deadline null → không bao giờ hết hạn", deadlineExceeded(null, t0) === false);
+  check("deadline undefined → không hết hạn", deadlineExceeded(undefined, t0) === false);
+  check("trước hạn → false", deadlineExceeded(d, new Date(t0.getTime() + 39_999)) === false);
+  check("đúng mốc hạn → true", deadlineExceeded(d, new Date(t0.getTime() + 40_000)) === true);
+  check("quá hạn → true", deadlineExceeded(d, new Date(t0.getTime() + 41_000)) === true);
+
+  check("remainingBudgetMs null → vô hạn", remainingBudgetMs(null, t0) === Number.POSITIVE_INFINITY);
+  check("remainingBudgetMs đếm lùi đúng", remainingBudgetMs(d, new Date(t0.getTime() + 10_000)) === 30_000);
+  check("remainingBudgetMs không âm", remainingBudgetMs(d, new Date(t0.getTime() + 99_000)) === 0);
+
+  // aiTimeoutMs: lời gọi AI không bao giờ được phép vượt phần ngân sách còn lại,
+  // nếu không nó sẽ kéo dài qua hạn và cả lượt bị nền tảng cắt ngang.
+  check(
+    "không có hạn → dùng trần mặc định",
+    aiTimeoutMs(null, t0) === DEFAULT_AI_CALL_TIMEOUT_MS
+  );
+  check(
+    "còn nhiều ngân sách → kẹp theo trần",
+    aiTimeoutMs(d, t0) === DEFAULT_AI_CALL_TIMEOUT_MS
+  );
+  check(
+    "còn ít hơn trần → lấy phần còn lại",
+    aiTimeoutMs(d, new Date(t0.getTime() + 35_000)) === 5_000
+  );
+  check(
+    "đã quá hạn → sàn 1ms (không trả 0/âm)",
+    aiTimeoutMs(d, new Date(t0.getTime() + 50_000)) === 1
+  );
+  check(
+    "trần truyền vào được tôn trọng",
+    aiTimeoutMs(d, t0, 1_000) === 1_000
+  );
+}
 
 // ============================================================
 console.log(`\n${"=".repeat(52)}`);

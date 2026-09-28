@@ -387,17 +387,42 @@ export const PLANNER_INTERVAL_MS = Number(
   process.env.PLANNER_INTERVAL_MS ?? 5 * 60 * 1000
 );
 
+/**
+ * Ngân sách thời gian cho MỘT lượt lập kế hoạch chạy nền (mặc định 40 giây).
+ *
+ * PHẢI nhỏ hơn trần thời gian của function (xem `maxDuration` ở
+ * app/api/cron/tick/route.ts). Trước đây planner chạy không có hạn nên với
+ * ~20 giây/bài, một lượt 12 bài kéo dài ~170 giây và bị nền tảng kill giữa
+ * chừng: lease không được nhả, sổ theo dõi không được ghi, lỗi thật không được
+ * lưu. Nay planner tự dừng trước hạn; phần còn lại do nhịp cron sau trám.
+ */
+export const PLANNER_BUDGET_MS = Number(
+  process.env.PLANNER_BUDGET_MS ?? 40_000
+);
+
+/**
+ * Ngân sách cho nút "Lên kế hoạch ngay" (mặc định 20 giây).
+ *
+ * Ngắn hơn lượt chạy nền vì đây là Server Action có người đang chờ — trả kết
+ * quả một phần còn hơn để người dùng nhìn màn hình quay rồi timeout.
+ */
+export const PLANNER_NOW_BUDGET_MS = Number(
+  process.env.PLANNER_NOW_BUDGET_MS ?? 20_000
+);
+
 const PLANNER_CLOCK = "__marketingPlannerLastRunAt" as const;
 
 /**
- * Thời hạn "thuê bao" lập kế hoạch (mặc định 10 phút).
+ * Thời hạn "thuê bao" lập kế hoạch (mặc định 3 phút).
  *
- * Cố ý LỚN HƠN nhịp cron khuyến nghị (5 phút): một lượt lập kế hoạch có thể gọi
- * AI cho tới MAX_POSTS_PER_RUN bài nên mất vài phút. Nếu thuê bao hết hạn sớm
- * hơn thời gian chạy thật thì nhịp cron kế tiếp sẽ chạy chồng.
+ * PHẢI LỚN HƠN `PLANNER_BUDGET_MS` (nếu thuê bao hết hạn sớm hơn thời gian chạy
+ * thật thì nhịp cron kế tiếp sẽ chạy chồng), nhưng cũng phải ĐỦ NGẮN: nếu một
+ * lượt bị kill cứng giữa chừng (nền tảng không cho chạy `finally`) thì thuê bao
+ * còn lại chính là khoảng thời gian mọi nhịp cron bị chặn oan. Bản cũ để 10 phút
+ * nên mỗi lần bị kill là mất luôn 10 phút lập kế hoạch.
  */
 export const PLANNER_LEASE_MS = Number(
-  process.env.PLANNER_LEASE_MS ?? 10 * 60 * 1000
+  process.env.PLANNER_LEASE_MS ?? 3 * 60 * 1000
 );
 
 /** Khoá thuê bao lưu trong AppSetting — dùng chung cho MỌI tiến trình. */
@@ -429,10 +454,123 @@ async function releasePlannerLease(): Promise<void> {
 }
 
 /**
+ * Chạy một lượt lập kế hoạch tới cùng (đã bọc thuê bao + ngân sách thời gian).
+ *
+ * Trả về Promise để caller CÓ THỂ CHỜ. Đây là điểm quan trọng nhất của bản sửa:
+ * bản cũ bắn rồi quên (`void (async () => …)()`) nên trên serverless, ngay khi
+ * response được trả về là instance bị freeze — chuỗi `await` bị bỏ dở giữa lúc
+ * gọi AI. Hậu quả: `finally` không chạy (thuê bao không được nhả) và sổ theo dõi
+ * (`lastPlannedAt`/`totalPlanned`) không được ghi, nên giao diện cứ hiển thị
+ * thông báo lỗi CŨ và người dùng tưởng model hỏng.
+ *
+ * Caller nên gọi trong `after()` của route cron để nền tảng giữ instance sống
+ * tới hạn `maxDuration` — xem src/app/api/cron/tick/route.ts.
+ */
+export async function runAutopilotPlannerTask(): Promise<void> {
+  const { makeDeadline } = await import("./autopilot-plan");
+
+  if (!(await acquirePlannerLease())) {
+    console.log(
+      "[tự động] bỏ qua lượt lập kế hoạch — một tiến trình khác đang giữ thuê bao."
+    );
+    return;
+  }
+  try {
+    // KHÔNG gửi thông báo "AutoPilot bắt đầu chạy" nữa.
+    //
+    // Nhịp lập kế hoạch chạy mỗi PLANNER_INTERVAL_MS kể cả khi không có gì để
+    // làm, nên thông báo vô điều kiện kiểu đó chỉ tạo spam — thực tế đã sinh
+    // 454 tin trong ~33 giờ (khoảng 1 tin mỗi 4,4 phút) cho admin.
+    // Nay chỉ báo khi có kết quả thật: tạo được bài, hoặc có Page lỗi.
+
+    // Nạp động: giữ cho luồng đăng bài không phải tải sẵn AI/Pexels
+    const { runAutopilotPlannerSafely } = await import("./autopilot");
+    // Hạn chót: planner tự dừng trước khi nền tảng kill, phần còn lại do nhịp
+    // cron kế tiếp trám (planner idempotent).
+    const result = await runAutopilotPlannerSafely(
+      new Date(),
+      makeDeadline(PLANNER_BUDGET_MS)
+    );
+    if (result && (result.created > 0 || result.skipped > 0)) {
+      console.log(
+        `[tự động] đã tạo ${result.created} bài cho ${result.pages.length} Page` +
+          (result.skipped > 0 ? `, bỏ qua ${result.skipped} bài do lỗi` : "") +
+          (result.stoppedEarly ? " (dừng do hết ngân sách, sẽ tiếp tục ở nhịp sau)" : "")
+      );
+      for (const page of result.pages) {
+        if (page.error) console.warn(`[tự động] ${page.pageName}: ${page.error}`);
+      }
+
+      const errors = result.pages.filter((p) => p.error);
+
+      // Nhịp chỉ "bỏ qua" mà không tạo bài và không có lỗi → im lặng hoàn toàn.
+      if (result.created > 0 || errors.length > 0) {
+        // Tổng hợp kết quả từng Page → 1 tin cho chủ Page + 1 tin cho admin
+        let ownerIds: string[] = [];
+        try {
+          const pageIds = result.pages.map((p) => p.pageId);
+          const owners = await prisma.facebookPage.findMany({
+            where: { id: { in: pageIds } },
+            select: { userId: true },
+          });
+          ownerIds = [...new Set(owners.map((o) => o.userId))];
+        } catch {
+          // bỏ qua — vẫn báo admin
+        }
+
+        const summaryBody =
+          `Đã tạo ${result.created} bài` +
+          (result.skipped > 0 ? `, bỏ qua ${result.skipped} bài lỗi` : "") +
+          (result.stoppedEarly ? " (còn bài sẽ tạo tiếp ở nhịp sau)" : "") +
+          (errors.length > 0
+            ? ` — lỗi: ${errors.map((e) => `${e.pageName}: ${e.error}`).join("; ").slice(0, 200)}`
+            : "");
+
+        const payload = {
+          type: "SYSTEM" as const,
+          title: errors.length > 0 ? "⚠️ AutoPilot hoàn tất (có lỗi)" : "✅ AutoPilot hoàn tất",
+          body: summaryBody,
+          link: "/autopilot",
+        };
+
+        // await thay cho `void notify(...)`: bản cũ bắn rồi quên nên thông báo
+        // cho chủ Page thường mất khi request/serverless kết thúc.
+        if (ownerIds.length > 0) {
+          if (errors.length > 0) {
+            // Lỗi dai dẳng: gộp tối đa 1 tin / 6 giờ cho mỗi người nhận
+            for (const ownerId of ownerIds) await notifyOncePer(ownerId, payload);
+          } else {
+            await notifyMany(ownerIds, payload);
+          }
+        }
+
+        if (errors.length > 0) {
+          await notifyAdminsOncePer(payload);
+        } else {
+          await notifyAdmins(payload);
+        }
+      }
+    }
+  } catch (err) {
+    console.error(
+      `[tự động] lỗi khi lập kế hoạch: ${err instanceof Error ? err.message : String(err)}`
+    );
+  } finally {
+    // Nhả thuê bao kể cả khi lỗi — nếu không, một lần chết giữa chừng sẽ
+    // chặn mọi lượt lập kế hoạch cho tới khi thuê bao hết hạn.
+    await releasePlannerLease();
+  }
+}
+
+/**
  * Xin chạy bộ lập kế hoạch. KHÔNG chờ kết quả — trả về ngay.
  *
- * Gọi được từ cả vòng lặp trong app lẫn endpoint cron bên ngoài; hai lớp bảo vệ
- * đảm bảo gọi dồn dập cũng chỉ chạy đúng một lần mỗi chu kỳ:
+ * Dùng cho vòng lặp trong tiến trình web (nơi tiến trình sống lâu) và cho các
+ * Server Action chỉ muốn "kích" mà không muốn chờ. Nơi CẦN đảm bảo chạy xong
+ * (route cron trên serverless) phải `await runAutopilotPlannerTask()` trong
+ * `after()` thay vì dùng hàm này.
+ *
+ * Hai lớp bảo vệ đảm bảo gọi dồn dập cũng chỉ chạy đúng một lần mỗi chu kỳ:
  *   1. Giãn cách trong tiến trình (nhanh, khỏi đụng DB mỗi nhịp).
  *   2. Thuê bao trong DB (chặn 2 instance serverless chạy chồng).
  *
@@ -447,92 +585,7 @@ export function kickAutopilotPlanner(force = false): boolean {
   if (!force && now - last < PLANNER_INTERVAL_MS) return false;
   g[PLANNER_CLOCK] = now;
 
-  void (async () => {
-    if (!(await acquirePlannerLease())) {
-      console.log(
-        "[tự động] bỏ qua lượt lập kế hoạch — một tiến trình khác đang giữ thuê bao."
-      );
-      return;
-    }
-    try {
-      // KHÔNG gửi thông báo "AutoPilot bắt đầu chạy" nữa.
-      //
-      // Nhịp lập kế hoạch chạy mỗi PLANNER_INTERVAL_MS kể cả khi không có gì để
-      // làm, nên thông báo vô điều kiện kiểu đó chỉ tạo spam — thực tế đã sinh
-      // 454 tin trong ~33 giờ (khoảng 1 tin mỗi 4,4 phút) cho admin.
-      // Nay chỉ báo khi có kết quả thật: tạo được bài, hoặc có Page lỗi.
-
-      // Nạp động: giữ cho luồng đăng bài không phải tải sẵn AI/Pexels
-      const { runAutopilotPlannerSafely } = await import("./autopilot");
-      const result = await runAutopilotPlannerSafely(new Date());
-      if (result && (result.created > 0 || result.skipped > 0)) {
-        console.log(
-          `[tự động] đã tạo ${result.created} bài cho ${result.pages.length} Page` +
-            (result.skipped > 0 ? `, bỏ qua ${result.skipped} bài do lỗi` : "")
-        );
-        for (const page of result.pages) {
-          if (page.error) console.warn(`[tự động] ${page.pageName}: ${page.error}`);
-        }
-
-        const errors = result.pages.filter((p) => p.error);
-
-        // Nhịp chỉ "bỏ qua" mà không tạo bài và không có lỗi → im lặng hoàn toàn.
-        if (result.created > 0 || errors.length > 0) {
-          // Tổng hợp kết quả từng Page → 1 tin cho chủ Page + 1 tin cho admin
-          let ownerIds: string[] = [];
-          try {
-            const pageIds = result.pages.map((p) => p.pageId);
-            const owners = await prisma.facebookPage.findMany({
-              where: { id: { in: pageIds } },
-              select: { userId: true },
-            });
-            ownerIds = [...new Set(owners.map((o) => o.userId))];
-          } catch {
-            // bỏ qua — vẫn báo admin
-          }
-
-          const summaryBody =
-            `Đã tạo ${result.created} bài` +
-            (result.skipped > 0 ? `, bỏ qua ${result.skipped} bài lỗi` : "") +
-            (errors.length > 0
-              ? ` — lỗi: ${errors.map((e) => `${e.pageName}: ${e.error}`).join("; ").slice(0, 200)}`
-              : "");
-
-          const payload = {
-            type: "SYSTEM" as const,
-            title: errors.length > 0 ? "⚠️ AutoPilot hoàn tất (có lỗi)" : "✅ AutoPilot hoàn tất",
-            body: summaryBody,
-            link: "/autopilot",
-          };
-
-          // await thay cho `void notify(...)`: bản cũ bắn rồi quên nên thông báo
-          // cho chủ Page thường mất khi request/serverless kết thúc.
-          if (ownerIds.length > 0) {
-            if (errors.length > 0) {
-              // Lỗi dai dẳng: gộp tối đa 1 tin / 6 giờ cho mỗi người nhận
-              for (const ownerId of ownerIds) await notifyOncePer(ownerId, payload);
-            } else {
-              await notifyMany(ownerIds, payload);
-            }
-          }
-
-          if (errors.length > 0) {
-            await notifyAdminsOncePer(payload);
-          } else {
-            await notifyAdmins(payload);
-          }
-        }
-      }
-    } catch (err) {
-      console.error(
-        `[tự động] lỗi khi lập kế hoạch: ${err instanceof Error ? err.message : String(err)}`
-      );
-    } finally {
-      // Nhả thuê bao kể cả khi lỗi — nếu không, một lần chết giữa chừng sẽ
-      // chặn mọi lượt lập kế hoạch cho tới khi thuê bao hết hạn.
-      await releasePlannerLease();
-    }
-  })();
+  void runAutopilotPlannerTask();
 
   return true;
 }
@@ -585,10 +638,62 @@ async function releaseInsightsLease(): Promise<void> {
 }
 
 /**
+ * Chạy một lượt thu thập số liệu tới cùng (đã bọc thuê bao).
+ *
+ * Trả về Promise để caller có thể `await` trong `after()` của route cron — cùng
+ * lý do với `runAutopilotPlannerTask`: bắn rồi quên thì trên serverless instance
+ * bị freeze ngay sau khi trả response, và phần việc đang dở bị bỏ.
+ */
+export async function runInsightsRefreshTask(): Promise<void> {
+  if (!(await acquireInsightsLease())) {
+    console.log("[số liệu] bỏ qua lượt thu thập — tiến trình khác đang giữ thuê bao.");
+    return;
+  }
+  try {
+    // Nạp động: giữ cho luồng đăng bài không phải tải sẵn module insights
+    const { pagesDueForInsights, refreshInsightsForPage, MAX_API_CALLS_PER_RUN } =
+      await import("./fb-insights");
+
+    const at = new Date();
+    const pageIds = await pagesDueForInsights(at);
+    if (pageIds.length === 0) return;
+
+    // Ngân sách dùng chung cho cả lượt: 3 Page × 20 lệnh là đã chạm trần,
+    // nên Page sau không được tiêu quá phần còn lại.
+    const budget = { remaining: MAX_API_CALLS_PER_RUN };
+    let updated = 0;
+
+    for (const pageId of pageIds) {
+      if (budget.remaining <= 0) break;
+      const outcome = await refreshInsightsForPage(pageId, { now: at, budget });
+      updated += outcome.updated;
+      if (outcome.error) {
+        console.warn(`[số liệu] ${outcome.pageName}: ${outcome.error}`);
+      }
+    }
+
+    if (updated > 0) {
+      console.log(
+        `[số liệu] đã cập nhật ${updated} bài của ${pageIds.length} Page (còn ${budget.remaining} lệnh gọi).`
+      );
+    }
+  } catch (err) {
+    console.error(
+      `[số liệu] lỗi khi thu thập: ${err instanceof Error ? err.message : String(err)}`
+    );
+  } finally {
+    await releaseInsightsLease();
+  }
+}
+
+/**
  * Xin thu thập số liệu hiệu quả. KHÔNG chờ kết quả — trả về ngay.
  *
  * Chỉ chạy cho Page đã BẬT tối ưu theo số liệu (`insightsEnabled`): Page không
  * bật thì không tốn một lệnh gọi Graph API nào, đúng cam kết "bật mới chạy".
+ *
+ * Nơi cần đảm bảo chạy xong (route cron trên serverless) phải `await
+ * runInsightsRefreshTask()` trong `after()`.
  */
 export function kickInsightsRefresh(force = false): boolean {
   const g = globalThis as Record<string, unknown>;
@@ -598,47 +703,7 @@ export function kickInsightsRefresh(force = false): boolean {
   if (!force && now - last < INSIGHTS_INTERVAL_MS) return false;
   g[INSIGHTS_CLOCK] = now;
 
-  void (async () => {
-    if (!(await acquireInsightsLease())) {
-      console.log("[số liệu] bỏ qua lượt thu thập — tiến trình khác đang giữ thuê bao.");
-      return;
-    }
-    try {
-      // Nạp động: giữ cho luồng đăng bài không phải tải sẵn module insights
-      const { pagesDueForInsights, refreshInsightsForPage, MAX_API_CALLS_PER_RUN } =
-        await import("./fb-insights");
-
-      const at = new Date();
-      const pageIds = await pagesDueForInsights(at);
-      if (pageIds.length === 0) return;
-
-      // Ngân sách dùng chung cho cả lượt: 3 Page × 20 lệnh là đã chạm trần,
-      // nên Page sau không được tiêu quá phần còn lại.
-      const budget = { remaining: MAX_API_CALLS_PER_RUN };
-      let updated = 0;
-
-      for (const pageId of pageIds) {
-        if (budget.remaining <= 0) break;
-        const outcome = await refreshInsightsForPage(pageId, { now: at, budget });
-        updated += outcome.updated;
-        if (outcome.error) {
-          console.warn(`[số liệu] ${outcome.pageName}: ${outcome.error}`);
-        }
-      }
-
-      if (updated > 0) {
-        console.log(
-          `[số liệu] đã cập nhật ${updated} bài của ${pageIds.length} Page (còn ${budget.remaining} lệnh gọi).`
-        );
-      }
-    } catch (err) {
-      console.error(
-        `[số liệu] lỗi khi thu thập: ${err instanceof Error ? err.message : String(err)}`
-      );
-    } finally {
-      await releaseInsightsLease();
-    }
-  })();
+  void runInsightsRefreshTask();
 
   return true;
 }
