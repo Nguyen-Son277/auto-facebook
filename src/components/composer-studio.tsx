@@ -694,16 +694,21 @@ export default function ComposerStudio({
             </div>
             <div>
               <label className={labelCls}>
-                Từ khóa cần có <span className="text-gray-400">(tùy chọn)</span>
+                Khách hàng hay gõ gì để tìm bạn{" "}
+                <span className="text-gray-400">(tùy chọn)</span>
               </label>
               <input
                 name="keywords"
                 type="text"
                 className={inputCls}
-                placeholder="Ví dụ: trà sữa, khai trương, giảm giá"
+                placeholder="Ví dụ: mua rèm cửa Dĩ An, giá rèm cuốn Bình Dương"
                 value={keywords}
                 onChange={(e) => setKeywords(e.target.value)}
               />
+              <p className="mt-1 text-xs text-gray-500">
+                Nhập câu người mua thật sự gõ khi tìm sản phẩm. AI sẽ triển khai thành cụm từ
+                khóa tự nhiên trong bài thay vì dán nguyên danh sách.
+              </p>
             </div>
           </div>
 

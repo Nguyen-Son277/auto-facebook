@@ -780,8 +780,13 @@ async function createPlannedPost(input: {
     pageName: input.pageName,
   });
 
-  // Chủ đề để AI tự chọn một góc cụ thể trong trụ cột này
-  const topic = `Bài thuộc loại "${pillar.name}". Hãy tự chọn MỘT chủ đề cụ thể, thiết thực và hấp dẫn cho thương hiệu này.`;
+  // Chủ đề để AI tự chọn một góc cụ thể trong trụ cột này.
+  //
+  // Yêu cầu "chọn chủ đề trùng với câu người ta gõ khi tìm kiếm" là phần định
+  // hướng quan trọng nhất: chủ đề quyết định AI viết về cái gì, còn prompt mới
+  // chỉ quyết định CÁCH diễn đạt. Chủ đề mà không phải thứ ai đó đang tìm thì
+  // bài có tối ưu câu chữ tới đâu cũng không được tìm thấy.
+  const topic = `Bài thuộc loại "${pillar.name}". Hãy tự chọn MỘT chủ đề cụ thể, thiết thực và hấp dẫn cho thương hiệu này — ưu tiên chủ đề mà khách hàng thật sự GÕ khi tìm mua hoặc tìm hiểu (ví dụ: mua/bán sản phẩm gì, ở khu vực nào, giá thế nào, loại nào tốt).`;
 
   const res = await generatePostVariants({
     userId: config.userId,

@@ -708,25 +708,34 @@ export const MAX_SERVICE_AREAS = 60;
 export const MAX_SERVICE_AREA_CHARS = 80;
 
 /**
- * Tách danh sách địa bàn người dùng nhập thành mảng sạch.
+ * Tách một ô nhập nhiều mục (mỗi dòng một mục) thành mảng sạch.
  *
- * Chấp nhận cả xuống dòng lẫn dấu phẩy làm dấu phân cách để người dùng dán
- * danh sách từ nhiều nguồn khác nhau mà không phải sửa lại.
- * Khử trùng không phân biệt hoa/thường nhưng GIỮ NGUYÊN chữ gốc của lần xuất
- * hiện đầu tiên — vì đó là cách viết người dùng muốn AI dùng trong bài.
+ * Dùng chung cho mọi ô kiểu "mỗi dòng một mục" của hồ sơ thương hiệu: địa bàn
+ * hoạt động, sản phẩm/dịch vụ... Nhờ vậy quy tắc đọc dữ liệu người dùng nhập
+ * chỉ tồn tại MỘT chỗ, và mọi ô có cùng hành vi (chấp nhận cả dấu phẩy, khử
+ * trùng, cắt độ dài).
+ *
+ * Chấp nhận cả xuống dòng lẫn dấu phẩy/chấm phẩy làm dấu phân cách để người
+ * dùng dán danh sách từ nhiều nguồn khác nhau mà không phải sửa lại.
+ * Khử trùng không phân biệt hoa/thường và dấu nhưng GIỮ NGUYÊN chữ gốc của lần
+ * xuất hiện đầu tiên — vì đó là cách viết người dùng muốn AI dùng trong bài.
  */
-export function parseServiceAreas(raw: string | null | undefined): string[] {
+export function parseListLines(
+  raw: string | null | undefined,
+  opts: { maxItems: number; maxChars: number }
+): string[] {
   if (!raw) return [];
 
+  const { maxItems, maxChars } = opts;
   const seen = new Set<string>();
   const out: string[] = [];
 
   for (const piece of raw.split(/[\n,;]+/)) {
-    const area = piece.trim().replace(/\s+/g, " ").slice(0, MAX_SERVICE_AREA_CHARS);
-    if (!area) continue;
+    const item = piece.trim().replace(/\s+/g, " ").slice(0, maxChars);
+    if (!item) continue;
 
     // Bỏ dấu + hạ chữ thường để so trùng ("Dĩ An" và "dĩ an" là một)
-    const key = area
+    const key = item
       .normalize("NFD")
       .replace(/[\u0300-\u036f]/g, "")
       .replace(/đ/g, "d")
@@ -735,11 +744,19 @@ export function parseServiceAreas(raw: string | null | undefined): string[] {
     if (seen.has(key)) continue;
 
     seen.add(key);
-    out.push(area);
-    if (out.length >= MAX_SERVICE_AREAS) break;
+    out.push(item);
+    if (out.length >= maxItems) break;
   }
 
   return out;
+}
+
+/** Tách danh sách địa bàn người dùng nhập thành mảng sạch. */
+export function parseServiceAreas(raw: string | null | undefined): string[] {
+  return parseListLines(raw, {
+    maxItems: MAX_SERVICE_AREAS,
+    maxChars: MAX_SERVICE_AREA_CHARS,
+  });
 }
 
 /**

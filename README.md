@@ -184,7 +184,9 @@ Vào `/composer`:
 2. Nhập **chủ đề/ý tưởng** bài đăng.
 3. Chọn **giọng điệu** (thân thiện, chuyên nghiệp, sôi nổi, truyền cảm hứng, hài hước),
    **mục tiêu** (tăng tương tác, bán hàng, nhận diện thương hiệu, chia sẻ kiến thức) và **độ dài**.
-4. Tùy chọn thêm **đối tượng độc giả** và **từ khóa cần có** — AI sẽ đưa các từ khóa vào bài một cách tự nhiên.
+4. Tùy chọn thêm **đối tượng độc giả** và **"Khách hàng hay gõ gì để tìm bạn"** —
+   nhập đúng *câu người mua gõ* (ví dụ `mua rèm cửa Dĩ An`, `giá rèm cuốn Bình Dương`).
+   AI sẽ **triển khai thành cụm từ khóa tự nhiên trong bài**, không dán nguyên danh sách.
 5. Bấm **✨ Sinh nội dung** → AI trả về **2–3 phương án khác nhau về góc tiếp cận**.
 6. Bấm **Dùng phương án này** để đưa vào trình soạn thảo, chỉnh sửa lại tùy ý.
 
@@ -192,6 +194,38 @@ Prompt template nằm ở `src/lib/ai-prompts.ts`. AI được yêu cầu trả 
 chấp nhận nhiều biến thể (mảng trần, `posts`/`options`, có/không bọc markdown) — nếu model
 trả về văn bản thuần thì vẫn dùng được nguyên bài thay vì báo lỗi.
 Prompt cũng ràng buộc **không bịa số liệu, giá cả hay cam kết** mà bạn không cung cấp.
+
+### Viết theo hướng người dùng TÌM KIẾM
+
+Người mua không đọc quảng cáo — họ **gõ vào ô tìm kiếm**. Prompt vì vậy dạy AI ghép cụm
+từ khóa theo đúng cách người ta gõ:
+
+```
+mua <sản phẩm> <khu vực>          bán <sản phẩm> <khu vực>
+chỗ nào bán <sản phẩm> <khu vực>  ở đâu bán <sản phẩm> <khu vực>
+giá <sản phẩm> <khu vực>          tư vấn / thi công / lắp đặt <sản phẩm> <khu vực>
+<sản phẩm> loại nào tốt           có nên dùng <sản phẩm>
+```
+
+Quy tắc đi kèm (đều nằm trong `SEARCH_INTENT_CLAUSE`):
+
+- Mỗi bài dùng **2–4 cụm**, và **cụm đầu tiên nằm ngay dòng đầu tiên** — dòng Facebook
+  hiện trước nút "Xem thêm".
+- **Chống nhồi từ khóa**: không lặp y nguyên một cụm quá 2 lần, không xếp cụm rời rạc
+  thành dãy, không viết hoa toàn bộ.
+- **Chỉ ghép từ từ vựng CÓ TRONG HỒ SƠ THƯƠNG HIỆU** (sản phẩm, ngành hàng, địa bàn).
+  Đây là chốt chặn quan trọng nhất: muốn có từ khóa đẹp thì model rất dễ tự nghĩ ra
+  sản phẩm hoặc khu vực mới. Thiếu khu vực → bỏ phần khu vực; thiếu khoảng giá → không
+  dùng khuôn có chữ "giá".
+- **Theo mục tiêu bài**: bài *Bán hàng* dùng khuôn `mua/bán/chỗ nào/giá`; bài
+  *Chia sẻ kiến thức* hoặc *Nhận diện thương hiệu* chỉ dùng khuôn câu hỏi
+  (`cách chọn`, `loại nào tốt`) — **không nhét chữ "mua/bán"** vào bài không phải bài bán.
+- Với chế độ tự động, AI còn được yêu cầu **chọn chủ đề trùng với câu khách hàng gõ**,
+  và **đổi cách diễn đạt cụm từ khóa** so với các bài gần đây.
+
+Khối `=== CỤM TỪ KHÓA NGƯỜI DÙNG HAY TÌM ===` trong prompt được dựng bởi
+`buildSearchIntentBlock()` và đặt ngay sau khối **ĐỊA BÀN HOẠT ĐỘNG**, để ràng buộc
+"chỉ dùng tên trong danh sách" còn nóng.
 
 Ô nội dung hiển thị **số ký tự** và cảnh báo khi dòng đầu vượt ~125 ký tự (ngưỡng Facebook
 cắt phần "Xem thêm").
@@ -384,8 +418,9 @@ Cứ 5 phút (đổi bằng `PLANNER_INTERVAL_MS`), bộ lập kế hoạch ch�
    (giờ đăng mỗi ngày một khác, trông tự nhiên hơn đăng đúng giờ cố định),
    đồng thời tôn trọng khoảng cách tối thiểu.
 3. Chọn trụ cột nội dung theo tỉ trọng, tránh lặp loại bài liên tiếp.
-4. Gọi AI viết bài — kèm hồ sơ thương hiệu, tài liệu liên quan và **danh sách chủ đề
-   vừa đăng gần đây để không viết trùng**.
+4. Gọi AI viết bài — kèm hồ sơ thương hiệu, tài liệu liên quan, **danh sách chủ đề
+   vừa đăng gần đây để không viết trùng**, và **hướng viết theo câu người dùng tìm kiếm**
+   (xem [Viết theo hướng người dùng TÌM KIẾM](#viết-theo-hướng-người-dùng-tìm-kiếm)).
 5. Nếu bật tự tìm hình: hỏi AI từ khóa rồi tìm trên Pexels (mỗi từ khóa lấy 1 ảnh
    để bộ ảnh đa dạng).
 6. Lưu bài ở trạng thái `SCHEDULED` (đăng thẳng) hoặc `PENDING_REVIEW` (chờ duyệt).
@@ -715,7 +750,8 @@ npm run test:e2e:scheduler        # E2E: vòng lặp tự đăng trong app + nú
 npm run test:e2e:autopilot        # E2E: hồ sơ thương hiệu + chế độ tự động (70 kiểm tra)
 npm run test:e2e:autopilot:cycle  # E2E: vòng đời trọn vẹn — AI viết → tìm ảnh → tự đăng lên FB
 npm run test:plan                 # Test logic thuần: chia khung giờ + xoay vòng trụ cột/địa bàn (92 kiểm tra)
-npm run test:service-area         # Test logic thuần: đọc + xoay vòng địa bàn, prompt chống bịa địa danh (34 kiểm tra)
+npm run test:service-area         # Test logic thuần: đọc + xoay vòng địa bàn, prompt chống bịa địa danh (42 kiểm tra)
+npm run test:search-intent        # Test logic thuần: prompt viết theo hướng người dùng tìm kiếm (80 kiểm tra)
 npm run test:readability          # Test logic thuần: chấm điểm dễ đọc của bài viết (19 kiểm tra)
 npm run test:media-source         # Test logic thuần: chọn nguồn media + dự phòng (25 kiểm tra)
 npm run test:drive                # Test logic thuần: lọc MIME/metadata Google Drive (42 kiểm tra)

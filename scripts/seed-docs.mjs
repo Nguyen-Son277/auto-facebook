@@ -161,11 +161,39 @@ Trang [Soạn bài](/composer) là trung tâm sáng tạo: AI viết nội dung 
 2. Chọn **giọng điệu**: thân thiện, chuyên nghiệp, sôi nổi, truyền cảm hứng, hài hước.
 3. Chọn **mục tiêu**: tăng tương tác, bán hàng, nhận diện thương hiệu, chia sẻ kiến thức.
 4. Chọn **độ dài**: ngắn, trung bình, dài.
-5. Tùy chọn thêm: **đối tượng độc giả**, **từ khóa cần có** (AI đưa vào bài một cách tự nhiên).
+5. Tùy chọn thêm: **đối tượng độc giả**, **"Khách hàng hay gõ gì để tìm bạn"**.
 6. Bấm **✨ Sinh nội dung** → nhận **2–3 phương án** khác nhau về góc tiếp cận.
 7. Bấm **Dùng phương án này** để đưa vào trình soạn thảo, chỉnh sửa tùy ý.
 
-## 3. Tìm ảnh/video nhanh
+## 3. Viết theo hướng người dùng TÌM KIẾM
+
+Người mua không đọc quảng cáo — họ gõ vào ô tìm kiếm. AI vì vậy ghép cụm từ khóa theo
+đúng cách người ta gõ:
+
+- **mua / bán** + tên sản phẩm + khu vực
+- **chỗ nào bán / ở đâu bán** + tên sản phẩm + khu vực
+- **giá** + tên sản phẩm + khu vực
+- **tư vấn / thi công / lắp đặt** + tên sản phẩm + khu vực
+- tên sản phẩm + **loại nào tốt**, **có nên dùng**, **gần đây**
+
+Quy tắc:
+
+- Mỗi bài dùng **2–4 cụm**, **cụm đầu tiên nằm ngay dòng đầu tiên** (dòng Facebook hiện
+  trước nút "Xem thêm").
+- **Không nhồi từ khóa**: không lặp y nguyên một cụm quá 2 lần, không xếp cụm rời rạc
+  thành dãy.
+- **Chỉ ghép từ có trong hồ sơ thương hiệu** (sản phẩm, ngành hàng, địa bàn). Hệ thống
+  không cho AI tự nghĩ ra sản phẩm hay khu vực mới. Hồ sơ chưa có khu vực thì bài không
+  nhắc địa danh nào.
+- **Theo mục tiêu bài**: bài *Bán hàng* dùng khuôn mua/bán; bài *Chia sẻ kiến thức* hoặc
+  *Nhận diện thương hiệu* chỉ dùng khuôn câu hỏi — không nhét chữ "mua/bán" vào bài
+  không phải bài bán.
+
+> 💡 Ô **"Khách hàng hay gõ gì để tìm bạn"** ở trang Soạn bài: nhập đúng câu người mua gõ
+> (ví dụ \`mua rèm cửa Dĩ An\`, \`giá rèm cuốn Bình Dương\`). AI sẽ triển khai thành cụm từ
+> khóa tự nhiên trong bài, **không dán nguyên danh sách**.
+
+## 4. Tìm ảnh/video nhanh
 
 Trong trình soạn thảo có khối **"Tìm ảnh/video nhanh trên Pexels"**:
 
@@ -174,7 +202,7 @@ Trong trình soạn thảo có khối **"Tìm ảnh/video nhanh trên Pexels"**:
 - Hover thumbnail rồi bấm **➕** để đính kèm. Không được trộn ảnh và video trong cùng một bài (giới hạn của Facebook).
 - Cần tìm nhiều trang / lưu vào thư viện → bấm **🖼️ Chọn ảnh/video từ Pexels**.
 
-## 4. Tải ảnh/video từ máy lên
+## 5. Tải ảnh/video từ máy lên
 
 Ngoài Pexels, bạn có thể đính kèm file trong máy:
 
@@ -183,13 +211,13 @@ Ngoài Pexels, bạn có thể đính kèm file trong máy:
 - Video tải lên xem lại được ngay trong trình soạn thảo. Khi đăng, Facebook tự tải video về từ kho — bạn không phải chờ.
 - Nếu tải lên báo lỗi định dạng, dùng file \`.mp4\` (H.264) hoặc \`.mov\`.
 
-## 5. Đăng hoặc hẹn giờ
+## 6. Đăng hoặc hẹn giờ
 
 - **Đăng ngay** — bài lên Facebook tức thì (dùng Page Access Token đã đồng bộ).
 - **Hẹn giờ** — chọn ngày giờ; hệ thống tự đăng đúng giờ, kể cả khi bạn đóng trình duyệt.
 - Ô nội dung hiển thị **số ký tự** và cảnh báo khi dòng đầu vượt ~125 ký tự (ngưỡng Facebook cắt phần "Xem thêm").
 
-## 6. Mẹo cho bài chất lượng
+## 7. Mẹo cho bài chất lượng
 
 - Dòng đầu tiên là "hook" — viết thật cuốn hút vì Facebook cắt sau ~125 ký tự.
 - Kho tài liệu thương hiệu càng đầy đủ (bảng giá, FAQ, chính sách), AI càng ít phải đoán.

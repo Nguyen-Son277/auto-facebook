@@ -298,8 +298,8 @@ export async function regeneratePostContent(postId: string): Promise<PostEditSta
   const res = await generatePostVariants({
     userId: user.id,
     topic: pillar
-      ? `Bài thuộc loại "${pillar.name}". Viết lại theo một góc tiếp cận KHÁC hẳn bài cũ.`
-      : "Viết lại bài đăng này theo một góc tiếp cận khác, hấp dẫn hơn.",
+      ? `Bài thuộc loại "${pillar.name}". Viết lại theo một góc tiếp cận KHÁC hẳn bài cũ, nhưng vẫn bám vào câu khách hàng hay GÕ khi tìm mua hoặc tìm hiểu sản phẩm.`
+      : "Viết lại bài đăng này theo một góc tiếp cận khác, hấp dẫn hơn, vẫn bám vào câu khách hàng hay GÕ khi tìm mua hoặc tìm hiểu sản phẩm.",
     tone: TONES.some((t) => t.value === tone) ? tone : "friendly",
     goal: (GOALS.some((g) => g.value === pillar?.goal) ? pillar!.goal : "engagement") as Goal,
     length: (LENGTHS.some((l) => l.value === config?.length)

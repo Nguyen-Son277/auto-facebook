@@ -4,6 +4,14 @@
 // ở cả server lẫn client component.
 // ============================================================
 
+// Dùng chung quy tắc "mỗi dòng một mục" với địa bàn hoạt động — một chỗ duy
+// nhất đọc dữ liệu người dùng nhập, nên mọi ô có cùng hành vi.
+import {
+  MAX_SERVICE_AREA_CHARS,
+  MAX_SERVICE_AREAS,
+  parseListLines,
+} from "./autopilot-plan.ts";
+
 export type Tone = "friendly" | "professional" | "exciting" | "inspiring" | "humorous";
 export type Goal = "engagement" | "sales" | "awareness" | "education";
 export type PostLength = "short" | "medium" | "long";
@@ -156,6 +164,53 @@ export const PERFORMANCE_SAFETY_CLAUSE = [
   "  không nêu lượt xem, lượt tương tác, tỉ lệ).",
 ].join("\n");
 
+/**
+ * Hướng viết theo người dùng TÌM KIẾM.
+ *
+ * Vì sao cần: người mua không đọc quảng cáo — họ GÕ vào ô tìm kiếm những câu
+ * như "mua rèm cửa Dĩ An", "chỗ nào bán rèm cuốn Bình Dương", "giá rèm cầu vồng".
+ * Bài đăng chỉ được người ta tìm thấy khi câu chữ của bài trùng với cách người
+ * ta gõ. Prompt cũ viết đúng "chất thương hiệu" nhưng theo lối quảng cáo, nên
+ * hiếm khi khớp truy vấn thật.
+ *
+ * Ba chốt chặn BẮT BUỘC đi kèm (thiếu là hỏng):
+ *   1. Cụm từ khóa chỉ được ghép từ từ vựng CÓ TRONG HỒ SƠ THƯƠNG HIỆU. Không
+ *      có chốt này model tự nghĩ ra sản phẩm/khu vực mới — đúng loại lỗi mà
+ *      PERFORMANCE_SAFETY_CLAUSE và khối ĐỊA BÀN đang chặn.
+ *   2. Giới hạn 2–4 cụm/bài. Nhồi nhiều hơn thì bài đọc như danh sách từ khóa,
+ *      người đọc bỏ đi, và Facebook dễ coi là spam.
+ *   3. Chỉ ép khuôn "mua/bán" cho bài BÁN HÀNG. Bài chia sẻ kiến thức mà nhét
+ *      "mua rèm ở đâu" vào sẽ thành lạc giọng.
+ *
+ * Đây là chỉ thị về CÁCH VIẾT, không mở rộng nguồn sự thật — hồ sơ thương hiệu
+ * vẫn là nơi duy nhất cung cấp thông tin.
+ */
+export const SEARCH_INTENT_CLAUSE = [
+  "HƯỚNG NGƯỜI DÙNG TÌM KIẾM (bắt buộc):",
+  "- Viết để khớp với CÂU NGƯỜI TA GÕ khi cần mua, không viết như áp phích quảng cáo.",
+  "- Đưa vào bài 2–4 CỤM TỪ KHÓA TÌM KIẾM, viết tự nhiên như người thật nói.",
+  "- CỤM ĐẦU TIÊN phải nằm ngay trong DÒNG ĐẦU TIÊN của bài.",
+  "- Cụm từ khóa ghép theo cấu trúc: (ý định mua/bán/tìm) + (tên sản phẩm) + (khu vực),",
+  "  ví dụ các khuôn người dùng hay gõ:",
+  '  • "mua <sản phẩm> <khu vực>" / "bán <sản phẩm> <khu vực>"',
+  '  • "chỗ nào bán <sản phẩm> <khu vực>" / "ở đâu bán <sản phẩm> <khu vực>"',
+  '  • "giá <sản phẩm> <khu vực>" / "<sản phẩm> <khu vực> giá bao nhiêu"',
+  '  • "<sản phẩm> gần đây" / "<sản phẩm> loại nào tốt" / "có nên dùng <sản phẩm>"',
+  '  • "tư vấn <sản phẩm>" / "thi công <sản phẩm>" / "lắp đặt <sản phẩm> <khu vực>"',
+  "- CHỈ được dùng tên sản phẩm, ngành hàng và khu vực CÓ TRONG HỒ SƠ THƯƠNG HIỆU.",
+  "  Tuyệt đối không tự nghĩ ra sản phẩm, khu vực hay địa danh mới.",
+  "- Nếu hồ sơ KHÔNG có khu vực nào thì BỎ phần khu vực, chỉ dùng sản phẩm + ý định.",
+  "- Nếu hồ sơ không nêu khoảng giá thì KHÔNG dùng khuôn có chữ \"giá\".",
+  "- CHỐNG NHỒI TỪ KHÓA: không lặp y nguyên một cụm quá 2 lần trong bài, không viết hoa",
+  "  toàn bộ, không xếp các cụm rời rạc thành một dãy như danh sách từ khóa, không lặp lại",
+  "  máy móc cùng một cụm ở mọi đoạn.",
+  "- Bài BÁN HÀNG (mục tiêu \"Bán hàng\", hoặc loại bài giới thiệu/khuyến mãi sản phẩm):",
+  "  ưu tiên các khuôn mua/bán/chỗ nào/giá.",
+  "- Bài CHIA SẺ KIẾN THỨC hoặc NHẬN DIỆN THƯƠNG HIỆU: dùng khuôn câu hỏi",
+  "  (\"cách chọn\", \"loại nào tốt\", \"có nên dùng\") và chỉ cần 1–2 cụm;",
+  "  KHÔNG nhét chữ \"mua/bán\" vào bài không phải bài bán.",
+].join("\n");
+
 const toneLabel = (t: Tone) => TONES.find((x) => x.value === t)?.label ?? t;
 const toneHint = (t: Tone) => TONES.find((x) => x.value === t)?.hint ?? "";
 const goalLabel = (g: Goal) => GOALS.find((x) => x.value === g)?.label ?? g;
@@ -183,7 +238,10 @@ Nguyên tắc nội dung:
 - Khi có HỒ SƠ THƯƠNG HIỆU hoặc TÀI LIỆU THAM KHẢO: chỉ dùng thông tin có trong đó.
   Tuyệt đối không tự nghĩ ra giá, khuyến mãi, năm thành lập, số lượng khách, giải thưởng,
   bảo hành hay địa chỉ. Nếu thiếu thông tin thì viết chung chung, KHÔNG suy diễn.
-- Nếu người dùng đưa từ khóa, phải đưa các từ khóa đó vào bài một cách tự nhiên.
+- Nếu người dùng đưa từ khóa, phải đưa các từ khóa đó vào bài một cách tự nhiên —
+  và phải TRIỂN KHAI thành cụm truy vấn hoàn chỉnh, KHÔNG dán nguyên xi danh sách từ khóa.
+
+${SEARCH_INTENT_CLAUSE}
 
 ĐỊNH DẠNG TRẢ VỀ: chỉ trả về DUY NHẤT một object JSON hợp lệ, không kèm giải thích, không bọc trong markdown.
 Cấu trúc:
@@ -273,6 +331,140 @@ export function buildBrandBlock(brand: BrandContext): string[] {
   return out;
 }
 
+// ============================================================
+// CỤM TỪ KHÓA NGƯỜI DÙNG HAY TÌM
+//
+// Vì sao tách thành một khối riêng thay vì viết chung vào SYSTEM_PROMPT: model
+// chỉ viết đúng khi được ĐƯA SẴN từ vựng cụ thể của thương hiệu này. Nằm trong
+// system prompt thì nó chỉ có khuôn rỗng, và bịa tên sản phẩm/khu vực để lấp
+// vào chỗ trống — đúng loại lỗi prompt này sinh ra để chặn.
+// ============================================================
+
+/** Số sản phẩm tối đa liệt kê trong khối — nhiều hơn sẽ làm loãng prompt. */
+export const MAX_PRODUCTS_IN_PROMPT = 12;
+/** Độ dài tối đa mỗi dòng sản phẩm (tên sản phẩm dài hơn địa danh). */
+export const MAX_PRODUCT_LINE_CHARS = 120;
+
+/**
+ * Dựng khối "CỤM TỪ KHÓA NGƯỜI DÙNG HAY TÌM" cho prompt.
+ *
+ * Trả về `[]` khi thương hiệu chưa có sản phẩm lẫn ngành hàng — lúc đó không có
+ * từ vựng nào để ghép cụm, và thêm khối rỗng chỉ khiến model tự bịa.
+ */
+export function buildSearchIntentBlock(
+  brand: BrandContext,
+  goal?: Goal
+): string[] {
+  const products = parseListLines(brand.products, {
+    maxItems: MAX_PRODUCTS_IN_PROMPT,
+    maxChars: MAX_PRODUCT_LINE_CHARS,
+  });
+  const industry = brand.industry?.trim();
+  if (products.length === 0 && !industry) return [];
+
+  // Khu vực: GIỮ NGUYÊN chốt cũ — chỉ nhắc khu vực MỤC TIÊU khi bài này đã được
+  // gán một khu vực cụ thể (`serviceArea`). Thương hiệu có danh sách nhưng bài
+  // chưa gán (bài soạn tay ở trang Soạn bài, hoặc dữ liệu cũ) thì không nhắm
+  // khu vực nào.
+  //
+  // Lưu ý quan trọng: danh sách `serviceAreas` ĐÃ là danh sách trắng trong khối
+  // HỒ SƠ THƯƠNG HIỆU. Nên ở nhánh chưa gán khu vực, câu chữ phải là "không nhắm
+  // khu vực cụ thể", KHÔNG được nói "cấm nhắc địa danh" — nói vậy là mâu thuẫn
+  // với chính khối hồ sơ ở trên và model sẽ nhận hai chỉ thị trái nhau.
+  const area = brand.serviceArea?.trim();
+  const areaList = parseListLines(brand.serviceAreas, {
+    maxItems: MAX_SERVICE_AREAS,
+    maxChars: MAX_SERVICE_AREA_CHARS,
+  });
+
+  const lines: string[] = [
+    "=== CỤM TỪ KHÓA NGƯỜI DÙNG HAY TÌM ===",
+    "Người mua không đọc quảng cáo — họ gõ câu tìm kiếm. Hãy ghép cụm từ khóa của bài",
+    "từ ĐÚNG những từ vựng dưới đây, không tự nghĩ ra từ mới.",
+    "",
+  ];
+
+  if (products.length > 0) {
+    lines.push("Sản phẩm/dịch vụ được phép nhắc tên:");
+    for (const p of products) lines.push(`  • ${p}`);
+  } else {
+    lines.push(`Ngành hàng được phép nhắc: ${industry}`);
+  }
+
+  if (area) {
+    lines.push("", "Khu vực được phép nhắc:");
+    lines.push(`  • ${area}  ← khu vực bài NÀY nhắm tới`);
+    for (const a of areaList) {
+      if (a.toLowerCase() === area.toLowerCase()) continue;
+      lines.push(`  • ${a}`);
+    }
+  } else if (areaList.length > 0) {
+    lines.push(
+      "",
+      "Bài này KHÔNG nhắm khu vực cụ thể → hãy viết cụm từ khóa không kèm khu vực.",
+      "Nếu buộc phải nhắc khu vực thì chỉ dùng đúng tên trong danh sách \"Địa bàn hoạt động\"",
+      "ở hồ sơ thương hiệu, và chỉ nhắc 1 lần."
+    );
+  } else {
+    lines.push(
+      "",
+      "Thương hiệu không có khu vực nào → bài KHÔNG được nhắc bất kỳ địa danh nào.",
+      "Hãy bỏ phần khu vực khỏi cụm từ khóa, chỉ giữ sản phẩm + ý định."
+    );
+  }
+
+  // Khuôn mẫu đã điền sẵn tên thật của thương hiệu — model bắt chước cấu trúc
+  // tốt hơn nhiều so với việc chỉ đưa khuôn rỗng.
+  //
+  // Chỉ sinh mẫu khi có TÊN SẢN PHẨM cụ thể: ghép khuôn với tên ngành hàng cho
+  // ra câu vô nghĩa ("mua Nội thất"), tệ hơn là không có mẫu nào.
+  //
+  // Chọn khuôn theo MỤC TIÊU: bài bán hàng dùng khuôn mua/bán, bài chia sẻ kiến
+  // thức chỉ dùng khuôn câu hỏi. Ép "mua/bán" vào bài kiến thức sẽ khiến bài
+  // lạc giọng — người đọc đang tìm hiểu bị bán hàng thẳng vào mặt.
+  const isSelling = goal !== "education" && goal !== "awareness";
+  const sample = products[0] ?? "";
+  const where = area ?? "";
+  const examples: string[] = [];
+  if (sample) {
+    if (isSelling) {
+      examples.push(`  • mua ${sample}${where ? ` ${where}` : ""}`);
+      examples.push(`  • bán ${sample}${where ? ` ${where}` : ""}`);
+      examples.push(`  • chỗ nào bán ${sample}${where ? ` ${where}` : ""}`);
+      examples.push(`  • ở đâu bán ${sample}${where ? ` ${where}` : ""}`);
+      if (brand.priceRange?.trim()) {
+        examples.push(`  • giá ${sample}${where ? ` ${where}` : ""}`);
+      }
+    }
+    examples.push(`  • ${sample} loại nào tốt`);
+    examples.push(`  • có nên dùng ${sample}`);
+    examples.push(isSelling ? `  • tư vấn ${sample}${where ? ` ${where}` : ""}` : `  • cách chọn ${sample}`);
+  }
+
+  if (examples.length > 0) {
+    lines.push("", "Mẫu câu người dùng hay gõ (chỉ là mẫu — hãy viết lại tự nhiên):", ...examples);
+  }
+
+  lines.push(
+    "",
+    isSelling
+      ? "- Mỗi bài dùng 2–4 cụm, cụm ĐẦU TIÊN nằm trong dòng đầu tiên."
+      : "- Mỗi bài dùng 1–2 cụm dạng câu hỏi, cụm ĐẦU TIÊN nằm trong dòng đầu tiên.",
+    "- Cụm phải đọc như người thật nói, KHÔNG xếp thành dãy từ khóa rời rạc.",
+    area
+      ? "- Chỉ dùng đúng tên sản phẩm và khu vực ở trên. Không bịa thêm tên nào khác."
+      : "- Chỉ dùng đúng tên sản phẩm ở trên. Không bịa thêm tên sản phẩm hay địa danh nào khác."
+  );
+
+  if (!isSelling) {
+    lines.push("- Bài này KHÔNG phải bài bán hàng: KHÔNG nhét chữ \"mua/bán/chỗ nào\" vào bài.");
+  }
+
+  lines.push("");
+
+  return lines;
+}
+
 export function buildUserPrompt(input: GenerateInput): string {
   // Cho phép 1 phương án: chế độ tự động chỉ cần đúng 1 bài mỗi slot
   const count = Math.min(Math.max(input.variantCount ?? 3, 1), 3);
@@ -344,6 +536,13 @@ export function buildUserPrompt(input: GenerateInput): string {
     );
   }
 
+  // Cụm từ khóa người dùng hay tìm. Đặt NGAY SAU khối địa bàn để ràng buộc
+  // "chỉ dùng tên có trong danh sách" còn nóng, rồi mới tới chủ đề/giọng điệu.
+  if (input.brand) {
+    const intent = buildSearchIntentBlock(input.brand, input.goal);
+    if (intent.length > 0) lines.push(...intent);
+  }
+
   lines.push(
     `Chủ đề bài đăng: ${input.topic}`,
     `Giọng điệu: ${toneLabel(input.tone)} (${toneHint(input.tone)})`,
@@ -352,14 +551,23 @@ export function buildUserPrompt(input: GenerateInput): string {
   );
 
   if (input.audience?.trim()) lines.push(`Đối tượng độc giả: ${input.audience.trim()}`);
-  if (input.keywords?.trim()) lines.push(`Từ khóa cần có trong bài: ${input.keywords.trim()}`);
+  if (input.keywords?.trim()) {
+    lines.push(
+      `Từ khóa cần có trong bài: ${input.keywords.trim()}`,
+      "- Hãy TRIỂN KHAI các từ khóa này thành cụm truy vấn hoàn chỉnh (2–4 cụm),",
+      "  KHÔNG dán nguyên xi danh sách từ khóa rời rạc vào bài."
+    );
+  }
   if (input.pageName?.trim()) lines.push(`Tên Facebook Page: ${input.pageName.trim()}`);
 
   if (input.recentTopics?.length) {
     lines.push(
       "",
       "Các chủ đề ĐÃ ĐĂNG GẦN ĐÂY — phải chọn góc tiếp cận KHÁC, không lặp lại:",
-      ...input.recentTopics.map((t) => `- ${t}`)
+      ...input.recentTopics.map((t) => `- ${t}`),
+      "- Đồng thời ĐỔI CÁCH DIỄN ĐẠT cụm từ khóa: không dùng lại y nguyên cụm",
+      "  \"mua/bán + sản phẩm + khu vực\" của các bài gần đây; đổi khuôn câu hoặc",
+      "  đổi sản phẩm/khu vực được nhấn."
     );
   }
 
