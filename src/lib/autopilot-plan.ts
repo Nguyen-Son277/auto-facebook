@@ -511,16 +511,32 @@ function clampShare(share: number): number {
  */
 export function pickPillarEvenly(
   pillars: PillarLike[],
-  usage: Record<string, number>
+  usage: Record<string, number>,
+  /**
+   * Trụ cột của các bài GẦN NHẤT (mới nhất đứng đầu). Dùng phá hoà khi nhiều
+   * trụ cột cùng số lần dùng — thiếu nó thì hoà điểm luôn rơi về trụ cột đầu
+   * danh sách, nên một lượt chỉ tạo 1–2 bài sẽ dồn mãi vào đó.
+   */
+  recentNames: string[] = []
 ): PillarLike | null {
   if (pillars.length === 0) return null;
   if (pillars.length === 1) return pillars[0];
 
-  const countOf = (p: PillarLike) => usage[p.name] ?? 0;
+  // Bộ đếm dò ghi khoá dạng "PILLAR:<tên>" (cùng bộ đếm với hook/band), nên
+  // phải đọc cả khoá đó — chỉ đọc `usage[p.name]` thì luôn ra 0 và mọi bài dò
+  // dồn vào trụ cột đầu tiên. Vẫn đọc khoá tên trần để tương thích.
+  const countOf = (p: PillarLike) =>
+    (usage[`PILLAR:${p.name}`] ?? 0) + (usage[p.name] ?? 0);
+  // Chỉ số xuất hiện gần đây: nhỏ = vừa dùng. Không có trong lịch sử = rất lâu.
+  const lastSeen = (p: PillarLike) => {
+    const i = recentNames.indexOf(p.name);
+    return i === -1 ? Number.POSITIVE_INFINITY : i;
+  };
 
   let best = pillars[0];
   for (const p of pillars) {
-    if (countOf(p) < countOf(best)) best = p;
+    const diff = countOf(p) - countOf(best);
+    if (diff < 0 || (diff === 0 && lastSeen(p) > lastSeen(best))) best = p;
   }
 
   return best;
@@ -767,7 +783,16 @@ export function parseServiceAreas(raw: string | null | undefined): string[] {
  * vực ít dùng nhất lại trùng bài vừa đăng thì ưu tiên phương án khác, để hai
  * bài liền nhau không nhắm cùng một địa bàn.
  */
-export function pickServiceArea(areas: string[], recentAreas: string[]): string | null {
+export function pickServiceArea(
+  areas: string[],
+  recentAreas: string[],
+  /**
+   * Hệ số hiệu quả theo địa bàn (từ số liệu thật). CHỈ dùng để phá hoà — nền
+   * vẫn là xoay vòng, vì địa bàn kém vẫn cần được đo tiếp; bỏ hẳn một khu vực
+   * chỉ vì vài bài đầu chưa hiệu quả là kết luận quá sớm.
+   */
+  weights: Record<string, number> = {}
+): string | null {
   if (areas.length === 0) return null;
   if (areas.length === 1) return areas[0];
 
@@ -777,7 +802,14 @@ export function pickServiceArea(areas: string[], recentAreas: string[]): string 
     usage.set(key, (usage.get(key) ?? 0) + 1);
   }
 
-  const scoreOf = (area: string) => usage.get(area.trim().toLowerCase()) ?? 0;
+  const weightOf = (area: string) => {
+    const w = weights[area.trim()] ?? weights[area];
+    return typeof w === "number" && w > 0 ? w : 1;
+  };
+
+  // Điểm = số lần đã dùng / hệ số hiệu quả. Hệ số cao → điểm thấp → được chọn
+  // sớm hơn khi vòng xoay đang bằng điểm.
+  const scoreOf = (area: string) => (usage.get(area.trim().toLowerCase()) ?? 0) / weightOf(area);
 
   let best = areas[0];
   for (const area of areas) {

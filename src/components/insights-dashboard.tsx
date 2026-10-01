@@ -241,6 +241,19 @@ export default function InsightsDashboard({
             </div>
           ) : null}
 
+          {/* Tỉ lệ thử hướng mới ở giai đoạn khai thác */}
+          {progress && progress.phase === "EXPLOIT" ? (
+            <div className="mt-3 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+              <span className="font-medium">Đang khai thác, vẫn giữ phần thử hướng mới:</span>{" "}
+              khoảng {Math.round(progress.explorationRate * 100)}% số bài được dành để thử hướng ít
+              dữ liệu nhất, phần còn lại đi theo hướng đang hiệu quả.
+              <div className="mt-1 text-xs text-emerald-900/80">
+                Tỉ lệ này tự tăng khi hiệu quả đi xuống và tự giảm khi số liệu đã ổn định — nhờ vậy
+                hệ thống phát hiện thị hiếu đổi sớm, không phải chờ tới lúc tụt nặng.
+              </div>
+            </div>
+          ) : null}
+
           {learning.commentary.bullets.length > 0 ? (
             <ul className="mt-3 space-y-1 text-sm text-gray-700">
               {learning.commentary.bullets.map((b, i) => (
@@ -671,6 +684,81 @@ export default function InsightsDashboard({
               liệu thô mỗi lượt kiểm tra.
             </p>
           ) : null}
+        </section>
+      ) : null}
+
+      {/* ===== Khối C2: NHẬT KÝ TỰ ĐIỀU CHỈNH ===== */}
+      {learning && learning.adjustments.length > 0 ? (
+        <section className={cardCls} data-testid="insights-adjustments">
+          <h2 className="text-base font-semibold text-gray-900">
+            🔧 Hệ thống đã tự đổi gì, và kết quả ra sao
+          </h2>
+          <p className="mt-1 text-xs text-gray-500">
+            Mỗi lần hệ thống tự đổi cách đăng, nó ghi lại mốc số liệu lúc đổi và kiểm chứng lại sau
+            ít nhất 7 ngày. Nếu hiệu quả tụt quá 15%, hệ thống tự quay về cấu hình cũ và khoá chiều
+            đó 14 ngày.
+          </p>
+
+          <div className="mt-3 overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-200 text-left text-xs uppercase tracking-wide text-gray-500">
+                  <th className="py-2 pr-3">Chiều điều chỉnh</th>
+                  <th className="py-2 pr-3">Áp dụng lúc</th>
+                  <th className="py-2 pr-3 text-right">Mốc lúc đổi</th>
+                  <th className="py-2 pr-3 text-right">Sau điều chỉnh</th>
+                  <th className="py-2 pr-3">Kết luận</th>
+                </tr>
+              </thead>
+              <tbody>
+                {learning.adjustments.map((a) => (
+                  <tr key={a.id} className="border-b border-gray-100 align-top">
+                    <td className="py-2 pr-3 text-gray-900">{a.kindLabel}</td>
+                    <td className="py-2 pr-3 text-gray-600">{formatDateTime(a.appliedAt)}</td>
+                    <td className="py-2 pr-3 text-right text-gray-700">
+                      {Math.round(a.baselineMedian * 10) / 10} điểm
+                      <div className="text-xs text-gray-400">{a.baselineSamples} bài</div>
+                    </td>
+                    <td className="py-2 pr-3 text-right text-gray-700">
+                      {a.resultMedian === null ? (
+                        "—"
+                      ) : (
+                        <>
+                          {Math.round(a.resultMedian * 10) / 10} điểm
+                          <div className="text-xs text-gray-400">{a.resultSamples ?? 0} bài</div>
+                        </>
+                      )}
+                    </td>
+                    <td className="py-2 pr-3">
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+                          a.status === "ROLLED_BACK"
+                            ? "bg-amber-50 text-amber-800"
+                            : a.status === "KEPT"
+                              ? "bg-emerald-50 text-emerald-700"
+                              : "bg-gray-100 text-gray-700"
+                        }`}
+                      >
+                        {a.status === "ROLLED_BACK"
+                          ? "Đã quay lại"
+                          : a.status === "KEPT"
+                            ? "Giữ"
+                            : "Đang kiểm chứng"}
+                      </span>
+                      {a.reason ? (
+                        <div className="mt-1 text-xs text-gray-500">{a.reason}</div>
+                      ) : null}
+                      {a.lockedUntil ? (
+                        <div className="mt-1 text-xs text-amber-700">
+                          Tạm khoá tới {formatDateTime(a.lockedUntil)}
+                        </div>
+                      ) : null}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </section>
       ) : null}
 

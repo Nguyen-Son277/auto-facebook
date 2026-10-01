@@ -131,6 +131,18 @@ export type PerformanceReport = {
   /** Bài hiệu quả nhất (tối đa 3) và kém nhất (tối đa 3). */
   topPosts: ScoredSample[];
   weakPosts: ScoredSample[];
+  /**
+   * Bài MỚI NHẤT trước (sắp theo publishedAt giảm dần, tối đa 10). Khác
+   * `weakPosts` (sắp theo điểm): tín hiệu "tụt cả loạt" phải nhìn bài gần đây,
+   * không phải bài yếu nhất — bài yếu nhất luôn dưới trung vị nên đọc nhầm
+   * danh sách đó thì tín hiệu bật gần như mọi lần.
+   */
+  recentPosts: ScoredSample[];
+  /**
+   * Robust z của TỪNG bài theo postId — để chấm bài dò theo đúng bài đã gắn
+   * với hướng đó (ProbeEntry.postIds), thay vì đoán lại bằng regex.
+   */
+  zByPost: Record<string, number>;
   /** Xu hướng 7 ngày gần nhất so với 7 ngày trước đó. Null khi thiếu mẫu. */
   trend7d: { recentAvg: number; previousAvg: number; changePct: number } | null;
 };
@@ -196,7 +208,6 @@ function groupStats(
 
   const out: GroupStat[] = [];
   for (const [key, list] of buckets) {
-    const scores = list.map((s) => s.score);
     const distributions = list
       .map((s) => s.distributionValue)
       .filter((d): d is number => typeof d === "number");
@@ -220,7 +231,7 @@ function groupStats(
       label: labelOf(kind, key),
       posts: list.length,
       share: list.length / total,
-      avgScore: averageOf(scores),
+      avgScore: recencyWeightedAverage(list, now),
       avgEngagement: averageOf(list.map((s) => s.engagement)),
       avgDistribution: distributions.length > 0 ? averageOf(distributions) : null,
       // z của cả NHÓM (không phải từng bài) — dùng trung vị Page ở dưới
@@ -231,6 +242,33 @@ function groupStats(
 
   // Sắp xếp giảm dần theo hiệu quả — giao diện hiển thị luôn theo thứ tự này
   return out.sort((a, b) => b.avgScore - a.avgScore);
+}
+
+/** Chu kỳ bán rã của trọng số độ mới (ngày): bài 30 ngày trước nặng bằng nửa bài hôm nay. */
+export const RECENCY_HALF_LIFE_DAYS = 30;
+
+/**
+ * Trung bình điểm có trọng số theo độ mới: w = 0.5^(tuổi/30 ngày).
+ *
+ * VÌ SAO: cửa sổ đánh giá 90 ngày, nếu mọi bài nặng như nhau thì một hướng đã
+ * hết thời từ hai tháng trước vẫn được "bảo kê" bởi số liệu cũ, và hệ thống
+ * chậm nhận ra thị hiếu đã đổi. Trung vị/độ tán xạ vẫn tính không trọng số để
+ * mốc so sánh ổn định.
+ */
+export function recencyWeightedAverage(
+  list: { score: number; publishedAt: Date }[],
+  now: Date
+): number {
+  if (list.length === 0) return 0;
+  let sum = 0;
+  let weight = 0;
+  for (const s of list) {
+    const ageDays = Math.max(0, (now.getTime() - s.publishedAt.getTime()) / DAY_MS);
+    const w = Math.pow(0.5, ageDays / RECENCY_HALF_LIFE_DAYS);
+    sum += w * s.score;
+    weight += w;
+  }
+  return weight > 0 ? sum / weight : 0;
 }
 
 /**
@@ -321,6 +359,10 @@ export function analyzePerformance(
     byServiceArea,
     topPosts: sortedByScore.slice(0, 3),
     weakPosts: sortedByScore.slice(-3).reverse(),
+    recentPosts: [...scored]
+      .sort((a, b) => b.publishedAt.getTime() - a.publishedAt.getTime())
+      .slice(0, 10),
+    zByPost: Object.fromEntries(scored.map((s) => [s.postId, s.z])),
     trend7d,
   };
 }

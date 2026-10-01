@@ -55,12 +55,16 @@ import {
 } from "./autopilot-plan";
 import {
   effectivePillars,
+  exploitHookLines,
   optimizationNoteOf,
   probePromptLines,
   computeLearningState,
+  winningTopicLines,
   type LearningState,
 } from "./insight-optimize";
-import { pickProbeHint, type ProbeHint } from "./learning-cycle";
+import { isExplorationSlot, pickProbeHint, type ProbeHint } from "./learning-cycle";
+// Chỉ nhập HẰNG SỐ thuần (không kéo logic phân tích vào module lập kế hoạch).
+import { bandOfDate, LEARNING_SUMMARY_TTL_HOURS } from "./insights-core";
 
 // Dùng lại logic thuần ở autopilot-plan.ts (kiểm thử được độc lập)
 export {
@@ -171,6 +175,12 @@ export type AutoPilotConfig = {
   /** PROBE | EXPLOIT | REPROBE — giai đoạn học hiện tại (cache). */
   learningPhase: string;
   lastReProbeAt: Date | null;
+  /** Mốc bắt đầu dò lần đầu (null = chưa từng) — mốc đếm ngân sách đợt dò. */
+  probeStartedAt?: Date | null;
+  /** Lần cuối bước kiểm tra tính lại kết luận (null = chưa từng tính). */
+  learningComputedAt?: Date | null;
+  /** Tỉ lệ slot thử hướng mới (cache hiển thị; tính lại mỗi lượt). */
+  explorationRate?: number | null;
   /** updatedAt của cấu hình — dùng phát hiện "vừa đổi cấu hình". */
   updatedAt: Date;
 };
@@ -698,6 +708,134 @@ async function loadRecentContext(pageId: string) {
 }
 
 /**
+ * Bước kiểm tra có gì MỚI để làm không.
+ *
+ * Bốn lý do coi là "có việc":
+ *   1. Chưa từng tính (`learningComputedAt` null).
+ *   2. Cache đã cũ quá TTL — vẫn nên làm mới kết luận cho giao diện.
+ *   3. Lượt này VỪA TẠO BÀI — trạng thái học phải phản ánh bài mới.
+ *   4. Có số liệu Facebook mới hơn lần tính trước (`PostInsight.fetchedAt`).
+ *
+ * Không có lý do nào thì bỏ qua: số liệu cấp bài cập nhật ~24h/lần, chạy lại
+ * mỗi phút chỉ tốn thời gian của bước thu thập số liệu mà kết luận không đổi.
+ */
+async function verifierHasNewData(
+  config: AutoPilotConfig,
+  outcome: PlanOutcome,
+  now: Date
+): Promise<boolean> {
+  if (!config.learningComputedAt) return true;
+  if (outcome.created > 0) return true;
+  if (
+    now.getTime() - config.learningComputedAt.getTime() >
+    LEARNING_SUMMARY_TTL_HOURS * 60 * 60 * 1000
+  ) {
+    return true;
+  }
+
+  const latest = await prisma.postInsight
+    .findFirst({
+      where: { pageId: config.pageId },
+      orderBy: { fetchedAt: "desc" },
+      select: { fetchedAt: true },
+    })
+    .catch(() => null);
+
+  return Boolean(
+    latest && latest.fetchedAt.getTime() > config.learningComputedAt.getTime()
+  );
+}
+
+/**
+ * Nạp bộ đếm hướng đã dùng của ĐỢT HIỆN TẠI từ `ProbeEntry`.
+ *
+ * ⚠️ KHÔNG ĐƯỢC bỏ bước này (lỗi thật đã gặp): `probeUsage` chỉ sống trong một
+ * lượt lập kế hoạch, mà mỗi lượt thường chỉ tạo 1–2 bài. Bắt đầu rỗng nghĩa là
+ * lượt nào `pickProbeHint`/`pickPillarEvenly` cũng thấy "chưa dùng hướng nào"
+ * rồi chọn lại hướng đầu danh sách, nên cả đợt dò 12 bài dồn vào một trụ cột —
+ * dò mà không trải thì dữ liệu thu được vô dụng.
+ *
+ * Chỉ đếm trong batch hiện tại: hướng của đợt trước không được chiếm quota của
+ * đợt này, nếu không REPROBE sẽ thấy mọi quota đã đầy và không dò gì cả.
+ */
+async function loadProbeUsage(
+  pageId: string,
+  learning: LearningState
+): Promise<Record<string, number>> {
+  const batchIds = [learning.probePlan.batchId, learning.explorePlan.batchId].filter(
+    (id): id is string => Boolean(id)
+  );
+  if (batchIds.length === 0) return {};
+
+  const rows = await prisma.probeEntry
+    .findMany({
+      where: { pageId, batchId: { in: batchIds } },
+      select: { kind: true, value: true, postCount: true },
+    })
+    .catch(() => []);
+
+  const usage: Record<string, number> = {};
+  for (const r of rows) {
+    usage[`${r.kind}:${r.value}`] = (usage[`${r.kind}:${r.value}`] ?? 0) + r.postCount;
+  }
+  return usage;
+}
+
+/**
+ * Ghi nhật ký dò: mỗi hướng của bài vừa tạo được cộng một bài và gắn `postId`.
+ *
+ * Gắn `postId` là phần quan trọng nhất: bước chấm kết quả nhờ đó biết CHÍNH XÁC
+ * những bài nào thuộc hướng nào, thay vì phải đoán lại từ nội dung bài (cách
+ * đoán ấy hay lệch với chỉ thị thật, khiến kết luận gắn sai bài).
+ *
+ * Không bao giờ ném lỗi: bài đã nằm trong DB rồi, lỗi ghi nhật ký không được
+ * phép làm lượt lập kế hoạch thất bại.
+ */
+async function recordProbeEntries(input: {
+  pageId: string;
+  workspaceId: string | null;
+  batchId: string;
+  postId: string;
+  entries: { kind: string; value: string }[];
+}): Promise<void> {
+  if (!input.batchId || input.entries.length === 0) return;
+
+  for (const e of input.entries) {
+    await prisma.probeEntry
+      .upsert({
+        where: {
+          pageId_batchId_kind_value: {
+            pageId: input.pageId,
+            batchId: input.batchId,
+            kind: e.kind,
+            value: e.value,
+          },
+        },
+        update: {
+          postCount: { increment: 1 },
+          postIds: { push: input.postId },
+        },
+        create: {
+          pageId: input.pageId,
+          workspaceId: input.workspaceId,
+          batchId: input.batchId,
+          kind: e.kind,
+          value: e.value,
+          postCount: 1,
+          postIds: [input.postId],
+          result: "PENDING",
+        },
+      })
+      .catch((err) => {
+        console.error(
+          `[tự động] không ghi được nhật ký dò ${e.kind}:${e.value}: ` +
+            (err instanceof Error ? err.message : String(err))
+        );
+      });
+  }
+}
+
+/**
  * Tạo một bài tự động cho một slot đã định.
  * Trả về true nếu tạo được, false nếu AI/Pexels thất bại (đã ghi lý do).
  */
@@ -729,8 +867,17 @@ async function createPlannedPost(input: {
   probeLines?: string[];
   /** Ghi chú lưu vào Post.optimizationNote để giải thích vì sao bài này như vậy. */
   optimizationNote?: string | null;
-  /** STANDARD | PROBE — đếm ngân sách dò từ cột này. */
-  probeKind?: "STANDARD" | "PROBE";
+  /** STANDARD | PROBE | EXPLORE — đếm ngân sách dò/thử nghiệm từ cột này. */
+  probeKind?: "STANDARD" | "PROBE" | "EXPLORE";
+  /**
+   * Kiểu mở bài ĐÃ YÊU CẦU (chỉ thị dò, hoặc kiểu đang khai thác).
+   *
+   * Lưu thẳng vào `Post.hookStyle` thay vì để bước phân tích đoán lại bằng
+   * regex: regex chấm theo câu AI thực sự viết, nên hay lệch với chỉ thị. Khi
+   * lệch, quota dò và kết quả chấm nói về hai thứ khác nhau và việc học hook
+   * không bao giờ hội tụ.
+   */
+  hookStyle?: string | null;
   /**
    * Hạn chờ mỗi lời gọi AI của bài này (ms), đã tính theo ngân sách còn lại.
    * Không truyền = dùng mặc định của lib/ai.ts.
@@ -744,6 +891,8 @@ async function createPlannedPost(input: {
 }): Promise<
   | {
       ok: true;
+      /** Id bài vừa tạo — bắt buộc để gắn bài với hướng dò trong ProbeEntry. */
+      postId: string;
       topic: string;
       hook: string | null;
       mediaWarning?: string;
@@ -910,6 +1059,10 @@ async function createPlannedPost(input: {
       topic: variant.angle || pillar.name,
       serviceArea: input.serviceArea ?? null,
       probeKind: input.probeKind ?? "STANDARD",
+      // Kiểu mở bài ĐÃ YÊU CẦU, không phải kiểu đoán lại từ câu mở bài. Lưu ở
+      // đây để bước phân tích chấm đúng thứ đã chỉ thị — đoán bằng regex hay
+      // lệch, khiến quota dò và kết quả chấm nói về hai chuyện khác nhau.
+      hookStyle: input.hookStyle ?? null,
       optimizationNote: input.optimizationNote ?? null,
     },
   });
@@ -939,6 +1092,7 @@ async function createPlannedPost(input: {
 
   return {
     ok: true,
+    postId: post.id,
     topic: variant.angle || pillar.name,
     hook: variant.hook || null,
     mediaWarning,
@@ -976,6 +1130,16 @@ export async function planForAutoPilot(
   // Trụ cột thuộc Brand của Page (fallback pageId cho dữ liệu cũ)
   const pageForBrand = await resolvePageBrand(config.pageId);
   const brandId = pageForBrand?.brandId ?? null;
+
+  // Workspace của Page — nhật ký dò (ProbeEntry) phải thuộc đúng tenant.
+  // Đọc MỘT lần cho cả lượt thay vì hỏi lại ở từng bài.
+  const pageWorkspace = await prisma.facebookPage
+    .findUnique({
+      where: { id: config.pageId },
+      select: { workspaceId: true },
+    })
+    .catch(() => null);
+  const workspaceIdForProbe = pageWorkspace?.workspaceId ?? null;
 
   // Nguồn DRIVE: kết nối của người dùng + thư mục đã gắn cho Brand + số ảnh đã
   // ghi nhớ. Lấy MỘT lần cho cả lượt lập kế hoạch thay vì hỏi lại ở từng slot.
@@ -1054,7 +1218,9 @@ export async function planForAutoPilot(
           windowEnd: config.windowEnd,
           minGapMinutes: config.minGapMinutes,
           mediaMix: config.mediaMix,
+          videoPercent: config.videoPercent,
           lastReProbeAt: config.lastReProbeAt,
+          probeStartedAt: config.probeStartedAt ?? null,
           updatedAt: config.updatedAt,
         },
         now,
@@ -1072,11 +1238,41 @@ export async function planForAutoPilot(
   // Trụ cột dùng để chọn cho từng slot: trọng số hiệu dụng khi đã đủ dữ liệu,
   // bằng nhau khi đang dò. Không truyền gì thì giữ nguyên `pillars`.
   const planPillars = learning ? effectivePillars(pillars, learning) : pillars;
-  // Bộ đếm số lần đã dùng từng hướng trong LƯỢT NÀY — dùng cho chế độ dò
-  // (chọn hướng còn thiếu quota nhất). Không liên quan tới `recentNames`.
-  const probeUsage: Record<string, number> = {};
+
+  // Mốc bắt đầu đợt dò PHẢI có trước bài dò đầu tiên.
+  //
+  // Vì sao đặt ở đây chứ không để bước kiểm tra đặt: bước kiểm tra chạy SAU lượt
+  // lập kế hoạch, nên nếu nó là nơi ghi mốc thì những bài dò đầu tiên ra đời
+  // TRƯỚC mốc. Ngân sách dò (đếm từ mốc) sẽ thấy 0 bài ở lượt sau và bộ dò tạo
+  // vượt trần. Ghi ngay tại đây, trước vòng lặp tạo bài, thì mốc luôn sớm hơn
+  // mọi bài dò của đợt — và `batchId` ổn định ngay từ bài đầu tiên.
+  if (learning && learning.phase === "PROBE" && !config.probeStartedAt) {
+    await prisma.autoPilot
+      .update({ where: { pageId: config.pageId }, data: { probeStartedAt: now } })
+      .catch(() => {
+        /* cột chưa migrate — bước kiểm tra sẽ ghi lại sau */
+      });
+    // Khoá đợt của LƯỢT NÀY phải khớp mốc vừa ghi, nếu không các bài dò đầu
+    // tiên sẽ được ghi vào một đợt khác với những bài sau — nhật ký dò tách làm
+    // hai và không đợt nào đủ dữ liệu để kết luận.
+    learning.probePlan = { ...learning.probePlan, batchId: `PROBE-${now.getTime()}` };
+    learning.batchStartedAt = now;
+  }
+
+  // Bộ đếm số lần đã dùng từng hướng — khoá dạng `${kind}:${value}`.
+  //
+  // ⚠️ PHẢI nạp từ DB, không được bắt đầu rỗng (lỗi thật đã gặp): bộ đếm rỗng
+  // mỗi lượt khiến `pickProbeHint` và `pickPillarEvenly` luôn thấy "chưa dùng
+  // hướng nào" và chọn lại đúng hướng đầu danh sách. Lập kế hoạch 2 bài/lượt
+  // thì cả đợt dò 12 bài dồn vào 1–2 trụ cột, tức là dò mà không trải.
+  const probeUsage: Record<string, number> = learning
+    ? await loadProbeUsage(config.pageId, learning)
+    : {};
   // Số bài dò đã tạo trong lượt này (cộng dồn vào ngân sách của Page).
   let probeCreated = 0;
+  // Chỉ số slot luỹ kế của lượt này — quyết định slot nào là slot thử nghiệm.
+  // Cộng thêm số bài đã đăng để tỉ lệ thử nghiệm không bị "reset" mỗi lượt.
+  let slotIndex = learning?.totalPublishedAutoPilot ?? 0;
 
   const days = parseDaysOfWeek(config.daysOfWeek);
   const ahead = Math.min(Math.max(config.planAheadDays, 1), MAX_PLAN_AHEAD_DAYS);
@@ -1220,6 +1416,10 @@ export async function planForAutoPilot(
     const slots = planTimeSlotsBiased(config, day, notBefore, random, takenMs, bias);
     if (slots.length === 0) continue;
 
+    // Slot nào của ngày đã dùng. Mỗi bài lấy MỘT slot chưa dùng, và slot được
+    // chọn có xét chỉ thị khung giờ của hướng dò (xem trong vòng lặp).
+    const usedSlotsInDay = new Set<number>();
+
     const toCreate = Math.min(needed, slots.length, budget.remaining);
 
     for (let i = 0; i < toCreate; i++) {
@@ -1238,8 +1438,24 @@ export async function planForAutoPilot(
       const probing = Boolean(
         learning && (learning.phase === "PROBE" || learning.phase === "REPROBE")
       );
-      const hint: ProbeHint | null =
-        probing && learning
+
+      // Ở giai đoạn KHAI THÁC, một phần slot vẫn dành để THỬ hướng mới.
+      //
+      // Vì sao bắt buộc: khai thác thuần chỉ lặp lại cái đang thắng, nên khi
+      // thị hiếu đổi thì hệ thống chỉ biết lúc đã tụt nặng (REPROBE) — tức là
+      // luôn chạy sau thị trường. Giữ một tỉ lệ thử nghiệm liên tục giúp phát
+      // hiện hướng mới sớm; tỉ lệ này TỰ TĂNG khi hiệu quả đi xuống và tự giảm
+      // khi số liệu đã ổn định (xem computeExplorationRate).
+      const exploring = Boolean(
+        learning &&
+          learning.phase === "EXPLOIT" &&
+          isExplorationSlot(slotIndex, learning.explorationRate)
+      );
+      if (learning && learning.phase === "EXPLOIT") slotIndex++;
+
+      const hint: ProbeHint | null = !learning
+        ? null
+        : probing
           ? // createdInBatch = bài dò đã có của Page (lượt trước) + lượt này.
             // Truyền số này là bắt buộc: quota từng hướng cộng lại luôn lớn hơn
             // ngân sách (một bài đóng góp nhiều hướng), nên nếu không đếm thì
@@ -1249,11 +1465,64 @@ export async function planForAutoPilot(
               probeUsage,
               learning.probePostsSoFar + probeCreated
             )
-          : null;
+          : exploring
+            ? // Slot thử nghiệm: quota là các hướng ÍT MẪU nhất, không có hạn
+              // ngạch đợt (totalQuota = 0) nên truyền 0.
+              pickProbeHint(learning.explorePlan, probeUsage, 0)
+            : null;
 
-      const pillar = probing
-        ? pickPillarEvenly(planPillars, probeUsage)
-        : pickPillar(planPillars, recentNames);
+      // ---- Chọn SLOT cho bài này, có xét chỉ thị khung giờ của hướng dò ----
+      //
+      // Các khung giờ trong ngày đã tính sẵn ở trên (theo giãn cách và khung
+      // người dùng đặt); ở đây chỉ quyết định THỨ TỰ dùng, để một chỉ thị dò có
+      // thể nhắm đúng khung giờ nó cần đo.
+      //
+      // ⚠️ VÌ SAO PHẢI LÀM THẾ (lỗi thật đã gặp): dò khung giờ trước đây chỉ ghi
+      // tên band vào ghi chú rồi thôi — giờ đăng thật là giờ bộ xếp lịch chọn.
+      // Bài bị dán nhãn "TRUA" nhưng thực tế đăng lúc 8 giờ sáng, còn bước chấm
+      // kết quả lại chấm theo giờ THẬT: dữ liệu dò khung giờ vừa sai nhãn vừa
+      // lãng phí ngân sách.
+      //
+      // Ngày không có slot nào đúng band đang cần đo thì BỎ chỉ thị khung giờ
+      // khỏi hướng dò của bài này (xem `entries`): thà không dò còn hơn dò sai.
+      const requestedBand = hint?.band ?? null;
+      let slotIdx = -1;
+      if (requestedBand) {
+        slotIdx = slots.findIndex(
+          (s, idx) => !usedSlotsInDay.has(idx) && bandOfDate(s) === requestedBand
+        );
+      }
+      if (slotIdx === -1) {
+        slotIdx = slots.findIndex((_, idx) => !usedSlotsInDay.has(idx));
+      }
+      if (slotIdx === -1) break; // ngày này đã dùng hết slot khả dụng
+      usedSlotsInDay.add(slotIdx);
+      const scheduledAt = slots[slotIdx];
+
+      // Hướng dò GHI NHẬN được: bỏ chỉ thị khung giờ khi slot không đúng band,
+      // để nhật ký dò không ghi một điều không đúng sự thật.
+      const bandHonored = !requestedBand || bandOfDate(scheduledAt) === requestedBand;
+      const entries = (hint?.entries ?? []).filter(
+        (e) => bandHonored || e.kind !== "TIME_BAND"
+      );
+      // Rơi hết chỉ thị thì bài này không còn là bài dò nữa — không dán nhãn dò
+      // và không tiêu ngân sách dò.
+      const isProbePost = probing && entries.length > 0;
+      const isExplorePost = exploring && entries.length > 0;
+
+      // Trụ cột: khi đang dò/thử, dùng ĐÚNG trụ cột mà nhật ký dò ghi lại.
+      //
+      // Trước đây trụ cột được chọn riêng bằng pickPillarEvenly trong khi
+      // probeUsage lại ghi trụ cột do pickProbeHint chọn — hai bên nói về hai
+      // thứ khác nhau nên kết quả chấm dò gắn sai bài.
+      const hintedPillar = hint?.pillarName
+        ? (planPillars.find((p) => p.name === hint.pillarName) ?? null)
+        : null;
+      const pillar =
+        hintedPillar ??
+        (isProbePost || isExplorePost
+          ? pickPillarEvenly(planPillars, probeUsage, recentNames)
+          : pickPillar(planPillars, recentNames));
       if (!pillar) break;
 
       // Ngày này bắt đầu từ bài đầu tiên (chỉ số 0) hay đã có bài từ lượt trước
@@ -1262,27 +1531,43 @@ export async function planForAutoPilot(
         config.mediaMix ?? "IMAGE_ONLY",
         dayStartIndex + i,
         Math.min(config.postsPerDay, MAX_POSTS_PER_DAY),
-        config.videoPercent ?? 25,
+        // Tỉ lệ video HIỆU DỤNG: đã học từ số liệu khi cả ảnh và video đều đủ
+        // mẫu, và chỉ dịch tối đa ±20 điểm quanh con số người dùng đặt.
+        learning?.videoPercentOverride ?? config.videoPercent ?? 25,
         videosUsed,
         random
       );
 
-      // Khi dò, tôn trọng chỉ thị media của hướng dò nếu người dùng đã chọn
-      // chế độ trộn — đây là cách duy nhất biết ảnh hay video hiệu quả hơn.
+      // Tôn trọng chỉ thị media của hướng dò/thử nếu người dùng đã chọn chế độ
+      // trộn — đây là cách duy nhất biết ảnh hay video hiệu quả hơn.
       if (hint?.mediaKind && (config.mediaMix ?? "") === "MIXED") {
         kind = hint.mediaKind;
       }
 
       // Địa bàn cho bài này — xoay vòng để phủ đều các khu vực, tránh nhắm
-      // trùng bài liền trước. null khi thương hiệu không cấu hình địa bàn.
-      const serviceArea = pickServiceArea(serviceAreas, recentAreas);
+      // trùng bài liền trước. Trọng số theo hiệu quả chỉ dùng để PHÁ HOÀ, nền
+      // vẫn là xoay vòng: địa bàn kém cũng phải tiếp tục được đo.
+      const serviceArea = pickServiceArea(
+        serviceAreas,
+        recentAreas,
+        learning?.serviceAreaWeights
+      );
+
+      // Kiểu mở bài đang KHAI THÁC: chỉ áp cho slot khai thác (không áp cho slot
+      // thử nghiệm, vì slot đó tồn tại để đo các kiểu khác).
+      const exploitHook =
+        learning && learning.phase === "EXPLOIT" && !isExplorePost
+          ? (learning.hookSuggestion.style ?? null)
+          : null;
+      const requestedHook = hint?.hookStyle ?? exploitHook;
 
       // Ghi chú giải thích vì sao bài này được viết/đăng như vậy
       const note = learning
         ? optimizationNoteOf(learning, {
             pillarName: pillar.name,
-            band: hint?.band ?? null,
-            hookStyle: hint?.hookStyle ?? null,
+            band: bandHonored ? requestedBand : null,
+            hookStyle: requestedHook,
+            exploring: isExplorePost,
           })
         : null;
 
@@ -1295,7 +1580,7 @@ export async function planForAutoPilot(
           config,
           pageId: config.pageId,
           pageName,
-          scheduledAt: slots[i],
+          scheduledAt,
           pillar,
           recentTopics,
           kind,
@@ -1307,11 +1592,26 @@ export async function planForAutoPilot(
           serviceArea,
           // Số liệu thật (chỉ để chọn góc/cách trình bày — prompt có câu chặn
           // cứng việc đổi thông tin thương hiệu)
-          performanceLines: learning?.performanceLines ?? [],
-          // Chỉ thị dò: chỉ nói về CÁCH VIẾT
-          probeLines: hint ? probePromptLines(hint.note) : [],
+          performanceLines: [
+            ...(learning?.performanceLines ?? []),
+            // Góc đã hiệu quả: đặt CẠNH recentTopics (danh sách cần tránh lặp).
+            // Hai khối trả lời hai câu khác nhau — "đừng viết lại đúng bài này"
+            // và "hướng tiếp cận này đang được đáp lại tốt".
+            ...(learning && !isExplorePost ? winningTopicLines(learning) : []),
+          ],
+          // Chỉ thị dò (khi dò hoặc khi thử nghiệm), hoặc chỉ thị hook đang
+          // khai thác. Cả hai chỉ nói về CÁCH VIẾT.
+          probeLines:
+            hint && (isProbePost || isExplorePost)
+              ? probePromptLines(hint.note)
+              : learning
+                ? exploitHookLines(learning)
+                : [],
+          // Kiểu mở bài ĐÃ YÊU CẦU — lưu để lần phân tích sau chấm theo đúng
+          // chỉ thị, không phải đoán lại bằng regex từ câu mở bài.
+          hookStyle: requestedHook,
           optimizationNote: note,
-          probeKind: probing ? "PROBE" : "STANDARD",
+          probeKind: isProbePost ? "PROBE" : isExplorePost ? "EXPLORE" : "STANDARD",
           aiTimeout: aiTimeoutMs(deadline, new Date(), AI_CALL_TIMEOUT_MS),
           deadline,
         });
@@ -1344,15 +1644,40 @@ export async function planForAutoPilot(
           recentAreas.unshift(res.serviceArea);
           if (recentAreas.length > RECENT_TOPIC_LIMIT) recentAreas.pop();
         }
-        // Ghi nhận hướng dò đã dùng để lượt sau chọn hướng còn thiếu quota
-        if (probing) {
-          probeCreated++;
-          for (const e of hint?.entries ?? [{ kind: "PILLAR", value: pillar.name }]) {
+        // Mọi slot đều tăng bộ đếm để tỉ lệ thử nghiệm bám đúng explorationRate
+        slotIndex++;
+
+        // Ghi nhận hướng dò/thử nghiệm đã dùng. Hai việc, KHÁC NHAU:
+        //   - probeUsage (bộ nhớ): để lượt này chọn hướng còn thiếu quota nhất.
+        //   - ProbeEntry (DB): để LƯỢT SAU và bước chấm biết hướng nào đã thử
+        //     bao nhiêu bài, và chính xác những bài nào.
+        //
+        // Thiếu phần ghi DB thì cả vòng học hở: không có dòng nào để chấm
+        // GOOD/BAD, danh sách loại hướng kém luôn rỗng, và mỗi lượt lập kế hoạch
+        // lại bắt đầu đếm từ 0 nên việc dò dồn hết về trụ cột đầu danh sách.
+        if (isProbePost || isExplorePost) {
+          if (isProbePost) probeCreated++;
+          for (const e of entries) {
             const key = `${e.kind}:${e.value}`;
             probeUsage[key] = (probeUsage[key] ?? 0) + 1;
           }
+          // Lỗi ghi nhật ký KHÔNG được làm mất bài đã tạo — bài đã nằm trong DB.
+          await recordProbeEntries({
+            pageId: config.pageId,
+            workspaceId: workspaceIdForProbe,
+            batchId: isProbePost ? learning!.probePlan.batchId : learning!.explorePlan.batchId,
+            postId: res.postId,
+            entries,
+          });
           outcome.optimizationApplied = {
             phase: learning!.phase,
+            note: note ?? "",
+          };
+        } else if (learning) {
+          // Ở khai thác cũng phải báo là CÓ áp dụng tối ưu: trước đây chỉ báo
+          // khi dò, nên giao diện tưởng giai đoạn khai thác không làm gì.
+          outcome.optimizationApplied = {
+            phase: learning.phase,
             note: note ?? "",
           };
         }
@@ -1525,14 +1850,22 @@ export async function runAutopilotPlanner(
     // Chạy SAU khi tạo bài để trạng thái học phản ánh cả những bài vừa tạo.
     // Không chờ kết quả vào luồng chính: `runVerifier` ghi vài bảng và có thể
     // gửi thông báo, nhưng nếu nó lỗi thì lượt lập kế hoạch đã xong rồi.
-    if (config.insightsEnabled) {
+    //
+    // HAI CỔNG CHẶN (trước đây không có, nên bước này chạy ở MỌI lượt cron ~1
+    // phút/lần và ăn hết ngân sách thời gian của bước thu thập số liệu):
+    //   1. Còn đủ thời gian — không thì nhường cho nhịp sau.
+    //   2. Có DỮ LIỆU MỚI — số liệu Facebook cập nhật ~24h/lần, chạy lại khi
+    //      không có gì mới chỉ tốn thời gian mà kết luận y hệt.
+    if (config.insightsEnabled && hasRoomForPost(deadline, new Date(), MIN_POST_BUDGET_MS)) {
       try {
-        const { runVerifier } = await import("./insight-optimize");
-        const verified = await runVerifier(config.pageId, now);
-        if (verified?.phaseChanged) {
-          console.log(
-            `[tự động] Page ${page.name}: giai đoạn học ${verified.previousPhase} → ${verified.phase}`
-          );
+        if (await verifierHasNewData(config, outcome, now)) {
+          const { runVerifier } = await import("./insight-optimize");
+          const verified = await runVerifier(config.pageId, now);
+          if (verified?.phaseChanged) {
+            console.log(
+              `[tự động] Page ${page.name}: giai đoạn học ${verified.previousPhase} → ${verified.phase}`
+            );
+          }
         }
       } catch (err) {
         console.error(

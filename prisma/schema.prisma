@@ -216,6 +216,8 @@ model FacebookPage {
   snapshots  PageInsightSnapshot[]
   probeLog   ProbeEntry[]
   directions ContentDirection[]
+  learningSnapshots   LearningSnapshot[]
+  learningAdjustments LearningAdjustment[]
 
   @@unique([workspaceId, fbPageId])
   @@index([connectionId])
@@ -258,9 +260,13 @@ model Post {
   lockedAt      DateTime? @db.Timestamptz(3) // worker đang giữ bài này (chống 2 worker đăng trùng)
 
   // ---- Học từ số liệu (Insights) ----
-  /// STANDARD = bài thường | PROBE = bài dò để tìm hướng đi ban đầu.
+  /// STANDARD = bài thường | PROBE = bài dò để tìm hướng đi ban đầu |
+  /// EXPLORE = bài thử nghiệm xen kẽ trong giai đoạn khai thác.
   /// Đếm từ cột này (nguồn sự thật) chứ không dùng bộ đếm có thể lệch.
   probeKind String @default("STANDARD")
+  /// Kiểu mở bài ĐÃ YÊU CẦU (CauHoi | ConSo | DanhSach | KeChuyen). Null = để AI
+  /// tự do — khi đó phân tích đoán kiểu từ câu mở bài bằng regex.
+  hookStyle String?
   /// Ghi chú ngắn về tối ưu đã áp cho bài này, ví dụ
   /// "Dò: hook Danh sách · band Tối 18–22h". Null = chưa bật tối ưu theo số liệu.
   optimizationNote String?
@@ -570,6 +576,8 @@ model AutoPilot {
   learningConclusion  String?
   /// Kết luận suy ra lúc nào; quá LEARNING_SUMMARY_TTL_HOURS thì hiển thị "đang tính lại".
   learningComputedAt  DateTime? @db.Timestamptz(3)
+  /// Tỉ lệ slot thử nghiệm hiện tại ở giai đoạn khai thác (cache cho giao diện).
+  explorationRate     Float?
 
   createdAt DateTime @db.Timestamptz(3) @default(now())
   updatedAt DateTime @db.Timestamptz(3) @updatedAt
@@ -758,6 +766,8 @@ model ProbeEntry {
   value       String
   /// Số bài đã tạo cho hướng này trong đợt (cache; nguồn thật là Post.probeKind).
   postCount   Int     @default(0)
+  /// Chính xác những bài thuộc hướng này — để chấm theo bài thật, không đoán.
+  postIds     String[] @default([])
   /// PENDING | GOOD | BAD | NEUTRAL
   result      String  @default("PENDING")
   /// Hiệu quả trung bình của hướng (robust z so với trung vị Page). Null = chưa đủ mẫu.
@@ -818,6 +828,70 @@ model ContentDirection {
   @@unique([pageId, kind, value])
   @@index([pageId, status])
   @@index([workspaceId])
+}
+
+// ============================================================
+// LỊCH SỬ HỌC — ảnh chụp mỗi ngày một lần
+//
+// Báo cáo hiệu quả được tính lại từ dữ liệu thô mỗi lượt, nên không có "lần
+// phân tích trước" để so. Bảng này giữ một ảnh chụp/ngày: làm mốc cho tín hiệu
+// BASELINE_DROP (tụt chậm qua nhiều tuần), là đầu vào của tỉ lệ thử nghiệm tự
+// điều chỉnh, và là dữ liệu xu hướng dài hạn cho giao diện.
+// ============================================================
+
+model LearningSnapshot {
+  id              String   @id @default(cuid())
+  pageId          String
+  /// Ngày chụp (YYYY-MM-DD giờ VN) — mỗi Page một dòng/ngày.
+  dayKey          String
+  at              DateTime @db.Timestamptz(3)
+  medianScore     Float
+  sampleSize      Int
+  phase           String
+  explorationRate Float
+  /// JSON tóm tắt avgScore/posts theo từng hướng.
+  summary         String?
+
+  page FacebookPage @relation(fields: [pageId], references: [id], onDelete: Cascade)
+
+  @@unique([pageId, dayKey])
+  @@index([pageId, at])
+}
+
+// ============================================================
+// NHẬT KÝ ĐIỀU CHỈNH TỰ ĐỘNG + ROLLBACK
+//
+// Mỗi lần cấu hình hiệu dụng (trọng số trụ cột, khung giờ ưu tiên, kiểu mở
+// bài, tỉ lệ video) đổi đáng kể, một dòng ACTIVE được ghi kèm mốc so sánh.
+// Sau thời gian kiểm chứng, nếu các bài sinh ra SAU điều chỉnh kém hơn mốc thì
+// ROLLED_BACK: planner quay về cấu hình cũ cho chiều đó trong thời gian khoá.
+// ============================================================
+
+model LearningAdjustment {
+  id              String    @id @default(cuid())
+  pageId          String
+  /// PILLAR_WEIGHT | TIME_BIAS | HOOK | MEDIA_MIX
+  kind            String
+  before          String
+  after           String
+  baselineMedian  Float
+  baselineSamples Int
+  appliedAt       DateTime  @db.Timestamptz(3)
+  evaluateAfter   DateTime  @db.Timestamptz(3)
+  /// ACTIVE | KEPT | ROLLED_BACK
+  status          String    @default("ACTIVE")
+  resultMedian    Float?
+  resultSamples   Int?
+  /// Hết thời gian khoá sau rollback (chỉ có với ROLLED_BACK).
+  lockedUntil     DateTime? @db.Timestamptz(3)
+  reason          String?
+  createdAt       DateTime  @db.Timestamptz(3) @default(now())
+  updatedAt       DateTime  @db.Timestamptz(3) @updatedAt
+
+  page FacebookPage @relation(fields: [pageId], references: [id], onDelete: Cascade)
+
+  @@index([pageId, status])
+  @@index([pageId, kind, appliedAt])
 }
 
 // ============================================================

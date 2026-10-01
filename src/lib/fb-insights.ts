@@ -587,7 +587,13 @@ async function upsertInsight(input: {
       ...(input.reactionsFromMetrics != null
         ? { reactions: input.reactionsFromMetrics }
         : {}),
-      ...(input.distribution ?? {}),
+      // Chỉ ghi đè metric CÓ giá trị: lượt sau hết ngân sách giữa chừng hoặc
+      // metric bị từ chối tạm thời không được xoá số liệu đã thu trước đó.
+      ...Object.fromEntries(
+        Object.entries(input.distribution ?? {}).filter(
+          ([, v]) => typeof v === "number" && Number.isFinite(v)
+        )
+      ),
       ...(input.missingMetrics ? { missingMetrics: JSON.stringify(input.missingMetrics) } : {}),
       ...(input.status ? { status: input.status } : {}),
       fetchedAt: now,

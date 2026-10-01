@@ -56,15 +56,24 @@ import {
   TIME_BIAS_SHARE,
 } from "../src/lib/insights-report.ts";
 import {
+  ADJUSTMENT_MAX_WAIT_DAYS,
   buildCommentary,
   computeDirections,
+  computeExplorationRate,
   detectRegression,
+  evaluateAdjustment,
   evaluateProbeResults,
+  isExplorationSlot,
+  limitWeightStep,
   maxProbePostsPerHint,
   pickProbeHint,
+  planExplorationQuotas,
   planProbeBatch,
   resolveLearningPhase,
   usableBands,
+  EXPLORATION_MAX,
+  EXPLORATION_MAX_STEP,
+  EXPLORATION_MIN,
   MAX_EST_LIFE_DAYS,
   REPROBE_COOLDOWN_DAYS,
 } from "../src/lib/learning-cycle.ts";
@@ -1656,7 +1665,28 @@ section("7. Hạn mức & URL Graph API (stub fetch)");
   );
   check(
     "đánh dấu bài dò bằng probeKind",
-    src.includes('probeKind: probing ? "PROBE" : "STANDARD"')
+    /probeKind:\s*isProbePost\s*\?\s*"PROBE"\s*:\s*isExplorePost\s*\?\s*"EXPLORE"\s*:\s*"STANDARD"/.test(src)
+  );
+  check(
+    "khung giờ của hướng dò PHẢI chọn được slot thật (không chỉ ghi nhãn)",
+    src.includes("bandOfDate(scheduledAt) === requestedBand") &&
+      src.includes("bandHonored")
+  );
+  check(
+    "có slot THỬ NGHIỆM xen kẽ ở giai đoạn khai thác",
+    src.includes("isExplorationSlot") && src.includes("learning.explorationRate")
+  );
+  check(
+    "ghi nhật ký dò xuống DB (ProbeEntry) kèm postId",
+    src.includes("recordProbeEntries") && src.includes("postIds: { push: input.postId }")
+  );
+  check(
+    "nạp bộ đếm hướng dò từ DB trước khi chọn (không bắt đầu rỗng)",
+    src.includes("loadProbeUsage")
+  );
+  check(
+    "lưu kiểu mở bài ĐÃ YÊU CẦU vào Post.hookStyle",
+    src.includes("hookStyle: input.hookStyle ?? null")
   );
 }
 
@@ -1777,8 +1807,306 @@ section("7. Hạn mức & URL Graph API (stub fetch)");
   check("tắt tối ưu không xoá dữ liệu", !/deleteMany|\.delete\(/.test(src));
 }
 
+{
+  // ============================================================
+  // 8. Vòng học khép kín: tỉ lệ thử nghiệm, chấm theo bài thật, rollback
+  // ============================================================
+
+  section("8. Vòng học khép kín (khai thác vẫn thử, chấm theo bài, rollback)");
+
+  // ---- Tỉ lệ thử nghiệm: ít dữ liệu thì thử nhiều hơn ----
+  const lowData = analyzePerformance(
+    Array.from({ length: 8 }, () => sample({ reactions: 100 })),
+    { now: NOW }
+  );
+  const highData = analyzePerformance(
+    Array.from({ length: 60 }, () => sample({ reactions: 100 })),
+    { now: NOW }
+  );
+  const rateLow = computeExplorationRate({ report: lowData, directions: [], snapshots: [] });
+  const rateHigh = computeExplorationRate({ report: highData, directions: [], snapshots: [] });
+  check(
+    "ít dữ liệu → thử nghiệm nhiều hơn dữ liệu dày",
+    rateLow > rateHigh,
+    `low=${rateLow} high=${rateHigh}`
+  );
+  check("tỉ lệ thử nghiệm nằm trong [0.10, 0.40]", rateLow >= EXPLORATION_MIN && rateLow <= EXPLORATION_MAX);
+
+  // Hiệu quả đang tụt → tăng thử nghiệm để sớm tìm hướng mới
+  const decliningForExplore = analyzePerformance(
+    [
+      ...Array.from({ length: 20 }, () =>
+        sample({ publishedAt: daysAgo(2), reactions: 10, comments: 0, shares: 0 })
+      ),
+      ...Array.from({ length: 20 }, () =>
+        sample({ publishedAt: daysAgo(10), reactions: 300, comments: 0, shares: 0 })
+      ),
+    ],
+    { now: NOW }
+  );
+  const rateTumbling = computeExplorationRate({
+    report: decliningForExplore,
+    directions: [],
+    snapshots: [],
+  });
+  check(
+    "hiệu quả tụt → tăng tỉ lệ thử nghiệm",
+    rateTumbling > rateHigh,
+    `tumbling=${rateTumbling} high=${rateHigh}`
+  );
+
+  // Chống rung: so với lần trước, mỗi ngày chỉ đổi tối đa EXPLORATION_MAX_STEP
+  const rateStepped = computeExplorationRate({
+    report: lowData,
+    directions: [],
+    snapshots: [
+      { medianScore: 100, explorationRate: 0.1, sampleSize: 8 },
+      { medianScore: 100, explorationRate: 0.5, sampleSize: 8 },
+    ],
+  });
+  check(
+    `tỉ lệ thử nghiệm đổi tối đa ${EXPLORATION_MAX_STEP}/lần`,
+    Math.abs(rateStepped - 0.1) <= EXPLORATION_MAX_STEP + 1e-9,
+    `rate=${rateStepped}`
+  );
+
+  // ---- Slot thử nghiệm: bám đúng tỉ lệ, không phụ thuộc ngẫu nhiên ----
+  const slotsAt = (rate, n) =>
+    Array.from({ length: n }, (_, i) => isExplorationSlot(i, rate)).filter(Boolean).length;
+  check("tỉ lệ 0 → không có slot thử nghiệm", slotsAt(0, 20) === 0);
+  check("tỉ lệ 1 → mọi slot đều thử nghiệm", slotsAt(1, 20) === 20);
+  const at20 = slotsAt(0.2, 100);
+  check(
+    "tỉ lệ 20% → khoảng 20/100 slot (tất định, không ngẫu nhiên)",
+    Math.abs(at20 - 20) <= 1,
+    `thực tế=${at20}`
+  );
+
+  // ---- Chấm bài dò theo ĐÚNG các bài đã gắn (postIds), không đoán lại ----
+  const probeSamples = [
+    ...Array.from({ length: 4 }, (_, i) =>
+      sample({ postId: `good-${i}`, pillarName: "A", reactions: 500, comments: 0, shares: 0 })
+    ),
+    ...Array.from({ length: 4 }, (_, i) =>
+      sample({ postId: `bad-${i}`, pillarName: "B", reactions: 2, comments: 0, shares: 0 })
+    ),
+  ];
+  const probeReport = analyzePerformance(probeSamples, { now: NOW });
+
+  // Hướng A thực ra chứa toàn bài KÉM: nếu chấm theo postIds thì phải ra BAD,
+  // còn nếu chấm theo tên nhóm thì ra GOOD. Đây đúng là ca mà cách chấm cũ
+  // (nhóm theo giá trị) kết luận sai.
+  const crossed = evaluateProbeResults(
+    [
+      { kind: "PILLAR", value: "A", result: "PENDING", postIds: probeSamples.slice(4).map((s) => s.postId) },
+      { kind: "PILLAR", value: "B", result: "PENDING", postIds: probeSamples.slice(0, 4).map((s) => s.postId) },
+    ],
+    probeReport
+  );
+  check(
+    "chấm theo postIds → hướng gắn toàn bài kém ra BAD",
+    crossed.find((r) => r.value === "A")?.result === "BAD",
+    JSON.stringify(crossed[0])
+  );
+  check(
+    "chấm theo postIds → hướng gắn toàn bài tốt ra GOOD",
+    crossed.find((r) => r.value === "B")?.result === "GOOD"
+  );
+  check(
+    "hướng chưa đủ 3 bài chín → vẫn PENDING (không loại vĩnh viễn)",
+    evaluateProbeResults(
+      [{ kind: "PILLAR", value: "A", result: "PENDING", postIds: ["good-0"] }],
+      probeReport
+    )[0].result === "PENDING"
+  );
+
+  // ---- Rollback: điều chỉnh làm số liệu tụt thì phải quay lại ----
+  const appliedAt = new Date(NOW.getTime() - 10 * 24 * 60 * 60 * 1000);
+  const rolledBack = evaluateAdjustment({
+    appliedAt,
+    baselineMedian: 100,
+    afterScores: [50, 55, 60, 52, 58, 54],
+    now: NOW,
+  });
+  check("điều chỉnh làm trung vị tụt > 15% → ROLLED_BACK", rolledBack.status === "ROLLED_BACK");
+  check("kết luận rollback nêu số bài đã dùng", rolledBack.resultSamples === 6);
+
+  const kept = evaluateAdjustment({
+    appliedAt,
+    baselineMedian: 100,
+    afterScores: [100, 105, 98, 102, 99, 101],
+    now: NOW,
+  });
+  check("điều chỉnh giữ hoặc tăng hiệu quả → KEPT", kept.status === "KEPT");
+
+  const tooEarly = evaluateAdjustment({
+    appliedAt: new Date(NOW.getTime() - 2 * 24 * 60 * 60 * 1000),
+    baselineMedian: 100,
+    afterScores: [10, 10, 10, 10, 10],
+    now: NOW,
+  });
+  check("chưa đủ ngày → vẫn ACTIVE (chưa kết luận vội)", tooEarly.status === "ACTIVE");
+
+  const stalled = evaluateAdjustment({
+    appliedAt: new Date(NOW.getTime() - (ADJUSTMENT_MAX_WAIT_DAYS + 1) * 24 * 60 * 60 * 1000),
+    baselineMedian: 100,
+    afterScores: [100, 100],
+    now: NOW,
+  });
+  check(
+    `quá ${ADJUSTMENT_MAX_WAIT_DAYS} ngày vẫn thiếu mẫu → KEPT (không treo mãi)`,
+    stalled.status === "KEPT"
+  );
+
+  // ---- Giới hạn tốc độ đổi trọng số (±25%/chu kỳ) ----
+  const stepped = limitWeightStep({ A: 100, B: 10 }, { A: 40, B: 20 });
+  check("trọng số không nhảy quá ±25% mỗi chu kỳ", stepped.A <= 50 && stepped.A >= 30, `A=${stepped.A}`);
+  check("trọng số luôn có sàn 1", limitWeightStep({ A: 0 }, { A: 4 }).A >= 1);
+  check(
+    "chưa có mốc trước → giữ nguyên đề xuất",
+    limitWeightStep({ A: 100 }, null).A === 100
+  );
+
+  // ---- Kế hoạch thử nghiệm ở khai thác: ưu tiên hướng ÍT MẪU nhất ----
+  const explorePool = [
+    ...Array.from({ length: 9 }, () =>
+      sample({ pillarName: "Đông khách", reactions: 100, comments: 0, shares: 0 })
+    ),
+    sample({ pillarName: "Ít thử", reactions: 100, comments: 0, shares: 0 }),
+  ];
+  const exploreReport = analyzePerformance(explorePool, { now: NOW });
+  const explorePlan = planExplorationQuotas({
+    report: exploreReport,
+    pillars: [{ name: "Đông khách" }, { name: "Ít thử" }],
+    previousEntries: [],
+    config: { mediaMix: "IMAGE_ONLY", windowStart: "07:00", windowEnd: "21:00" },
+    batchId: "EXPLORE-test",
+  });
+  const hintForExplore = pickProbeHint(explorePlan, {}, 0);
+  check(
+    "slot thử nghiệm nhắm trụ cột ÍT mẫu nhất",
+    hintForExplore?.pillarName === "Ít thử",
+    `chọn=${hintForExplore?.pillarName}`
+  );
+  check("kế hoạch thử nghiệm không giới hạn theo đợt", explorePlan.totalQuota === 0);
+
+  const badEntryPlan = planExplorationQuotas({
+    report: exploreReport,
+    pillars: [{ name: "Đông khách" }, { name: "Ít thử" }],
+    previousEntries: [{ kind: "PILLAR", value: "Ít thử", result: "BAD" }],
+    config: { mediaMix: "IMAGE_ONLY", windowStart: "07:00", windowEnd: "21:00" },
+    batchId: "EXPLORE-test",
+  });
+  check(
+    "hướng đã bị chấm BAD không được thử lại ở slot thử nghiệm",
+    !badEntryPlan.quotas.some((q) => q.kind === "PILLAR" && q.value === "Ít thử")
+  );
+
+  // ---- Ngân sách dò theo ĐỢT: tên khoá đợt ổn định ----
+  const keyed = planProbeBatch({
+    phase: "REPROBE",
+    pillars: [{ name: "A" }],
+    previousEntries: [],
+    config: { mediaMix: "IMAGE_ONLY", windowStart: "07:00", windowEnd: "21:00", minGapMinutes: 120 },
+    probePostsSoFar: 0,
+    remainingBudget: PROBE_MAX_POSTS,
+    hasServiceAreas: false,
+    seed: "2026-09-26",
+    batchKey: "1758888000000",
+  });
+  check(
+    "có batchKey → batchId ổn định theo mốc bắt đầu đợt",
+    keyed.batchId === "REPROBE-1758888000000",
+    keyed.batchId
+  );
+
+  // ---- REPROBE phải sống qua nhiều lượt, không tắt sau một lượt ----
+  check(
+    "đang trong đợt dò lại → vẫn REPROBE dù cooldown đã chặn tín hiệu tụt",
+    resolveLearningPhase({
+      totalPublishedAutoPilot: 50,
+      matureSamples: 50,
+      report: analyzePerformance([], { now: NOW }),
+      regression: noRegression,
+      reprobeInProgress: true,
+    }) === "REPROBE"
+  );
+  check(
+    "hết ngân sách dò lại → thoát về khai thác",
+    resolveLearningPhase({
+      totalPublishedAutoPilot: 50,
+      matureSamples: 50,
+      report: analyzePerformance([], { now: NOW }),
+      regression: noRegression,
+      probeBudgetExhausted: true,
+      reprobeInProgress: true,
+    }) === "EXPLOIT"
+  );
+
+  // ---- Pha dựa trên MẪU ĐÃ CHÍN, không phải số bài đã đăng ----
+  check(
+    "12 bài đã đăng nhưng chỉ 3 bài chín → vẫn PROBE",
+    resolveLearningPhase({
+      totalPublishedAutoPilot: 12,
+      matureSamples: 3,
+      report: analyzePerformance([], { now: NOW }),
+      regression: noRegression,
+    }) === "PROBE"
+  );
+  check(
+    "8 bài chín → EXPLOIT",
+    resolveLearningPhase({
+      totalPublishedAutoPilot: 8,
+      matureSamples: 8,
+      report: analyzePerformance([], { now: NOW }),
+      regression: noRegression,
+    }) === "EXPLOIT"
+  );
+
+  // ---- RECENT_COLLAPSE đọc bài MỚI NHẤT, không đọc bài yếu nhất ----
+  const newestGood = analyzePerformance(
+    [
+      // 15 bài cũ điểm cao, 5 bài MỚI NHẤT cũng điểm cao → không được báo tụt
+      ...Array.from({ length: 15 }, () =>
+        sample({ publishedAt: daysAgo(30), reactions: 100, comments: 0, shares: 0 })
+      ),
+      ...Array.from({ length: 5 }, () =>
+        sample({ publishedAt: daysAgo(1), reactions: 100, comments: 0, shares: 0 })
+      ),
+    ],
+    { now: NOW }
+  );
+  const noFalseCollapse = detectRegression({
+    report: newestGood,
+    previous: null,
+    lastReProbeAt: null,
+    configChangedRecently: false,
+    now: NOW,
+  });
+  check(
+    "bài mới nhất vẫn tốt → KHÔNG báo tụt cả loạt (hết báo động giả)",
+    !noFalseCollapse.signals.some((s) => s.code === "RECENT_COLLAPSE"),
+    JSON.stringify(noFalseCollapse.signals.map((s) => s.code))
+  );
+
+  // ---- BASELINE_DROP hoạt động khi có mốc lịch sử ----
+  const droppedVsBaseline = detectRegression({
+    report: analyzePerformance(
+      Array.from({ length: 20 }, () => sample({ reactions: 50, comments: 0, shares: 0 })),
+      { now: NOW }
+    ),
+    previous: { medianScore: 100, sampleSize: 30 },
+    lastReProbeAt: null,
+    configChangedRecently: false,
+    now: NOW,
+  });
+  check(
+    "có mốc 14–28 ngày trước → bắt được tụt chậm (BASELINE_DROP)",
+    droppedVsBaseline.signals.some((s) => s.code === "BASELINE_DROP")
+  );
+}
+
 // ============================================================
-console.log("\n" + "=".repeat(52));
 console.log(`Kết quả: ${passed} đạt, ${failed} lỗi (tổng ${passed + failed})`);
 console.log("=".repeat(52));
 

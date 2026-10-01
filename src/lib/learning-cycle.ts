@@ -99,8 +99,11 @@ export type RegressionReport = {
  */
 export type RegressionInput = {
   report: PerformanceReport;
-  /** Hai báo cáo cũ để so — null khi chưa đủ lịch sử. */
-  previous: PerformanceReport | null;
+  /**
+   * Mốc của lần phân tích trước (ảnh chụp LearningSnapshot 14–28 ngày trước).
+   * Chỉ cần trung vị và số mẫu. null khi chưa đủ lịch sử.
+   */
+  previous: Pick<PerformanceReport, "medianScore" | "sampleSize"> | null;
   /** Thời điểm lần kiểm tra lại gần nhất (null = chưa từng). */
   lastReProbeAt: Date | null;
   /** Cấu hình Page có bị đổi gần đây không (7 ngày) — đổi cấu hình thì chưa kết luận được. */
@@ -205,9 +208,12 @@ export function detectRegression(input: RegressionInput): RegressionReport {
   }
 
   // --- Tín hiệu 3: tụt cả loạt gần đây ---
-  const sorted = [...report.topPosts, ...report.weakPosts];
-  if (report.sampleSize >= COLLAPSE_RECENT + 5 && sorted.length > 0) {
-    const recent = report.weakPosts.slice(0, COLLAPSE_RECENT).map((p) => p.score);
+  // PHẢI dùng bài MỚI NHẤT (recentPosts, sắp theo publishedAt), không phải
+  // weakPosts: weakPosts là 3 bài điểm thấp nhất nên trung vị của chúng gần như
+  // luôn dưới 55% trung vị Page → tín hiệu này từng bắn ở hầu hết mọi lượt.
+  const recentPosts = report.recentPosts ?? [];
+  if (report.sampleSize >= COLLAPSE_RECENT + 5 && recentPosts.length > 0) {
+    const recent = recentPosts.slice(0, COLLAPSE_RECENT).map((p) => p.score);
     const baselineCount = Math.min(COLLAPSE_BASELINE, report.sampleSize - COLLAPSE_RECENT);
     if (baselineCount >= 5 && report.medianScore > 0) {
       const recentMedian = medianOrZero(recent);
@@ -339,6 +345,17 @@ export type PhaseInput = {
    * thì thoát dò và làm việc với những gì đang có.
    */
   probeBudgetExhausted?: boolean;
+  /**
+   * Số mẫu ĐÃ CHÍN có số liệu (report.sampleSize). Khi có, dùng thay cho
+   * totalPublishedAutoPilot để quyết định giai đoạn.
+   */
+  matureSamples?: number;
+  /**
+   * Đang trong một đợt dò lại chưa xong (còn ngân sách, chưa quá hạn). Thiếu
+   * cờ này thì REPROBE chỉ sống đúng một lượt: lượt sau cooldown chặn tín hiệu
+   * tụt và Page quay về EXPLOIT trước khi kịp dò bài nào.
+   */
+  reprobeInProgress?: boolean;
 };
 
 /**
@@ -354,8 +371,225 @@ export type PhaseInput = {
 export function resolveLearningPhase(input: PhaseInput): LearningPhase {
   if (input.regression.triggered) return "REPROBE";
   if (input.probeBudgetExhausted) return "EXPLOIT";
-  if (input.totalPublishedAutoPilot < MIN_SAMPLES_FOR_EXPLOIT) return "PROBE";
+  if (input.reprobeInProgress) return "REPROBE";
+  // Đếm MẪU ĐÃ CHÍN (có số liệu, ≥24h) chứ không đếm bài đã đăng thô: mọi bộ
+  // gợi ý phía sau chỉ thấy mẫu chín, nên vào EXPLOIT khi mới có 3 mẫu chín
+  // nghĩa là "ngừng dò mà chẳng khai thác được gì".
+  const samples = input.matureSamples ?? input.totalPublishedAutoPilot;
+  if (samples < MIN_SAMPLES_FOR_EXPLOIT) return "PROBE";
   return "EXPLOIT";
+}
+
+// ============================================================
+// 2b. Tỉ lệ thử nghiệm tự điều chỉnh
+// ============================================================
+
+/** Mức nền theo độ tin cậy: ít dữ liệu thì thử nhiều, nhiều dữ liệu thì khai thác. */
+export const EXPLORATION_BASE: Record<"NONE" | "LOW" | "MEDIUM" | "HIGH", number> = {
+  NONE: 0.35,
+  LOW: 0.35,
+  MEDIUM: 0.22,
+  HIGH: 0.12,
+};
+export const EXPLORATION_MIN = 0.1;
+export const EXPLORATION_MAX = 0.4;
+/** Mỗi ngày tỉ lệ chỉ đổi tối đa ngần này — chống rung. */
+export const EXPLORATION_MAX_STEP = 0.05;
+
+export type ExplorationInput = {
+  report: PerformanceReport;
+  directions: DirectionDraft[];
+  /** Ảnh chụp gần nhất trước (mới nhất trước), mỗi cái có medianScore + explorationRate. */
+  snapshots: { medianScore: number; explorationRate: number; sampleSize: number }[];
+};
+
+/**
+ * Tỉ lệ slot dành cho thử hướng mới ở giai đoạn KHAI THÁC.
+ *
+ * Không có tỉ lệ này thì EXPLOIT chỉ lặp lại cái đang thắng: khi thị hiếu đổi,
+ * hệ thống chỉ biết khi đã tụt nặng (REPROBE). Giữ một phần thử nghiệm liên tục
+ * giúp phát hiện hướng mới sớm, và tỉ lệ tự tăng khi hiệu quả đi xuống.
+ */
+export function computeExplorationRate(input: ExplorationInput): number {
+  const { report, directions, snapshots } = input;
+  let target = EXPLORATION_BASE[report.confidence];
+
+  const trendDown = report.trend7d !== null && report.trend7d.changePct <= -15;
+  const majorExhausted = directions.some(
+    (d) => d.status === "EXHAUSTED" && (d.kind === "PILLAR" || d.kind === "HOOK")
+  );
+  if (trendDown || majorExhausted) target += 0.1;
+
+  // Ba ảnh chụp liên tiếp không giảm → đang ổn, bớt thử nghiệm một chút
+  if (snapshots.length >= 3) {
+    const [a, b, c] = snapshots;
+    if (a.medianScore >= b.medianScore && b.medianScore >= c.medianScore) target -= 0.03;
+  }
+
+  target = clamp(target, EXPLORATION_MIN, EXPLORATION_MAX);
+
+  const prev = snapshots[0]?.explorationRate;
+  if (typeof prev === "number" && Number.isFinite(prev)) {
+    target = clamp(target, prev - EXPLORATION_MAX_STEP, prev + EXPLORATION_MAX_STEP);
+  }
+  return Math.round(clamp(target, EXPLORATION_MIN, EXPLORATION_MAX) * 1000) / 1000;
+}
+
+/**
+ * Slot thứ `index` (đếm luỹ kế toàn Page) có phải slot thử nghiệm không.
+ *
+ * TẤT ĐỊNH, không random: slot là thử nghiệm khi phần nguyên của
+ * `(index+1)·rate` vượt `index·rate`. Nhờ vậy tỉ lệ thực tế bám đúng `rate`
+ * dù lượt lập kế hoạch bị cắt ngắn, và test lặp lại được.
+ */
+export function isExplorationSlot(index: number, rate: number): boolean {
+  if (!(rate > 0)) return false;
+  return Math.floor((index + 1) * rate) > Math.floor(index * rate);
+}
+
+/**
+ * Kế hoạch thử nghiệm cho slot EXPLORE: ưu tiên hướng ÍT MẪU NHẤT, bỏ hướng
+ * đã bị chấm BAD. Dùng chung `pickProbeHint` nên ghi nhật ký giống hệt bài dò.
+ */
+export function planExplorationQuotas(input: {
+  report: PerformanceReport;
+  pillars: { name: string }[];
+  previousEntries: { kind: string; value: string; result: string }[];
+  config: { mediaMix: string; windowStart: string; windowEnd: string };
+  batchId: string;
+}): ProbePlan {
+  const { report } = input;
+  const bad = new Set(
+    input.previousEntries.filter((e) => e.result === "BAD").map((e) => `${e.kind}:${e.value}`)
+  );
+  const postsOf = (list: GroupStat[], key: string) =>
+    list.find((g) => g.key === key)?.posts ?? 0;
+  // quota = độ "thiếu mẫu" so với hướng nhiều mẫu nhất cùng loại (+1 để luôn > 0)
+  const build = (kind: ProbeKind, values: string[], stats: GroupStat[]): ProbeQuota[] => {
+    const usable = values.filter((v) => !bad.has(`${kind}:${v}`));
+    const pool = usable.length > 0 ? usable : values;
+    const max = Math.max(0, ...pool.map((v) => postsOf(stats, v)));
+    return pool.map((v) => ({ kind, value: v, quota: max - postsOf(stats, v) + 1 }));
+  };
+
+  const quotas: ProbeQuota[] = [
+    ...build("PILLAR", input.pillars.map((p) => p.name), report.byPillar),
+    ...build("HOOK", [...HOOK_STYLES], report.byHookStyle),
+    ...build("TIME_BAND", usableBands(input.config), report.byBand),
+    ...(input.config.mediaMix === "MIXED"
+      ? build("MEDIA", ["IMAGE", "VIDEO"], report.byMediaKind)
+      : []),
+  ];
+
+  return {
+    batchId: input.batchId,
+    quotas,
+    // 0 = không giới hạn theo đợt; số slot thử nghiệm do explorationRate quyết định
+    totalQuota: 0,
+    exhausted: false,
+    reason: "Thử nghiệm liên tục trong giai đoạn khai thác.",
+  };
+}
+
+// ============================================================
+// 2c. Kiểm chứng điều chỉnh tự động → giữ hay rollback
+// ============================================================
+
+/** Số ngày tối thiểu sau điều chỉnh mới được kết luận. */
+export const ADJUSTMENT_EVAL_DAYS = 7;
+/** Số bài chín tối thiểu sinh ra SAU điều chỉnh. */
+export const ADJUSTMENT_MIN_SAMPLES = 5;
+/** Tụt quá ngưỡng này so với mốc → rollback. */
+export const ADJUSTMENT_ROLLBACK_PCT = -15;
+/** Thời gian khoá chiều đã rollback (chống rung). */
+export const ADJUSTMENT_LOCK_DAYS = 14;
+/** Hết hạn mà vẫn thiếu mẫu ngần này ngày → giữ (không treo mãi). */
+export const ADJUSTMENT_MAX_WAIT_DAYS = 28;
+
+export type AdjustmentVerdict =
+  | { status: "ACTIVE"; reason: string }
+  | { status: "KEPT" | "ROLLED_BACK"; resultMedian: number | null; resultSamples: number; reason: string };
+
+/**
+ * Kết luận một điều chỉnh: so trung vị các bài chín sinh ra SAU `appliedAt`
+ * với trung vị mốc lúc điều chỉnh.
+ */
+export function evaluateAdjustment(input: {
+  appliedAt: Date;
+  baselineMedian: number;
+  /** Điểm của các bài chín đăng sau appliedAt. */
+  afterScores: number[];
+  now: Date;
+}): AdjustmentVerdict {
+  const ageDays = (input.now.getTime() - input.appliedAt.getTime()) / DAY_MS;
+  const n = input.afterScores.length;
+
+  if (ageDays < ADJUSTMENT_EVAL_DAYS || n < ADJUSTMENT_MIN_SAMPLES) {
+    if (ageDays >= ADJUSTMENT_MAX_WAIT_DAYS) {
+      return {
+        status: "KEPT",
+        resultMedian: n > 0 ? medianOrZero(input.afterScores) : null,
+        resultSamples: n,
+        reason: `Quá ${ADJUSTMENT_MAX_WAIT_DAYS} ngày vẫn chỉ có ${n} bài để kiểm chứng — giữ điều chỉnh.`,
+      };
+    }
+    return { status: "ACTIVE", reason: `Đang kiểm chứng (${n}/${ADJUSTMENT_MIN_SAMPLES} bài).` };
+  }
+
+  const median = medianOrZero(input.afterScores);
+  if (input.baselineMedian <= 0) {
+    return { status: "KEPT", resultMedian: median, resultSamples: n, reason: "Mốc bằng 0 — giữ điều chỉnh." };
+  }
+  const change = ((median - input.baselineMedian) / input.baselineMedian) * 100;
+  if (change <= ADJUSTMENT_ROLLBACK_PCT) {
+    return {
+      status: "ROLLED_BACK",
+      resultMedian: median,
+      resultSamples: n,
+      reason: `Sau điều chỉnh, trung vị ${pct(change)} so với mốc (${n} bài) — quay về cấu hình cũ.`,
+    };
+  }
+  return {
+    status: "KEPT",
+    resultMedian: median,
+    resultSamples: n,
+    reason: `Sau điều chỉnh, trung vị ${pct(change)} so với mốc (${n} bài) — giữ.`,
+  };
+}
+
+/**
+ * Giới hạn tốc độ đổi trọng số trụ cột: mỗi chu kỳ tối đa ±`maxStep` so với
+ * trọng số đã áp dụng lần trước. Sàn 1.
+ */
+export function limitWeightStep(
+  proposed: Record<string, number>,
+  previous: Record<string, number> | null,
+  maxStep = 0.25
+): Record<string, number> {
+  if (!previous) return { ...proposed };
+  const out: Record<string, number> = {};
+  for (const [name, w] of Object.entries(proposed)) {
+    const prev = previous[name];
+    if (typeof prev !== "number" || prev <= 0) {
+      out[name] = w;
+      continue;
+    }
+    out[name] = Math.max(1, Math.round(clamp(w, prev * (1 - maxStep), prev * (1 + maxStep))));
+  }
+  return out;
+}
+
+/** Hệ số trọng số theo trạng thái hướng (C1). */
+export const DIRECTION_WEIGHT_FACTOR: Partial<Record<DirectionStatus, number>> = {
+  EXHAUSTED: 0.6,
+  DECLINING: 0.8,
+  RISING: 1.2,
+};
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+function clamp(v: number, lo: number, hi: number): number {
+  return Math.min(Math.max(v, lo), hi);
 }
 
 // ============================================================
@@ -402,6 +636,12 @@ export type ProbePlanInput = {
   hasServiceAreas: boolean;
   /** Hệ số ngẫu nhiên để batchId khác nhau giữa các đợt. */
   seed?: string;
+  /**
+   * Khoá ỔN ĐỊNH của đợt dò (vd. mốc bắt đầu đợt). Có thì batchId = khoá này,
+   * nhờ vậy ProbeEntry của cùng một đợt gom về một chỗ qua nhiều lượt chạy.
+   * Không truyền = hành vi cũ (seed + số bài, đổi mỗi ngày).
+   */
+  batchKey?: string;
 };
 
 /** Số bài tối đa cho MỘT hướng, tính từ tổng ngân sách và số trụ cột. */
@@ -504,7 +744,9 @@ export function planProbeBatch(input: ProbePlanInput): ProbePlan {
     quotas.push({ kind: "MEDIA", value: "VIDEO", quota: perHint });
   }
 
-  const batchId = `${phase}-${input.seed ?? "b"}-${input.probePostsSoFar}`;
+  const batchId = input.batchKey
+    ? `${phase}-${input.batchKey}`
+    : `${phase}-${input.seed ?? "b"}-${input.probePostsSoFar}`;
 
   return {
     batchId,
@@ -664,7 +906,7 @@ export const PROBE_BAD_Z = -0.5;
  * một hướng chỉ được thử 1 bài vì lịch bị cắt sẽ bị loại vĩnh viễn.
  */
 export function evaluateProbeResults(
-  entries: { kind: string; value: string; result: string }[],
+  entries: { kind: string; value: string; result: string; postIds?: string[] }[],
   report: PerformanceReport
 ): { kind: string; value: string; result: string; score: number | null }[] {
   const stats: { key: string; posts: number; z: number }[] = [
@@ -674,10 +916,22 @@ export function evaluateProbeResults(
     ...report.byMediaKind.map((g) => ({ key: `MEDIA:${g.key}`, posts: g.posts, z: g.z })),
   ];
   const byKey = new Map(stats.map((s) => [s.key, s]));
+  const zByPost = report.zByPost ?? {};
 
   return entries.map((e) => {
-    const key = `${e.kind}:${e.value}`;
-    const stat = byKey.get(key);
+    // Có danh sách bài thật của hướng này → chấm theo CHÍNH các bài đó (chỉ
+    // bài đã chín mới có z). Không có thì rơi về thống kê nhóm như cũ.
+    let stat: { posts: number; z: number } | undefined;
+    if (e.postIds && e.postIds.length > 0) {
+      const zs = e.postIds
+        .map((id) => zByPost[id])
+        .filter((z): z is number => typeof z === "number" && Number.isFinite(z));
+      stat = zs.length > 0
+        ? { posts: zs.length, z: zs.reduce((a, b) => a + b, 0) / zs.length }
+        : { posts: 0, z: 0 };
+    } else {
+      stat = byKey.get(`${e.kind}:${e.value}`);
+    }
     if (!stat || stat.posts < MIN_SAMPLES_PER_DIRECTION) {
       return { kind: e.kind, value: e.value, result: "PENDING", score: null };
     }

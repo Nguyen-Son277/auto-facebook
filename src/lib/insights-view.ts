@@ -323,9 +323,12 @@ export async function loadLearningView(pageId: string, now: Date) {
   const autopilot = await prisma.autoPilot.findUnique({ where: { pageId } });
   if (!autopilot?.insightsEnabled) return null;
 
-  const { computeLearningState, learningProgressOf, effectivePillars } = await import(
-    "./insight-optimize"
-  );
+  const {
+    ADJUSTMENT_KIND_LABELS,
+    computeLearningState,
+    learningProgressOf,
+    effectivePillars,
+  } = await import("./insight-optimize");
 
   const page = await prisma.facebookPage.findUnique({
     where: { id: pageId },
@@ -353,7 +356,9 @@ export async function loadLearningView(pageId: string, now: Date) {
       windowEnd: autopilot.windowEnd,
       minGapMinutes: autopilot.minGapMinutes,
       mediaMix: autopilot.mediaMix,
+      videoPercent: autopilot.videoPercent,
       lastReProbeAt: autopilot.lastReProbeAt,
+      probeStartedAt: autopilot.probeStartedAt,
       updatedAt: autopilot.updatedAt,
     },
     now,
@@ -361,6 +366,15 @@ export async function loadLearningView(pageId: string, now: Date) {
   );
 
   const effective = effectivePillars(pillars, state);
+
+  // Nhật ký điều chỉnh tự động — dữ liệu cho phần "hệ thống đã tự đổi gì".
+  const adjustments = await prisma.learningAdjustment
+    .findMany({
+      where: { pageId },
+      orderBy: { appliedAt: "desc" },
+      take: 20,
+    })
+    .catch(() => []);
 
   return {
     progress: learningProgressOf(state),
@@ -418,6 +432,33 @@ export async function loadLearningView(pageId: string, now: Date) {
     probeStartedAt: autopilot.probeStartedAt?.toISOString() ?? null,
     lastReProbeAt: autopilot.lastReProbeAt?.toISOString() ?? null,
     learningComputedAt: autopilot.learningComputedAt?.toISOString() ?? null,
+    /**
+     * Nhật ký điều chỉnh tự động + kết quả kiểm chứng.
+     *
+     * Người dùng phải xem được hệ thống đã tự đổi gì và đổi đó có hiệu quả
+     * không — "tự áp dụng có rào chắn" chỉ đáng tin khi rào chắn đó KIỂM CHỨNG
+     * ĐƯỢC, không phải chỉ được mô tả.
+     */
+    adjustments: adjustments.map((a) => ({
+      id: a.id,
+      kind: a.kind,
+      kindLabel: ADJUSTMENT_KIND_LABELS[a.kind] ?? a.kind,
+      before: a.before,
+      after: a.after,
+      status: a.status,
+      baselineMedian: a.baselineMedian,
+      baselineSamples: a.baselineSamples,
+      resultMedian: a.resultMedian,
+      resultSamples: a.resultSamples,
+      reason: a.reason,
+      appliedAt: a.appliedAt.toISOString(),
+      evaluateAfter: a.evaluateAfter.toISOString(),
+      lockedUntil: a.lockedUntil?.toISOString() ?? null,
+    })),
+    /** Trọng số địa bàn đang được ưu tiên theo số liệu (rỗng = chưa đủ mẫu). */
+    serviceAreaWeights: state.serviceAreaWeights,
+    /** Góc đã hiệu quả đang được nhắc lại trong prompt. */
+    winningTopics: state.winningTopics,
   };
 }
 
