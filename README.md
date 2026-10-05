@@ -509,9 +509,9 @@ tác này bỏ qua cooldown vì đó là quyết định của con người.
 Sau mỗi lần lấy số liệu, trang `/insights` hiện khối **"Nhận xét & hướng đang triển khai"**:
 
 - Một câu tóm tắt + mô tả nội dung đang nghiêng về hướng nào.
-- Bảng hướng: số bài, hiệu quả trung bình, **% so kỳ trước**, trạng thái
-  (Đang lên / Ổn định / Đang giảm / Đã bão hoà / Đang thử), **ước lượng còn hiệu quả ~N ngày**
-  và khuyến nghị (tăng / giữ / giảm / tạm dừng).
+- Bảng hướng: số bài, hiệu quả trung bình, **thanh tương quan trực quan**, **% so kỳ trước**,
+  trạng thái (Đang lên / Ổn định / Đang giảm / Đã bão hoà / Đang thử), **ước lượng còn hiệu quả
+  ~N ngày** và khuyến nghị (tăng / giữ / giảm / tạm dừng).
 - Việc nên làm tiếp.
 
 Nhận xét được sinh bằng **hàm thuần từ chính dữ liệu** (không gọi AI viết nhận xét), nên cùng
@@ -522,14 +522,19 @@ một bộ số liệu luôn cho cùng một câu và bạn kiểm chứng đư�
    **không phải dự báo của Facebook** và không phải mô hình học máy.
 3. Khi thiếu `read_insights`, thứ hạng chỉ dựa trên tương tác.
 
-### Bốn khối còn lại của trang `/insights`
+### Năm khối còn lại của trang `/insights`
+
+Trang dùng **biểu đồ SVG tự vẽ** (không thư viện ngoài, tự đổi theo theme sáng/tối) để nhìn
+nhanh; mọi con số chính xác vẫn nằm trong bảng, gom vào mục **mở rộng (▸)** trong từng khối.
 
 | Khối | Nội dung |
 |---|---|
-| **Bài đăng mới nhất** | 20 bài gần nhất kèm lượt xem, ❤ 💬 ↗, điểm tương tác, tỉ lệ người xem đáp lại, nhãn **Tự động / Soạn tay** và **🔬 Dò**, cùng ghi chú vì sao bài đó được viết như vậy |
-| **Phân tích theo hướng** | Bảng xếp hạng theo trụ cột / khung giờ / kiểu mở bài / loại nội dung / địa bàn, kèm độ tin cậy và top–bottom 3 bài |
-| **Đang áp dụng gì** | So sánh trọng số **bạn đặt** với trọng số **đang dùng**, khung giờ ưu tiên, kiểu mở bài ưu tiên, và **xem trước nội dung số liệu gửi cho AI** |
-| **Số liệu cấp Page** | 14 ngày gần nhất: người theo dõi, lượt xem Page, lượt xem nội dung, tương tác bài, thành phố đông người theo dõi (chỉ để tham khảo) |
+| **Tổng quan** | 4 thẻ KPI: hiệu quả 7 ngày (kèm sparkline), số bài đã phân tích + độ tin cậy, tiếp cận trung bình/bài, giai đoạn học + tiến độ dò. Page chưa bật tự tối ưu vẫn có 4 thẻ số liệu thô |
+| **Bài đăng mới nhất** | Biểu đồ thanh "Bài tương tác cao nhất", bộ lọc **Tất cả / Tự động / Soạn tay**, và bảng 20 bài gần nhất kèm lượt xem, ❤ 💬 ↗, điểm tương tác (có thanh mini), tỉ lệ người xem đáp lại, nhãn **Tự động / Soạn tay** và **🔬 Dò**, cùng ghi chú vì sao bài đó được viết như vậy |
+| **Phân tích theo hướng** | Biểu đồ thanh xếp hạng theo trụ cột / khung giờ / kiểu mở bài / loại nội dung / địa bàn (độ dài theo điểm trung bình, màu theo độ lệch z), thanh so sánh 7 ngày này vs 7 ngày trước, kèm độ tin cậy và top–bottom 3 bài. Bảng số chi tiết nằm trong mục mở rộng |
+| **Đang áp dụng gì** | Thanh so sánh trọng số **bạn đặt** với trọng số **đang dùng**, dải trực quan khung giờ ưu tiên trên trục 24h, kiểu mở bài ưu tiên, và **xem trước nội dung số liệu gửi cho AI** |
+| **Hệ thống đã tự đổi gì** | Thanh so sánh **mốc lúc đổi** với **kết quả sau điều chỉnh** cho từng lần tự điều chỉnh, kèm trạng thái (Giữ / Đã quay lại / Đang kiểm chứng) và thời hạn khoá. Nhật ký chi tiết nằm trong mục mở rộng |
+| **Số liệu cấp Page** | 4 biểu đồ vùng nhỏ cho 14 ngày gần nhất (lượt xem Page, lượt xem nội dung, tương tác bài, người theo dõi) + thành phố đông người theo dõi (chỉ để tham khảo). Bảng số chi tiết nằm trong mục mở rộng |
 
 ### Nhịp thu thập & hạn mức
 

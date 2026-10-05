@@ -452,12 +452,16 @@ Khối **"Nhận xét & hướng đang triển khai"** luôn kèm 3 dòng minh b
 
 Bài dưới 24 giờ được đánh dấu "đang thu thập": vẫn hiển thị nhưng **không dùng để học**.
 
-## 6. Bốn khối còn lại
+## 6. Năm khối còn lại
 
-- **Bài đăng mới nhất** — 20 bài gần nhất kèm lượt xem, ❤ 💬 ↗, điểm tương tác, tỉ lệ người xem đáp lại, nhãn **Tự động / Soạn tay**, nhãn **🔬 Dò**, và ghi chú vì sao bài đó được viết như vậy.
-- **Phân tích theo hướng** — xếp hạng theo trụ cột / khung giờ / kiểu mở bài / loại nội dung / địa bàn, kèm độ tin cậy và top–bottom 3 bài.
-- **Đang áp dụng gì** — so trọng số **bạn đặt** với trọng số **đang dùng**, khung giờ ưu tiên, kiểu mở bài ưu tiên, và **xem trước nội dung số liệu gửi cho AI**.
-- **Số liệu cấp Page** — 14 ngày gần nhất: người theo dõi, lượt xem Page, lượt xem nội dung, tương tác bài, thành phố đông người theo dõi (chỉ để tham khảo — địa bàn viết bài vẫn lấy từ hồ sơ thương hiệu).
+Trang dùng **biểu đồ tự vẽ** để nhìn nhanh; con số chính xác vẫn nằm trong bảng ở mục **mở rộng (▸)** của từng khối.
+
+- **Tổng quan** — 4 thẻ KPI: hiệu quả 7 ngày (kèm sparkline), số bài đã phân tích + độ tin cậy, tiếp cận trung bình/bài, giai đoạn học + tiến độ dò.
+- **Bài đăng mới nhất** — biểu đồ thanh "Bài tương tác cao nhất", bộ lọc **Tất cả / Tự động / Soạn tay**, và bảng 20 bài gần nhất kèm lượt xem, ❤ 💬 ↗, điểm tương tác, tỉ lệ người xem đáp lại, nhãn **Tự động / Soạn tay**, nhãn **🔬 Dò**, và ghi chú vì sao bài đó được viết như vậy.
+- **Phân tích theo hướng** — biểu đồ thanh xếp hạng theo trụ cột / khung giờ / kiểu mở bài / loại nội dung / địa bàn, thanh so sánh 7 ngày này vs 7 ngày trước, kèm độ tin cậy và top–bottom 3 bài.
+- **Đang áp dụng gì** — thanh so trọng số **bạn đặt** với trọng số **đang dùng**, dải trực quan khung giờ ưu tiên trên trục 24h, kiểu mở bài ưu tiên, và **xem trước nội dung số liệu gửi cho AI**.
+- **Hệ thống đã tự đổi gì** — thanh so **mốc lúc đổi** với **kết quả sau điều chỉnh** cho từng lần tự điều chỉnh, kèm trạng thái Giữ / Đã quay lại / Đang kiểm chứng.
+- **Số liệu cấp Page** — 4 biểu đồ vùng nhỏ cho 14 ngày gần nhất (lượt xem Page, lượt xem nội dung, tương tác bài, người theo dõi) và thành phố đông người theo dõi (chỉ để tham khảo — địa bàn viết bài vẫn lấy từ hồ sơ thương hiệu).
 
 ## 7. Vì sao thỉnh thoảng thiếu chỉ số
 
