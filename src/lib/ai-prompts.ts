@@ -94,6 +94,13 @@ export type BrandContext = {
   serviceAreas?: string;
   /** Địa bàn bài NÀY nhắm tới (AutoPilot xoay vòng qua từng mục). */
   serviceArea?: string;
+  /**
+   * Sản phẩm TRỌNG TÂM của bài NÀY (AutoPilot xoay vòng qua từng mục trong
+   * `products`). Có thì mọi mẫu câu từ khóa được dựng theo sản phẩm này thay vì
+   * luôn lấy sản phẩm đầu tiên — nguyên nhân cũ khiến mọi bài đều nói về đúng
+   * một sản phẩm và chỉ khác khu vực.
+   */
+  focusProduct?: string;
   address?: string;
   phone?: string;
   website?: string;
@@ -136,6 +143,14 @@ export type GenerateInput = {
   brand?: BrandContext;
   /** Chủ đề đã đăng gần đây — AI phải tránh lặp lại (chế độ tự động). */
   recentTopics?: string[];
+  /**
+   * Sản phẩm đã lên bài gần đây — AI phải chọn sản phẩm KHÁC cho bài này.
+   *
+   * Khác `recentTopics` (chống lặp GÓC TIẾP CẬN): đây là chống lặp CHỦ THỂ. Hai
+   * bài cùng nói "rèm vải buông" ở hai khu vực khác nhau vẫn là nội dung trùng
+   * với Facebook, dù góc tiếp cận có đổi.
+   */
+  recentProducts?: string[];
 };
 
 export type ChatMessage = {
@@ -340,10 +355,34 @@ export function buildBrandBlock(brand: BrandContext): string[] {
 // vào chỗ trống — đúng loại lỗi prompt này sinh ra để chặn.
 // ============================================================
 
-/** Số sản phẩm tối đa liệt kê trong khối — nhiều hơn sẽ làm loãng prompt. */
-export const MAX_PRODUCTS_IN_PROMPT = 12;
+/**
+ * Số sản phẩm tối đa liệt kê trong khối.
+ *
+ * Để 20 (không phải 12) vì hồ sơ thật có thể nhiều dòng: "Rèm cửa giá rẻ Bình
+ * Dương" có 17 sản phẩm, nên trần 12 khiến 5 sản phẩm cuối KHÔNG BAO GIỜ được
+ * dùng — cả trong danh sách "được phép nhắc tên" lẫn vòng xoay sản phẩm của bộ
+ * lập kế hoạch (hai bên dùng chung một hàm parse).
+ *
+ * Trần vẫn phải có: mỗi dòng còn tốn token và làm loãng chỉ thị, nên không mở
+ * vô hạn. 20 đủ phủ các hồ sơ ngành hàng thực tế mà prompt vẫn gọn.
+ */
+export const MAX_PRODUCTS_IN_PROMPT = 20;
 /** Độ dài tối đa mỗi dòng sản phẩm (tên sản phẩm dài hơn địa danh). */
 export const MAX_PRODUCT_LINE_CHARS = 120;
+
+/**
+ * Đọc danh sách sản phẩm/dịch vụ của thương hiệu từ ô "mỗi dòng một mục".
+ *
+ * Export để bộ lập kế hoạch AutoPilot dùng CHÍNH danh sách này khi xoay vòng sản
+ * phẩm — nhờ vậy thứ tự xoay vòng và danh sách "được phép nhắc tên" trong prompt
+ * luôn là một, không lệch nhau.
+ */
+export function parseBrandProducts(raw: string | null | undefined): string[] {
+  return parseListLines(raw, {
+    maxItems: MAX_PRODUCTS_IN_PROMPT,
+    maxChars: MAX_PRODUCT_LINE_CHARS,
+  });
+}
 
 /**
  * Dựng khối "CỤM TỪ KHÓA NGƯỜI DÙNG HAY TÌM" cho prompt.
@@ -355,12 +394,17 @@ export function buildSearchIntentBlock(
   brand: BrandContext,
   goal?: Goal
 ): string[] {
-  const products = parseListLines(brand.products, {
-    maxItems: MAX_PRODUCTS_IN_PROMPT,
-    maxChars: MAX_PRODUCT_LINE_CHARS,
-  });
+  const products = parseBrandProducts(brand.products);
   const industry = brand.industry?.trim();
   if (products.length === 0 && !industry) return [];
+
+  // Sản phẩm trọng tâm: bộ lập kế hoạch đã xoay vòng chọn sẵn. Chỉ nhận khi tên
+  // đó thật sự có trong danh sách sản phẩm — nếu không (dữ liệu cũ, hồ sơ vừa
+  // đổi) thì lùi về sản phẩm đầu tiên, giữ nguyên hành vi trước đây.
+  const focusProduct =
+    brand.focusProduct && products.includes(brand.focusProduct.trim())
+      ? brand.focusProduct.trim()
+      : (products[0] ?? "");
 
   // Khu vực: GIỮ NGUYÊN chốt cũ — chỉ nhắc khu vực MỤC TIÊU khi bài này đã được
   // gán một khu vực cụ thể (`serviceArea`). Thương hiệu có danh sách nhưng bài
@@ -386,7 +430,13 @@ export function buildSearchIntentBlock(
 
   if (products.length > 0) {
     lines.push("Sản phẩm/dịch vụ được phép nhắc tên:");
-    for (const p of products) lines.push(`  • ${p}`);
+    for (const p of products) {
+      lines.push(
+        focusProduct && p === focusProduct
+          ? `  • ${p}  ← SẢN PHẨM TRỌNG TÂM của bài NÀY`
+          : `  • ${p}`
+      );
+    }
   } else {
     lines.push(`Ngành hàng được phép nhắc: ${industry}`);
   }
@@ -413,6 +463,18 @@ export function buildSearchIntentBlock(
     );
   }
 
+  // Sản phẩm trọng tâm: nói thẳng ngay cạnh danh sách để model không tự chọn
+  // lại sản phẩm đầu tiên của hồ sơ. Chỉ có ý nghĩa khi hồ sơ có nhiều sản phẩm.
+  if (focusProduct && products.length > 1) {
+    lines.push(
+      "",
+      `Sản phẩm TRỌNG TÂM của bài này: ${focusProduct}`,
+      "- Cụm từ khóa ĐẦU TIÊN phải ghép với đúng sản phẩm này.",
+      "- KHÔNG chọn lại sản phẩm đã lên bài gần đây; các sản phẩm khác chỉ được",
+      "  nhắc thoáng qua nếu cần, không được làm tâm bài."
+    );
+  }
+
   // Khuôn mẫu đã điền sẵn tên thật của thương hiệu — model bắt chước cấu trúc
   // tốt hơn nhiều so với việc chỉ đưa khuôn rỗng.
   //
@@ -422,8 +484,12 @@ export function buildSearchIntentBlock(
   // Chọn khuôn theo MỤC TIÊU: bài bán hàng dùng khuôn mua/bán, bài chia sẻ kiến
   // thức chỉ dùng khuôn câu hỏi. Ép "mua/bán" vào bài kiến thức sẽ khiến bài
   // lạc giọng — người đọc đang tìm hiểu bị bán hàng thẳng vào mặt.
+  //
+  // Mẫu câu dựng từ SẢN PHẨM TRỌNG TÂM, không phải sản phẩm đầu danh sách: mẫu
+  // là thứ model bắt chước sát nhất, nên nếu mẫu luôn là sản phẩm đầu thì mọi
+  // bài đều quay về đúng sản phẩm đó dù có chỉ thị xoay vòng.
   const isSelling = goal !== "education" && goal !== "awareness";
-  const sample = products[0] ?? "";
+  const sample = focusProduct;
   const where = area ?? "";
   const examples: string[] = [];
   if (sample) {
@@ -568,6 +634,20 @@ export function buildUserPrompt(input: GenerateInput): string {
       "- Đồng thời ĐỔI CÁCH DIỄN ĐẠT cụm từ khóa: không dùng lại y nguyên cụm",
       "  \"mua/bán + sản phẩm + khu vực\" của các bài gần đây; đổi khuôn câu hoặc",
       "  đổi sản phẩm/khu vực được nhấn."
+    );
+  }
+
+  // Chống lặp CHỦ THỂ (khác chống lặp góc tiếp cận ở trên).
+  //
+  // Vì sao tách riêng: hai bài cùng nói về một sản phẩm, chỉ đổi khu vực, vẫn bị
+  // Facebook coi là nội dung trùng và giảm phân phối — kể cả khi "angle" đã khác.
+  // Danh sách này do bộ lập kế hoạch suy ra từ chính các bài đã đăng gần nhất.
+  if (input.recentProducts?.length) {
+    lines.push(
+      "",
+      "Các SẢN PHẨM ĐÃ LÊN BÀI GẦN ĐÂY — bài này PHẢI chọn sản phẩm KHÁC:",
+      ...input.recentProducts.map((p) => `- ${p}`),
+      "- Không lấy một sản phẩm trong danh sách này làm chủ thể chính của bài,"
     );
   }
 

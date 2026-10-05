@@ -28,7 +28,10 @@ import {
   parseHm,
   parseServiceAreas,
   pickPillar,
+  pickProduct,
   pickServiceArea,
+  detectPostProduct,
+  splitListItems,
   planTimeSlots,
   startOfDay,
   DEFAULT_AI_CALL_TIMEOUT_MS,
@@ -506,10 +509,128 @@ check(
 
 // parseServiceAreas: bỏ dòng trống, khử trùng, chấp nhận cả dấu phẩy
 {
-  const r = parseServiceAreas("Bình Dương\n\nDĩ An, binh duong");
+  const r = parseServiceAreas("Bình Dương\n\nDĩ An, Binh Duong");
   check("bỏ dòng trống + khử trùng + tách dấu phẩy", r.length === 2, JSON.stringify(r));
 }
 check("đầu vào rỗng → mảng rỗng", parseServiceAreas(null).length === 0);
+
+// ============================================================
+// SẢN PHẨM: đọc tên có ngoặc đơn + xoay vòng + suy ra từ nội dung bài
+// ============================================================
+
+section("Đọc danh sách: dấu phẩy bên trong một mục KHÔNG phải dấu phân cách");
+// Bối cảnh: tên sản phẩm thật hay kèm ngoặc liệt kê biến thể hoặc liệt kê chất
+// liệu. Bản cũ cắt thẳng theo dấu phẩy nên chẻ chúng thành các mục rác, và bài
+// đăng thật ra chuỗi cụt "Rèm vải buông (1 lớp ở Quận 9 loại nào tốt?".
+
+{
+  const raw = "Rèm vải buông (1 lớp, 2 lớp, voan)\nRèm Roman (rèm xếp lớp)";
+  const items = splitListItems(raw);
+  check("giữ nguyên tên có ngoặc đơn", items[0] === "Rèm vải buông (1 lớp, 2 lớp, voan)", JSON.stringify(items));
+  check("vẫn tách theo xuống dòng", items[1] === "Rèm Roman (rèm xếp lớp)");
+
+  const areas = parseServiceAreas("Bình Dương, Thủ Dầu Một; Dĩ An");
+  check("dấu phẩy ngoài ngoặc vẫn tách", areas.length === 3, JSON.stringify(areas));
+  check(
+    "không còn mảnh cụt từ ngoặc đơn",
+    !areas.some((a) => a.includes("("))
+  );
+}
+
+{
+  // "Rèm tre, nứa, trúc" là MỘT sản phẩm (ba chất liệu), không phải ba sản phẩm.
+  const items = parseServiceAreas("Rèm tre, nứa, trúc\nRèm ngăn lạnh PVC");
+  check(
+    "chữ thường sau dấu phẩy = mô tả nối tiếp, KHÔNG tách",
+    items.length === 2 && items[0] === "Rèm tre, nứa, trúc",
+    JSON.stringify(items)
+  );
+  check(
+    "chữ HOA sau dấu phẩy = mục mới, CÓ tách",
+    parseServiceAreas("Rèm cuốn, Rèm cầu vồng").length === 2
+  );
+  check(
+    "chữ số sau dấu phẩy = mục mới, CÓ tách",
+    parseServiceAreas("Khu 1, 2, 3").length === 3
+  );
+  check(
+    "dấu phẩy đứng trước dấu xuống dòng bị bỏ",
+    parseServiceAreas("Dĩ An,\nThuận An")[0] === "Dĩ An"
+  );
+}
+
+section("pickProduct: xoay vòng sản phẩm (chống trùng chủ thể)");
+// Vì sao quan trọng: đây là chốt chặn tất định để chuỗi bài không quay về đúng
+// một sản phẩm rồi chỉ đổi khu vực — nguyên nhân Facebook giảm phân phối.
+
+{
+  const products = ["Rèm vải buông", "Rèm cầu vồng", "Rèm cuốn"];
+  check("không có sản phẩm → null", pickProduct([], []) === null);
+  check("một sản phẩm → luôn chọn sản phẩm đó", pickProduct(["Rèm cuốn"], []) === "Rèm cuốn");
+  check(
+    "chưa dùng gì → chọn sản phẩm đầu",
+    pickProduct(products, []) === "Rèm vải buông"
+  );
+  check(
+    "sản phẩm vừa dùng bị tránh",
+    pickProduct(products, ["Rèm vải buông"]) === "Rèm cầu vồng"
+  );
+  check(
+    "chọn sản phẩm ít dùng nhất",
+    pickProduct(products, ["Rèm vải buông", "Rèm vải buông", "Rèm cầu vồng"]) === "Rèm cuốn"
+  );
+  check(
+    "so trùng bỏ qua hoa/thường",
+    pickProduct(["Rèm Cuốn", "Rèm cầu vồng"], ["rèm cuốn"]) === "Rèm cầu vồng"
+  );
+
+  // Mô phỏng một dãy bài: 7 bài liên tiếp trên 3 sản phẩm không được lặp liền kề.
+  let recent = [];
+  const seq = [];
+  for (let i = 0; i < 7; i++) {
+    const p = pickProduct(products, recent);
+    seq.push(p);
+    recent = [p, ...recent];
+  }
+  check(
+    "7 bài liên tiếp không lặp sản phẩm liền trước",
+    seq.every((p, i) => i === 0 || p !== seq[i - 1]),
+    JSON.stringify(seq)
+  );
+  check(
+    "7 bài trải đều cả 3 sản phẩm",
+    new Set(seq).size === 3,
+    JSON.stringify(seq)
+  );
+}
+
+section("detectPostProduct: suy ra sản phẩm từ nội dung đã đăng");
+// Dùng để biết sản phẩm nào vừa lên bài mà không cần thêm cột DB cho dữ liệu cũ.
+
+{
+  const products = ["Rèm vải", "Rèm vải buông", "Rèm cầu vồng", "Rèm cuốn"];
+  check("null → null", detectPostProduct(null, products) === null);
+  check("nội dung rỗng → null", detectPostProduct("   ", products) === null);
+  check("không có sản phẩm nào → null", detectPostProduct("bài gì đó", []) === null);
+
+  check(
+    "khớp ở dòng đầu (hook)",
+    detectPostProduct("Rèm cầu vồng Quận 7 cho không gian hiện đại\n\nMô tả…", products) === "Rèm cầu vồng"
+  );
+  check(
+    "khớp tên DÀI NHẤT trước (Rèm vải buông ≠ Rèm vải)",
+    detectPostProduct("Tư vấn rèm vải buông Hòa Phú cho phòng khách", products) === "Rèm vải buông"
+  );
+  check(
+    "dòng đầu không có thì quét cả bài",
+    detectPostProduct("Một khách cần xử lý nắng\n\nCửa hàng gợi ý rèm cuốn.", products) === "Rèm cuốn"
+  );
+  check(
+    "bỏ dấu khi so khớp",
+    detectPostProduct("Tu van REM CAU VONG Quan 7", products) === "Rèm cầu vồng"
+  );
+}
+
 
 // ============================================================
 section("Ngân sách thời gian (deadline) — planner tự dừng trước khi bị kill");

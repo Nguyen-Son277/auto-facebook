@@ -39,7 +39,9 @@ import {
   parseServiceAreas,
   pickPillar,
   pickPillarEvenly,
+  pickProduct,
   pickServiceArea,
+  detectPostProduct,
   planTimeSlots,
   planTimeSlotsBiased,
   remainingBudgetMs,
@@ -89,7 +91,7 @@ export {
 };
 export type { PillarLike, PlannerDeadline };
 import type { AttachedMedia } from "./posts";
-import { GOALS, LENGTHS, TONES, type Goal, type PostLength, type Tone } from "./ai-prompts";
+import { GOALS, LENGTHS, TONES, parseBrandProducts, type Goal, type PostLength, type Tone } from "./ai-prompts";
 
 // ============================================================
 // CHẾ ĐỘ TỰ ĐỘNG — bộ lập kế hoạch.
@@ -690,7 +692,7 @@ async function loadRecentContext(pageId: string) {
     where: { pageId, origin: "AUTOPILOT" },
     orderBy: { createdAt: "desc" },
     take: PILLAR_HISTORY,
-    select: { pillarName: true, topic: true, serviceArea: true },
+    select: { pillarName: true, topic: true, serviceArea: true, content: true },
   });
 
   return {
@@ -704,6 +706,10 @@ async function loadRecentContext(pageId: string) {
       .map((r) => r.serviceArea)
       .filter((a): a is string => Boolean(a && a.trim()))
       .slice(0, RECENT_TOPIC_LIMIT),
+    // Nội dung bài gần đây — dùng để SUY RA sản phẩm từng bài đã nhắm (xem
+    // detectPostProduct). Nhờ vậy biết được sản phẩm nào vừa lên bài mà không
+    // phải thêm cột mới vào DB cho dữ liệu cũ.
+    contents: recent.map((r) => r.content).filter((c): c is string => Boolean(c?.trim())),
   };
 }
 
@@ -859,6 +865,13 @@ async function createPlannedPost(input: {
   /** Địa bàn bài này nhắm tới (null = thương hiệu không cấu hình địa bàn). */
   serviceArea?: string | null;
   /**
+   * Sản phẩm TRỌNG TÂM của bài này (bộ lập kế hoạch đã xoay vòng chọn sẵn).
+   * Null = thương hiệu không có danh sách sản phẩm → AI tự chọn như trước.
+   */
+  focusProduct?: string | null;
+  /** Sản phẩm của các bài gần nhất — để prompt yêu cầu chọn sản phẩm khác. */
+  recentProducts?: string[];
+  /**
    * Dòng số liệu hiệu quả đưa vào prompt (chỉ để chọn góc/cách trình bày).
    * Rỗng = chưa bật tối ưu hoặc chưa đủ dữ liệu.
    */
@@ -895,6 +908,8 @@ async function createPlannedPost(input: {
       postId: string;
       topic: string;
       hook: string | null;
+      /** Nội dung đã viết — dùng để suy ra sản phẩm thật sự đã lên bài. */
+      content: string;
       mediaWarning?: string;
       kind: "IMAGE" | "VIDEO";
       serviceArea: string | null;
@@ -935,7 +950,13 @@ async function createPlannedPost(input: {
   // hướng quan trọng nhất: chủ đề quyết định AI viết về cái gì, còn prompt mới
   // chỉ quyết định CÁCH diễn đạt. Chủ đề mà không phải thứ ai đó đang tìm thì
   // bài có tối ưu câu chữ tới đâu cũng không được tìm thấy.
-  const topic = `Bài thuộc loại "${pillar.name}". Hãy tự chọn MỘT chủ đề cụ thể, thiết thực và hấp dẫn cho thương hiệu này — ưu tiên chủ đề mà khách hàng thật sự GÕ khi tìm mua hoặc tìm hiểu (ví dụ: mua/bán sản phẩm gì, ở khu vực nào, giá thế nào, loại nào tốt).`;
+  //
+  // Sản phẩm trọng tâm được nêu NGAY TRONG chủ đề (không chỉ trong khối hồ sơ):
+  // đây là trường định hướng mạnh nhất, và là chốt chặn để hai bài liền nhau
+  // không cùng nói về một sản phẩm rồi chỉ đổi khu vực.
+  const topic = input.focusProduct
+    ? `Bài thuộc loại "${pillar.name}", tập trung vào sản phẩm "${input.focusProduct}". Hãy tự chọn MỘT chủ đề cụ thể, thiết thực và hấp dẫn cho thương hiệu này — ưu tiên chủ đề mà khách hàng thật sự GÕ khi tìm mua hoặc tìm hiểu (ví dụ: mua/bán sản phẩm gì, ở khu vực nào, giá thế nào, loại nào tốt).`
+    : `Bài thuộc loại "${pillar.name}". Hãy tự chọn MỘT chủ đề cụ thể, thiết thực và hấp dẫn cho thương hiệu này — ưu tiên chủ đề mà khách hàng thật sự GÕ khi tìm mua hoặc tìm hiểu (ví dụ: mua/bán sản phẩm gì, ở khu vực nào, giá thế nào, loại nào tốt).`;
 
   const res = await generatePostVariants({
     userId: config.userId,
@@ -952,6 +973,8 @@ async function createPlannedPost(input: {
       // Địa bàn mục tiêu của bài này — bộ lập kế hoạch đã xoay vòng chọn sẵn.
       // serviceAreas (toàn bộ danh sách) đã có trong `brand` để AI biết phạm vi.
       ...(input.serviceArea ? { serviceArea: input.serviceArea } : {}),
+      // Sản phẩm trọng tâm của bài này — cũng do bộ lập kế hoạch xoay vòng chọn.
+      ...(input.focusProduct ? { focusProduct: input.focusProduct } : {}),
       pillar: {
         name: pillar.name,
         description: pillar.description ?? undefined,
@@ -963,6 +986,7 @@ async function createPlannedPost(input: {
       ...(input.probeLines?.length ? { probe: input.probeLines } : {}),
     },
     recentTopics: input.recentTopics,
+    recentProducts: input.recentProducts,
   }, { timeoutMs: input.aiTimeout });
 
   if (!res.ok || res.variants.length === 0) {
@@ -1095,6 +1119,7 @@ async function createPlannedPost(input: {
     postId: post.id,
     topic: variant.angle || pillar.name,
     hook: variant.hook || null,
+    content: variant.content,
     mediaWarning,
     kind: input.kind,
     serviceArea: input.serviceArea ?? null,
@@ -1312,6 +1337,23 @@ export async function planForAutoPilot(
 
   const serviceAreas = parseServiceAreas(brandProfile?.serviceAreas);
   const recentAreas = [...recent.serviceAreas];
+
+  // Sản phẩm xoay vòng — cùng cơ chế với địa bàn, nhưng đây là trục chống trùng
+  // quan trọng hơn: hai bài cùng một sản phẩm, chỉ khác khu vực, bị Facebook coi
+  // là nội dung trùng và giảm phân phối.
+  //
+  // Danh sách sản phẩm lấy từ CHÍNH hàm parse mà prompt dùng (`parseBrandProducts`)
+  // nên vòng xoay và danh sách "được phép nhắc tên" không bao giờ lệch nhau.
+  //
+  // Sản phẩm đã dùng suy ra từ nội dung các bài gần nhất, không cần cột mới
+  // trong DB — nhờ vậy áp dụng được luôn cho dữ liệu đã đăng trước đó.
+  const products = parseBrandProducts(brandProfile?.products);
+  const recentProducts = products.length
+    ? recent.contents
+        .map((c) => detectPostProduct(c, products))
+        .filter((p): p is string => Boolean(p))
+        .slice(0, RECENT_TOPIC_LIMIT)
+    : [];
 
   const leadCutoff = new Date(now.getTime() + MIN_LEAD_MS);
   let lastError: string | undefined;
@@ -1553,6 +1595,10 @@ export async function planForAutoPilot(
         learning?.serviceAreaWeights
       );
 
+      // Sản phẩm trọng tâm của bài này — xoay vòng y như địa bàn. Chốt chặn TẤT
+      // ĐỊNH ở tầng kế hoạch: không phụ thuộc việc model có "nghe lời" hay không.
+      const focusProduct = pickProduct(products, recentProducts);
+
       // Kiểu mở bài đang KHAI THÁC: chỉ áp cho slot khai thác (không áp cho slot
       // thử nghiệm, vì slot đó tồn tại để đo các kiểu khác).
       const exploitHook =
@@ -1590,6 +1636,8 @@ export async function planForAutoPilot(
           // Xoay vòng tệp trong thư mục Drive theo thứ tự bài trong ngày
           rotation: dayStartIndex + i,
           serviceArea,
+          focusProduct,
+          recentProducts,
           // Số liệu thật (chỉ để chọn góc/cách trình bày — prompt có câu chặn
           // cứng việc đổi thông tin thương hiệu)
           performanceLines: [
@@ -1643,6 +1691,19 @@ export async function planForAutoPilot(
         if (res.serviceArea) {
           recentAreas.unshift(res.serviceArea);
           if (recentAreas.length > RECENT_TOPIC_LIMIT) recentAreas.pop();
+        }
+        // Ghi nhận sản phẩm THẬT SỰ đã lên bài (suy từ nội dung vừa viết), không
+        // phải sản phẩm định trước — nếu model lệch chỉ thị thì vòng xoay vẫn
+        // phản ánh đúng thứ người đọc thấy. Không nhận ra sản phẩm nào thì lùi về
+        // sản phẩm đã chọn để lượt sau vẫn tránh lặp.
+        {
+          const usedProduct =
+            (products.length ? detectPostProduct(res.content, products) : null) ??
+            focusProduct;
+          if (usedProduct) {
+            recentProducts.unshift(usedProduct);
+            if (recentProducts.length > RECENT_TOPIC_LIMIT) recentProducts.pop();
+          }
         }
         // Mọi slot đều tăng bộ đếm để tỉ lệ thử nghiệm bám đúng explorationRate
         slotIndex++;

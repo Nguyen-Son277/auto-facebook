@@ -159,6 +159,71 @@ section("Khối CỤM TỪ KHÓA: đúng từ vựng của thương hiệu");
 }
 
 // ============================================================
+section("Khối CỤM TỪ KHÓA: sản phẩm TRỌNG TÂM (chống trùng chủ thể)");
+// ============================================================
+// Bối cảnh: nếu mẫu câu luôn dựng từ sản phẩm đầu danh sách thì mọi bài đều nói
+// về đúng sản phẩm đó, chỉ đổi khu vực — Facebook coi là nội dung trùng và giảm
+// phân phối. Bộ lập kế hoạch xoay vòng sản phẩm và truyền vào `focusProduct`.
+
+{
+  const brand = {
+    products: "Rèm vải buông\nRèm cầu vồng\nRèm cuốn",
+    serviceAreas: "Dĩ An\nQuận 7",
+    serviceArea: "Dĩ An",
+    focusProduct: "Rèm cuốn",
+  };
+  const text = blockText(brand, "sales");
+  check("mẫu câu dựng theo sản phẩm trọng tâm", text.includes("mua Rèm cuốn Dĩ An"));
+  check("KHÔNG còn lấy sản phẩm đầu làm mẫu", !text.includes("mua Rèm vải buông Dĩ An"));
+  check("đánh dấu sản phẩm trọng tâm trong danh sách", text.includes("Rèm cuốn  ← SẢN PHẨM TRỌNG TÂM"));
+  check("nói rõ sản phẩm trọng tâm của bài", text.includes("Sản phẩm TRỌNG TÂM của bài này: Rèm cuốn"));
+  check("yêu cầu không chọn lại sản phẩm gần đây", text.includes("KHÔNG chọn lại sản phẩm đã lên bài gần đây"));
+}
+
+{
+  // Sản phẩm trọng tâm không có trong hồ sơ (hồ sơ vừa đổi) → lùi về sản phẩm đầu
+  const text = blockText({ products: "Rèm vải\nRèm cuốn", focusProduct: "Rèm tổ ong" }, "sales");
+  check("trọng tâm lạ → lùi về sản phẩm đầu", text.includes("mua Rèm vải"));
+  check("không nhắc sản phẩm ngoài hồ sơ", !text.includes("Rèm tổ ong"));
+}
+
+{
+  // Một sản phẩm → không có gì để xoay, không thêm chỉ thị thừa
+  const text = blockText({ products: "Rèm vải", focusProduct: "Rèm vải" }, "sales");
+  check("một sản phẩm → không có chỉ thị trọng tâm", !text.includes("Sản phẩm TRỌNG TÂM của bài này:"));
+}
+
+// ============================================================
+section("Prompt người dùng: chống lặp SẢN PHẨM");
+// ============================================================
+// Chống lặp góc tiếp cận (recentTopics) là chưa đủ: hai bài cùng sản phẩm, khác
+// khu vực vẫn là nội dung trùng.
+
+{
+  const prompt = buildUserPrompt({
+    userId: "u1",
+    topic: "T",
+    tone: "friendly",
+    goal: "sales",
+    length: "medium",
+    recentProducts: ["Rèm vải buông", "Rèm cuốn"],
+  });
+  check("có khối sản phẩm đã lên bài", prompt.includes("Các SẢN PHẨM ĐÃ LÊN BÀI GẦN ĐÂY"));
+  check("liệt kê sản phẩm gần đây", prompt.includes("- Rèm vải buông") && prompt.includes("- Rèm cuốn"));
+  check("yêu cầu chọn sản phẩm khác", prompt.includes("PHẢI chọn sản phẩm KHÁC"));
+
+  const noProducts = buildUserPrompt({
+    userId: "u1",
+    topic: "T",
+    tone: "friendly",
+    goal: "sales",
+    length: "medium",
+  });
+  check("không có recentProducts → không có khối", !noProducts.includes("SẢN PHẨM ĐÃ LÊN BÀI"));
+}
+
+
+// ============================================================
 section("Khối CỤM TỪ KHÓA: theo mục tiêu bài");
 // ============================================================
 

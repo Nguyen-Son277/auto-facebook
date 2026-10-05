@@ -724,6 +724,68 @@ export const MAX_SERVICE_AREAS = 60;
 export const MAX_SERVICE_AREA_CHARS = 80;
 
 /**
+ * Dấu phẩy ở vị trí `i` có mở đầu một mục MỚI không.
+ *
+ * Vì sao cần phân biệt: dấu phẩy vừa dùng để ngăn các mục, vừa xuất hiện BÊN
+ * TRONG một mục khi người dùng liệt kê biến thể của cùng một sản phẩm
+ * ("Rèm tre, nứa, trúc" là MỘT sản phẩm, không phải ba). Cắt thẳng theo dấu phẩy
+ * biến cụm mô tả thành những "sản phẩm" rác mà AI có thể đem đi viết bài.
+ *
+ * Tín hiệu phân biệt: mục mới của danh sách thường bắt đầu bằng CHỮ HOA (tên
+ * sản phẩm, địa danh) hoặc chữ số; phần mô tả nối tiếp thì bắt đầu bằng chữ
+ * thường. Dấu phẩy đứng trước dấu phân cách khác (hoặc hết chuỗi) cũng bị bỏ.
+ */
+function commaStartsNewItem(raw: string, i: number): boolean {
+  let j = i + 1;
+  while (j < raw.length && (raw[j] === " " || raw[j] === "\t" || raw[j] === "\r")) j++;
+
+  const ch = raw[j];
+  if (ch === undefined || ch === "\n" || ch === ";" || ch === ",") return true;
+  if (/\d/.test(ch)) return true;
+  // Chữ có phân biệt hoa/thường và đang ở dạng HOA. Ký tự không có khái niệm
+  // hoa/thường (•, #, …) không được coi là mở mục mới.
+  return ch !== ch.toLowerCase();
+}
+
+/**
+ * Tách một ô "mỗi dòng một mục" thành các mục thô (chưa trim/khử trùng).
+ *
+ * Xuống dòng và dấu chấm phẩy LUÔN là dấu phân cách. Dấu phẩy chỉ là dấu phân
+ * cách khi mục kế tiếp thật sự bắt đầu ở đó (xem `commaStartsNewItem`), và không
+ * bao giờ tách khi đang nằm TRONG ngoặc đơn.
+ *
+ * Vì sao cần hai chốt này: tên sản phẩm thật hay kèm ngoặc liệt kê biến thể
+ * ("Rèm vải buông (1 lớp, 2 lớp, voan)") hoặc liệt kê chất liệu ("Rèm tre, nứa,
+ * trúc"). Bản cũ cắt thẳng theo dấu phẩy nên chẻ chúng thành các mục rác — hậu
+ * quả đã thấy trên Page thật: dòng đầu bài đăng ra chuỗi cụt
+ * "Rèm vải buông (1 lớp ở Quận 9 loại nào tốt?".
+ */
+export function splitListItems(raw: string): string[] {
+  const out: string[] = [];
+  let buf = "";
+  let depth = 0;
+
+  for (let i = 0; i < raw.length; i++) {
+    const ch = raw[i];
+    if (ch === "(" || ch === "[") depth++;
+    else if (ch === ")" || ch === "]") depth = depth > 0 ? depth - 1 : 0;
+
+    const isSeparator =
+      ch === "\n" || ch === ";" || (ch === "," && depth === 0 && commaStartsNewItem(raw, i));
+
+    if (isSeparator) {
+      out.push(buf);
+      buf = "";
+      continue;
+    }
+    buf += ch;
+  }
+
+  out.push(buf);
+  return out;
+}
+
+/**
  * Tách một ô nhập nhiều mục (mỗi dòng một mục) thành mảng sạch.
  *
  * Dùng chung cho mọi ô kiểu "mỗi dòng một mục" của hồ sơ thương hiệu: địa bàn
@@ -732,7 +794,9 @@ export const MAX_SERVICE_AREA_CHARS = 80;
  * trùng, cắt độ dài).
  *
  * Chấp nhận cả xuống dòng lẫn dấu phẩy/chấm phẩy làm dấu phân cách để người
- * dùng dán danh sách từ nhiều nguồn khác nhau mà không phải sửa lại.
+ * dùng dán danh sách từ nhiều nguồn khác nhau mà không phải sửa lại. Dấu phẩy
+ * chỉ tách khi mục kế tiếp thật sự bắt đầu ở đó, và không bao giờ tách bên trong
+ * ngoặc đơn — xem `splitListItems`.
  * Khử trùng không phân biệt hoa/thường và dấu nhưng GIỮ NGUYÊN chữ gốc của lần
  * xuất hiện đầu tiên — vì đó là cách viết người dùng muốn AI dùng trong bài.
  */
@@ -746,7 +810,7 @@ export function parseListLines(
   const seen = new Set<string>();
   const out: string[] = [];
 
-  for (const piece of raw.split(/[\n,;]+/)) {
+  for (const piece of splitListItems(raw)) {
     const item = piece.trim().replace(/\s+/g, " ").slice(0, maxChars);
     if (!item) continue;
 
@@ -776,6 +840,52 @@ export function parseServiceAreas(raw: string | null | undefined): string[] {
 }
 
 /**
+ * Chọn một mục theo kiểu "xoay vòng làm mượt": mục ít dùng nhất được ưu tiên,
+ * và tránh nhắm lại đúng mục của bài liền trước nếu còn lựa chọn khác.
+ *
+ * Dùng chung cho địa bàn (`pickServiceArea`) và sản phẩm (`pickProduct`) — hai
+ * trục xoay vòng có cùng luật, chỉ khác nguồn dữ liệu.
+ */
+function pickEvenly(
+  items: string[],
+  recentUsed: string[],
+  weights: Record<string, number> = {}
+): string | null {
+  if (items.length === 0) return null;
+  if (items.length === 1) return items[0];
+
+  const usage = new Map<string, number>();
+  for (const name of recentUsed) {
+    const key = name.trim().toLowerCase();
+    usage.set(key, (usage.get(key) ?? 0) + 1);
+  }
+
+  const weightOf = (item: string) => {
+    const w = weights[item.trim()] ?? weights[item];
+    return typeof w === "number" && w > 0 ? w : 1;
+  };
+
+  // Điểm = số lần đã dùng / hệ số hiệu quả. Hệ số cao → điểm thấp → được chọn
+  // sớm hơn khi vòng xoay đang bằng điểm.
+  const scoreOf = (item: string) => (usage.get(item.trim().toLowerCase()) ?? 0) / weightOf(item);
+
+  let best = items[0];
+  for (const item of items) {
+    if (scoreOf(item) < scoreOf(best)) best = item;
+  }
+
+  // Tránh nhắm lại đúng mục của bài liền trước nếu còn lựa chọn khác
+  if (recentUsed[0]?.trim().toLowerCase() === best.trim().toLowerCase()) {
+    const alternative = items
+      .filter((a) => a.trim().toLowerCase() !== best.trim().toLowerCase())
+      .sort((a, b) => scoreOf(a) - scoreOf(b))[0];
+    if (alternative) return alternative;
+  }
+
+  return best;
+}
+
+/**
  * Chọn địa bàn cho bài tiếp theo — "xoay vòng làm mượt".
  *
  * Cùng triết lý với `pickPillar`: chọn địa bàn có số lần đã dùng ÍT NHẤT, nhờ
@@ -793,36 +903,67 @@ export function pickServiceArea(
    */
   weights: Record<string, number> = {}
 ): string | null {
-  if (areas.length === 0) return null;
-  if (areas.length === 1) return areas[0];
+  return pickEvenly(areas, recentAreas, weights);
+}
 
-  const usage = new Map<string, number>();
-  for (const name of recentAreas) {
-    const key = name.trim().toLowerCase();
-    usage.set(key, (usage.get(key) ?? 0) + 1);
+/**
+ * Chọn SẢN PHẨM trọng tâm cho bài tiếp theo — cùng luật xoay vòng với địa bàn.
+ *
+ * Vì sao cần: nếu để AI tự chọn sản phẩm, model bám vào sản phẩm đầu tiên của
+ * hồ sơ (mẫu câu từ khóa trong prompt cũng chỉ dựng từ sản phẩm đó) nên mọi bài
+ * đều nói về đúng một sản phẩm, chỉ đổi khu vực. Facebook đọc chuỗi bài gần như
+ * trùng nhau và giảm phân phối. Xoay vòng ở tầng kế hoạch là chốt chặn TẤT ĐỊNH:
+ * không phụ thuộc model có "nghe lời" hay không.
+ *
+ * `recentProducts` là danh sách sản phẩm của các bài GẦN NHẤT (mới nhất đứng
+ * đầu), suy ra từ chính nội dung bài đã đăng.
+ */
+export function pickProduct(
+  products: string[],
+  recentProducts: string[],
+  weights: Record<string, number> = {}
+): string | null {
+  return pickEvenly(products, recentProducts, weights);
+}
+
+/** Bỏ dấu + hạ chữ thường + gộp khoảng trắng — để so khớp tên sản phẩm. */
+function normalizeForMatch(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/đ/g, "d")
+    .replace(/Đ/g, "D")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * Suy ra sản phẩm mà một bài đã đăng nhắm tới, từ chính nội dung bài.
+ *
+ * Vì sao suy ra thay vì thêm cột lưu: cách này chạy được ngay trên dữ liệu cũ
+ * (không cần migrate/backfill) và luôn khớp với thứ người đọc thật sự thấy.
+ *
+ * Ưu tiên dòng đầu (hook) vì cụm từ khóa chính bắt buộc nằm ở đó; không thấy thì
+ * mới quét toàn bài. Khớp tên DÀI NHẤT trước để "Rèm vải buông" không bị nhận
+ * nhầm thành "Rèm vải" khi hồ sơ có cả hai.
+ */
+export function detectPostProduct(
+  content: string | null | undefined,
+  products: string[]
+): string | null {
+  if (!content?.trim() || products.length === 0) return null;
+
+  const byLongest = [...products].sort(
+    (a, b) => normalizeForMatch(b).length - normalizeForMatch(a).length
+  );
+  const firstLine = content.split("\n").find((l) => l.trim()) ?? "";
+
+  for (const scope of [firstLine, content]) {
+    const haystack = normalizeForMatch(scope);
+    const hit = byLongest.find((p) => haystack.includes(normalizeForMatch(p)));
+    if (hit) return hit;
   }
 
-  const weightOf = (area: string) => {
-    const w = weights[area.trim()] ?? weights[area];
-    return typeof w === "number" && w > 0 ? w : 1;
-  };
-
-  // Điểm = số lần đã dùng / hệ số hiệu quả. Hệ số cao → điểm thấp → được chọn
-  // sớm hơn khi vòng xoay đang bằng điểm.
-  const scoreOf = (area: string) => (usage.get(area.trim().toLowerCase()) ?? 0) / weightOf(area);
-
-  let best = areas[0];
-  for (const area of areas) {
-    if (scoreOf(area) < scoreOf(best)) best = area;
-  }
-
-  // Tránh nhắm lại đúng khu vực của bài liền trước nếu còn lựa chọn khác
-  if (recentAreas[0]?.trim().toLowerCase() === best.trim().toLowerCase()) {
-    const alternative = areas
-      .filter((a) => a.trim().toLowerCase() !== best.trim().toLowerCase())
-      .sort((a, b) => scoreOf(a) - scoreOf(b))[0];
-    if (alternative) return alternative;
-  }
-
-  return best;
+  return null;
 }
