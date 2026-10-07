@@ -78,7 +78,12 @@ export function WeekBars({
 export type StatusSegment = {
   label: string;
   value: number;
-  /** Màu Tailwind (vd: emerald-500) — giữ nguyên ở cả 2 theme. */
+  /**
+   * Màu CSS cụ thể (mã hex) — KHÔNG dùng var() ở đây.
+   * Lý do: gradient vẽ bằng inline style lúc SSR có thể bị coi là
+   * "invalid at computed-value time" khi biến theme chưa sẵn sàng,
+   * khiến cả vòng tròn không hiện. Mã màu trực tiếp luôn an toàn.
+   */
   color: string;
 };
 
@@ -91,7 +96,7 @@ function donutStops(active: StatusSegment[], total: number): string {
         .reduce((sum, prev) => sum + prev.value, 0);
       const from = (before / total) * 100;
       const to = ((before + segment.value) / total) * 100;
-      return `var(--color-${segment.color}) ${from}% ${to}%`;
+      return `${segment.color} ${from}% ${to}%`;
     })
     .join(", ");
 }
@@ -126,7 +131,7 @@ export function StatusDonut({ segments }: { segments: StatusSegment[] }) {
             <li key={s.label} className="flex items-center gap-2 text-sm">
               <span
                 className="h-2.5 w-2.5 shrink-0 rounded-full"
-                style={{ backgroundColor: `var(--color-${s.color})` }}
+                style={{ backgroundColor: s.color }}
                 aria-hidden
               />
               <span className="min-w-0 flex-1 truncate text-gray-600">{s.label}</span>

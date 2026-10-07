@@ -277,10 +277,10 @@ export default async function DashboardPage() {
           ) : (
             <StatusDonut
               segments={[
-                { label: "Đã đăng", value: published, color: "emerald-500" },
-                { label: "Đã lên lịch", value: scheduled, color: "amber-500" },
-                { label: "Bản nháp", value: drafts, color: "blue-500" },
-                { label: "Lỗi", value: failed, color: "red-400" },
+                { label: "Đã đăng", value: published, color: "#10b981" },
+                { label: "Đã lên lịch", value: scheduled, color: "#f59e0b" },
+                { label: "Bản nháp", value: drafts, color: "#3b82f6" },
+                { label: "Lỗi", value: failed, color: "#f87171" },
               ]}
             />
           )}

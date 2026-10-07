@@ -142,7 +142,9 @@ export default function NotificationsClient({
             data-testid="notifications-empty"
             className="px-6 py-16 text-center"
           >
-            <p className="text-4xl">📭</p>
+            <div className="ui-tile ui-tile-lg ui-tile-slate mx-auto" aria-hidden>
+              📭
+            </div>
             <p className="mt-3 text-sm font-medium text-gray-900">
               {showAll
                 ? "Chưa có thông báo nào."

@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { requireCurrentUser } from "@/lib/dal";
 import { prisma } from "@/lib/prisma";
+import PageHeader from "@/components/page-header";
 import AdminClient from "@/components/admin-client";
 import AdminSchedulerCard from "@/components/admin-scheduler-card";
 
@@ -41,17 +42,23 @@ export default async function AdminPage() {
   }
 
   return (
-    <div className="space-y-5">
-      <AdminSchedulerCard userId={me.id} />
-      <AdminClient
-        meEmail={me.email}
-        users={users.map((u) => ({
-          ...u,
-          createdAt: u.createdAt.toISOString(),
-          passwordChangedAt: u.passwordChangedAt?.toISOString() ?? null,
-          workspaces: wsByUser.get(u.id) ?? [],
-        }))}
+    <div>
+      <PageHeader
+        title="Quản trị"
+        description="Duyệt tài khoản, cấp quyền sử dụng và điều khiển công tắc tự động đăng của toàn hệ thống."
       />
+      <div className="space-y-5">
+        <AdminSchedulerCard userId={me.id} />
+        <AdminClient
+          meEmail={me.email}
+          users={users.map((u) => ({
+            ...u,
+            createdAt: u.createdAt.toISOString(),
+            passwordChangedAt: u.passwordChangedAt?.toISOString() ?? null,
+            workspaces: wsByUser.get(u.id) ?? [],
+          }))}
+        />
+      </div>
     </div>
   );
 }

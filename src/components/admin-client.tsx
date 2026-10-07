@@ -89,7 +89,9 @@ export default function AdminClient({
       {/* Header + thống kê */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Quản trị tài khoản</h1>
+          <h2 className="text-lg font-semibold tracking-tight text-gray-900">
+            Quản trị tài khoản
+          </h2>
           <p className="mt-1 text-sm text-gray-500">
             Duyệt đăng ký, cấp/khoá quyền sử dụng hệ thống
           </p>
@@ -105,14 +107,19 @@ export default function AdminClient({
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         {[
-          { label: "Tổng tài khoản", value: users.length, cls: "text-gray-900" },
-          { label: "Chờ duyệt", value: pendingCount, cls: "text-amber-600" },
-          { label: "Đã duyệt", value: approvedCount, cls: "text-emerald-600" },
-          { label: "Bị từ chối", value: rejectedCount, cls: "text-red-500" },
+          { label: "Tổng tài khoản", value: users.length, icon: "👥", tone: "ui-tile-blue" },
+          { label: "Chờ duyệt", value: pendingCount, icon: "⏳", tone: "ui-tile-amber" },
+          { label: "Đã duyệt", value: approvedCount, icon: "✅", tone: "ui-tile-emerald" },
+          { label: "Bị từ chối", value: rejectedCount, icon: "⛔", tone: "ui-tile-red" },
         ].map((s) => (
           <div key={s.label} className="ui-card p-4">
-            <p className="text-sm text-gray-500">{s.label}</p>
-            <p className={`mt-1 text-2xl font-bold ${s.cls}`}>{s.value}</p>
+            <div className="flex items-center justify-between gap-2">
+              <span className={`ui-tile ui-tile-sm ${s.tone}`} aria-hidden>
+                {s.icon}
+              </span>
+            </div>
+            <p className="ui-stat-value mt-3">{s.value}</p>
+            <p className="mt-1 text-sm text-gray-500">{s.label}</p>
           </div>
         ))}
       </div>

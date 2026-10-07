@@ -81,6 +81,21 @@ export function activeNavItem(pathname: string, role?: string): NavItem | undefi
   return activeNavPath(pathname, role)?.item;
 }
 
+/**
+ * Trang KHÔNG nằm trong menu nhưng vẫn cần breadcrumb đúng tên
+ * (hộp thư, chi tiết bài đăng…). Trang Đổi mật khẩu nằm ở nhóm (auth)
+ * nên không dùng khung dashboard, không cần khai báo ở đây.
+ */
+export const EXTRA_ROUTES: {
+  href: string;
+  label: string;
+  icon: string;
+  group: string;
+}[] = [
+  { href: "/notifications", label: "Thông báo", icon: "📣", group: "Tài khoản" },
+  { href: "/posts", label: "Chi tiết bài đăng", icon: "📝", group: "Nội dung" },
+];
+
 /** Nhóm + mục đang mở theo URL (khớp dài nhất để /admin/docs không bị /docs giành). */
 export function activeNavPath(
   pathname: string,
@@ -92,5 +107,16 @@ export function activeNavPath(
   const hit = pairs
     .sort((a, b) => b.item.href.length - a.item.href.length)
     .find(({ item }) => isNavItemActive(item, pathname));
-  return hit ?? null;
+  if (hit) return hit;
+
+  const extra = EXTRA_ROUTES.filter((route) =>
+    isNavItemActive({ href: route.href, label: route.label, icon: route.icon }, pathname)
+  ).sort((a, b) => b.href.length - a.href.length)[0];
+  if (extra) {
+    return {
+      group: { label: extra.group, items: [] },
+      item: { href: extra.href, label: extra.label, icon: extra.icon },
+    };
+  }
+  return null;
 }
