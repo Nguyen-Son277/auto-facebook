@@ -66,9 +66,9 @@ import {
 //   - Mọi phép tính dữ liệu nằm ở lib/insights-chart-data.ts (đã kiểm thử).
 // ============================================================
 
-const cardCls = "rounded-2xl border border-gray-200 bg-white p-5";
+const cardCls = "ui-card p-5";
 const btnPrimary =
-  "rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60";
+  "ui-btn ui-btn-primary px-4 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-60";
 const btnGhost =
   "rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 transition hover:bg-gray-50 disabled:opacity-60";
 

@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { setThemePreference, type ThemePreference } from "@/app/actions/settings";
+import { applyTheme } from "@/lib/theme";
 
 // ============================================================
 // Chọn theme Sáng / Tối / Theo hệ thống.
@@ -10,6 +11,7 @@ import { setThemePreference, type ThemePreference } from "@/app/actions/settings
 // Bấm: áp ngay (toggle class .dark + ghi localStorage) → gọi server
 // action lưu UserSetting + cookie (script no-flash ở root layout dùng
 // cho lần tải trang kế tiếp). Thêm .theme-anim tạm để chuyển màu mượt.
+// Hàm áp dụng dùng chung với nút chuyển nhanh ở topbar: src/lib/theme.ts
 // ============================================================
 
 const OPTIONS: { value: ThemePreference; label: string; icon: string; desc: string }[] = [
@@ -17,18 +19,6 @@ const OPTIONS: { value: ThemePreference; label: string; icon: string; desc: stri
   { value: "dark", label: "Tối", icon: "🌙", desc: "Nền xanh than, dịu mắt" },
   { value: "system", label: "Hệ thống", icon: "💻", desc: "Theo máy của bạn" },
 ];
-
-function applyTheme(pref: ThemePreference) {
-  const html = document.documentElement;
-  html.classList.add("theme-anim");
-  const dark =
-    pref === "dark" ||
-    (pref === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
-  html.classList.toggle("dark", dark);
-  html.dataset.themePref = pref;
-  localStorage.setItem("theme", pref);
-  window.setTimeout(() => html.classList.remove("theme-anim"), 300);
-}
 
 export default function ThemeSelector({ current }: { current: ThemePreference }) {
   const router = useRouter();

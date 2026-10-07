@@ -108,7 +108,7 @@ export default async function HomePage() {
             <div className="mt-7 flex flex-wrap items-center gap-3">
               <Link
                 href="/login"
-                className="rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700"
+                className="ui-btn ui-btn-primary px-5 py-3 text-sm font-semibold transition"
               >
                 Đăng nhập
               </Link>
@@ -127,7 +127,7 @@ export default async function HomePage() {
           </div>
 
           {/* Minh hoạ giao diện — dựng bằng HTML/CSS, không cần ảnh chụp */}
-          <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-lg">
+          <div className="ui-card p-5 shadow-lg">
             <div className="flex items-center justify-between">
               <p className="text-sm font-semibold text-gray-900">
                 Tổng quan hoạt động
@@ -217,7 +217,7 @@ export default async function HomePage() {
           {FEATURES.map((feature) => (
             <div
               key={feature.title}
-              className="rounded-2xl border border-gray-200 bg-white p-5 transition hover:border-blue-300 hover:shadow-sm"
+              className="ui-card p-5 transition hover:border-blue-300 hover:shadow-sm"
             >
               <span className="text-2xl" aria-hidden>
                 {feature.icon}
@@ -271,7 +271,7 @@ export default async function HomePage() {
             <div className="mt-4 flex flex-wrap gap-3 md:mt-0">
               <Link
                 href="/login"
-                className="rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-700"
+                className="ui-btn ui-btn-primary px-5 py-2.5 text-sm font-semibold transition"
               >
                 Đăng nhập
               </Link>

@@ -29,7 +29,7 @@ const inputCls =
 const labelCls = "block text-sm font-medium text-gray-700";
 const hintCls = "mt-1 text-xs text-gray-500";
 const btnPrimary =
-  "rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60";
+  "ui-btn ui-btn-primary px-4 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-60";
 const btnGhost =
   "rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 transition hover:bg-gray-50 disabled:opacity-60";
 
@@ -752,7 +752,7 @@ export default function BrandEditor({
         ))}
       </div>
 
-      <div className="rounded-xl border border-gray-200 bg-white p-5">
+      <div className="ui-card p-5">
         {tab === "profile" ? <ProfileForm brandId={brandId} profile={profile} /> : null}
         {tab === "pillars" ? <PillarSection brandId={brandId} pillars={pillars} /> : null}
         {tab === "docs" ? <DocSection brandId={brandId} docs={docs} /> : null}

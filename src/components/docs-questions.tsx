@@ -49,7 +49,7 @@ function QuestionCard({
 
   return (
     <div
-      className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm"
+      className="ui-card p-5"
       data-testid={`question-${q.id}`}
     >
       <p className="font-medium text-gray-900">❓ {q.question}</p>
@@ -111,7 +111,7 @@ function AnswerForm({
       <button
         type="submit"
         disabled={pending}
-        className="rounded-lg bg-blue-600 px-4 py-1.5 text-xs font-semibold text-white transition hover:bg-blue-700 disabled:opacity-50"
+        className="ui-btn ui-btn-primary px-4 py-1.5 text-xs font-semibold transition disabled:opacity-50"
       >
         {pending ? "Đang gửi..." : initial ? "Cập nhật trả lời" : "Gửi câu trả lời"}
       </button>

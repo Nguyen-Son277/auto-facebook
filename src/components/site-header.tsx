@@ -7,7 +7,7 @@ export default function SiteHeader() {
     <header className="sticky top-0 z-40 border-b border-gray-200 bg-white/80 backdrop-blur">
       <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-3 md:px-6">
         <Link href="/" className="flex shrink-0 items-center gap-2">
-          <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-600 text-xl">
+          <span className="flex h-9 w-9 items-center justify-center ui-logo text-xl">
             🚀
           </span>
           <span className="text-sm font-bold text-gray-900 md:text-base">
@@ -42,7 +42,7 @@ export default function SiteHeader() {
           </Link>
           <Link
             href="/login"
-            className="rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-semibold text-white transition hover:bg-blue-700"
+            className="ui-btn ui-btn-primary px-3 py-1.5 text-sm font-semibold transition"
           >
             Đăng nhập
           </Link>

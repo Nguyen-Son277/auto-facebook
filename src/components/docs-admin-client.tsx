@@ -81,7 +81,7 @@ export default function DocsAdminClient({
       )}
 
       {/* ================= DOCS ================= */}
-      <section className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+      <section className="ui-card p-5">
         <div className="flex items-center justify-between">
           <div>
             <h2 className="font-semibold text-gray-900">Tài liệu hướng dẫn ({docs.length})</h2>
@@ -92,7 +92,7 @@ export default function DocsAdminClient({
           <button
             type="button"
             onClick={() => setEditing("new")}
-            className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700"
+            className="ui-btn ui-btn-primary px-4 py-2 text-sm font-semibold transition"
           >
             ＋ Tạo doc
           </button>
@@ -157,7 +157,7 @@ export default function DocsAdminClient({
       </section>
 
       {/* ================= CÂU HỎI ================= */}
-      <section className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+      <section className="ui-card p-5">
         <div className="flex items-center justify-between">
           <div>
             <h2 className="font-semibold text-gray-900">Câu hỏi tương tác ({questions.length})</h2>
@@ -168,7 +168,7 @@ export default function DocsAdminClient({
           <button
             type="button"
             onClick={() => setEditingQ("new")}
-            className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700"
+            className="ui-btn ui-btn-primary px-4 py-2 text-sm font-semibold transition"
           >
             ＋ Tạo câu hỏi
           </button>
@@ -356,7 +356,7 @@ function DocForm({
         <button
           type="submit"
           disabled={busy}
-          className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+          className="ui-btn ui-btn-primary px-4 py-2 text-sm font-semibold disabled:opacity-60"
         >
           {busy ? "Đang lưu..." : "💾 Lưu"}
         </button>
@@ -401,7 +401,7 @@ function QuestionForm({
         <button
           type="submit"
           disabled={busy}
-          className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+          className="ui-btn ui-btn-primary px-4 py-2 text-sm font-semibold disabled:opacity-60"
         >
           {busy ? "Đang lưu..." : "💾 Lưu"}
         </button>

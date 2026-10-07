@@ -170,7 +170,7 @@ export default function BrandDrivePanel({
 
   return (
     <details
-      className="mt-4 rounded-2xl border border-gray-200 bg-white"
+      className="mt-4 ui-card"
       data-testid="brand-drive-panel"
       open={state.linked}
     >
@@ -390,7 +390,7 @@ export default function BrandDrivePanel({
                 onClick={onLinkByUrl}
                 disabled={pending || !url.trim()}
                 data-testid="brand-drive-link-url"
-                className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                className="ui-btn ui-btn-primary px-3 py-1.5 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {pending ? "Đang kiểm tra..." : "Gắn thư mục này"}
               </button>

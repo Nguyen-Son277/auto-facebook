@@ -801,7 +801,7 @@ export default function ComposerStudio({
       {/* ================= Trình soạn thảo & đăng bài ================= */}
       <div
         ref={editorRef}
-        className="scroll-mt-4 rounded-2xl border border-gray-200 bg-white p-5"
+        className="scroll-mt-4 ui-card p-5"
       >
         <div className="mb-4 flex items-center gap-3">
           <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-100 text-xl">
@@ -1309,7 +1309,7 @@ export default function ComposerStudio({
               name="intent"
               value="publish"
               disabled={subPending || pages.length === 0 || !content.trim()}
-              className="rounded-lg bg-blue-600 px-5 py-2.5 font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+              className="ui-btn ui-btn-primary px-5 py-2.5 font-semibold transition disabled:cursor-not-allowed disabled:opacity-60"
             >
               {subPending ? "Đang đăng lên Facebook..." : "🚀 Đăng ngay"}
             </button>
@@ -1409,7 +1409,7 @@ export default function ComposerStudio({
 
       {/* ================= Nháp & lịch sử ================= */}
       <div className="grid gap-5 lg:grid-cols-2">
-        <div className="rounded-2xl border border-gray-200 bg-white">
+        <div className="ui-card">
           <div className="flex items-center justify-between border-b border-gray-200 px-5 py-4">
             <h2 className="font-semibold text-gray-900">Bản nháp</h2>
             <span className="rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-600">
@@ -1453,7 +1453,7 @@ export default function ComposerStudio({
           )}
         </div>
 
-        <div className="rounded-2xl border border-gray-200 bg-white">
+        <div className="ui-card">
           <div className="border-b border-gray-200 px-5 py-4">
             <h2 className="font-semibold text-gray-900">Lịch sử gần đây</h2>
           </div>

@@ -2,27 +2,44 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import {
+  isNavItemActive,
+  navGroupsFor,
+  navItemsFor,
+  type NavItem,
+} from "@/components/nav-items";
 
-const NAV_ITEMS = [
-  { href: "/dashboard", label: "Tổng quan", icon: "📊" },
-  { href: "/composer", label: "Soạn bài", icon: "✍️" },
-  { href: "/autopilot", label: "Tự động đăng", icon: "🤖" },
-  { href: "/insights", label: "Số liệu", icon: "📈" },
-  { href: "/brand", label: "Thương hiệu", icon: "🏷️" },
-  { href: "/media", label: "Thư viện Media", icon: "🖼️" },
-  { href: "/history", label: "Lịch sử đăng", icon: "🕘" },
-  { href: "/calendar", label: "Lịch đăng", icon: "📅" },
-  { href: "/facebook-apps", label: "Facebook Apps", icon: "🔗" },
-  { href: "/pages", label: "Facebook Pages", icon: "📄" },
-  { href: "/docs", label: "Hướng dẫn", icon: "📚" },
-  { href: "/settings", label: "Cài đặt", icon: "⚙️" },
-];
+// ============================================================
+// Điều hướng dashboard — MỘT nguồn dữ liệu (nav-items.ts) cho cả
+// sidebar desktop lẫn thanh cuộn ngang trên mobile.
+//
+// Nhóm có nhãn (Bảng điều khiển · Nội dung · Kết nối · Hỗ trợ) giúp
+// người dùng định vị nhanh thay vì một danh sách 12 mục phẳng.
+// ============================================================
 
-const ADMIN_ITEMS = [
-  { href: "/admin", label: "Quản trị", icon: "🛡️" },
-  { href: "/admin/docs", label: "Docs & Câu hỏi", icon: "📚" },
-  { href: "/admin/notifications", label: "Thông báo", icon: "📣" },
-];
+function NavLink({
+  item,
+  active,
+  horizontal,
+}: {
+  item: NavItem;
+  active: boolean;
+  horizontal: boolean;
+}) {
+  return (
+    <Link
+      href={item.href}
+      title={item.hint}
+      aria-current={active ? "page" : undefined}
+      className={`ui-nav-link ${horizontal ? "ui-nav-pill shrink-0" : ""} ${active ? "is-active" : ""}`}
+    >
+      <span className="ui-nav-icon" aria-hidden>
+        {item.icon}
+      </span>
+      <span className="truncate">{item.label}</span>
+    </Link>
+  );
+}
 
 export default function SidebarNav({
   orientation,
@@ -32,34 +49,44 @@ export default function SidebarNav({
   role?: string;
 }) {
   const pathname = usePathname();
-  const items = role === "ADMIN" ? [...NAV_ITEMS, ...ADMIN_ITEMS] : NAV_ITEMS;
 
-  const isActive = (href: string) =>
-    pathname === href || pathname.startsWith(`${href}/`);
+  // Mobile: cuộn ngang, không có nhãn nhóm → gọn trong một hàng
+  if (orientation === "horizontal") {
+    return (
+      <nav
+        aria-label="Điều hướng chính"
+        className="flex flex-row gap-1.5 overflow-x-auto px-4 py-2.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      >
+        {navItemsFor(role).map((item) => (
+          <NavLink
+            key={item.href}
+            item={item}
+            active={isNavItemActive(item, pathname)}
+            horizontal
+          />
+        ))}
+      </nav>
+    );
+  }
+
+  const groups = navGroupsFor(role);
 
   return (
-    <nav
-      className={
-        orientation === "vertical"
-          ? "flex flex-col gap-1 px-3"
-          : "flex flex-row gap-1 overflow-x-auto px-3"
-      }
-    >
-      {items.map((item) => (
-        <Link
-          key={item.href}
-          href={item.href}
-          className={`flex items-center gap-3 whitespace-nowrap rounded-lg px-3 py-2 text-sm font-medium transition ${
-            orientation === "vertical" ? "" : "shrink-0"
-          } ${
-            isActive(item.href)
-              ? "bg-blue-50 text-blue-700"
-              : "text-gray-600 hover:bg-gray-100 hover:text-gray-900"
-          }`}
-        >
-          <span aria-hidden>{item.icon}</span>
-          {item.label}
-        </Link>
+    <nav aria-label="Điều hướng chính" className="flex flex-col px-3 pb-2">
+      {groups.map((group, gi) => (
+        <div key={group.label} className={gi > 0 ? "mt-1" : undefined}>
+          <p className="ui-nav-group-label">{group.label}</p>
+          <div className="flex flex-col gap-[3px]">
+            {group.items.map((item) => (
+              <NavLink
+                key={item.href}
+                item={item}
+                active={isNavItemActive(item, pathname)}
+                horizontal={false}
+              />
+            ))}
+          </div>
+        </div>
       ))}
     </nav>
   );

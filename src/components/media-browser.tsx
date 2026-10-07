@@ -221,7 +221,7 @@ export default function MediaBrowser({
             onClick={() => runSearch({ query, mediaType, page: 1 })}
             disabled={busy || !pexelsReady}
             data-testid="media-search-btn"
-            className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+            className="ui-btn ui-btn-primary px-4 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-60"
           >
             {searching ? "Đang tìm..." : "🔍 Tìm"}
           </button>
@@ -462,7 +462,7 @@ export default function MediaBrowser({
             type="button"
             onClick={handlePrimary}
             disabled={selectedList.length === 0 || busy || !pexelsReady}
-            className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+            className="ui-btn ui-btn-primary px-4 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-60"
           >
             {savingLib
               ? `Đang lưu ${savingIds.length}...`

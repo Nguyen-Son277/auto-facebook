@@ -44,7 +44,7 @@ export default function AutopilotListClient({
   return (
     <div className="space-y-4">
 
-      <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white">
+      <div className="overflow-x-auto ui-card">
         <table className="w-full text-sm" data-testid="ap-config-table">
           <thead>
             <tr className="border-b border-gray-200 bg-gray-50 text-left text-xs uppercase tracking-wide text-gray-500">
@@ -129,7 +129,7 @@ export default function AutopilotListClient({
                   <div className="flex flex-wrap justify-end gap-2">
                     <Link
                       href={`/autopilot?page=${c.pageId}`}
-                      className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700"
+                      className="ui-btn ui-btn-primary px-3 py-1.5 text-xs font-semibold"
                       data-testid="ap-config-open"
                     >
                       {c.hasConfig ? "Cấu hình" : "Thiết lập"}
@@ -158,7 +158,7 @@ export default function AutopilotListClient({
       </div>
 
       {/* ===== Bulk ===== */}
-      <div className="flex flex-wrap items-center gap-2 rounded-xl border border-gray-200 bg-white p-4">
+      <div className="flex flex-wrap items-center gap-2 ui-card p-4">
         <span className="text-sm font-medium text-gray-700">Tất cả cấu hình:</span>
         <button
           type="button"

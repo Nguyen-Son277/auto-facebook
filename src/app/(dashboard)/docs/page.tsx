@@ -59,7 +59,7 @@ export default async function DocsPage() {
             key={doc.id}
             href={`/docs/${doc.slug}`}
             data-testid={`doc-card-${doc.slug}`}
-            className="group flex flex-col rounded-2xl border border-gray-200 bg-white p-5 shadow-sm transition hover:border-blue-300 hover:shadow-md"
+            className="group flex flex-col ui-card p-5 transition hover:border-blue-300 hover:shadow-md"
           >
             <h2 className="font-semibold text-gray-900 group-hover:text-blue-600">
               {doc.title}

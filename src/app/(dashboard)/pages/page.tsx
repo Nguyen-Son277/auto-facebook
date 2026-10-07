@@ -1,6 +1,7 @@
 import { requireCurrentUser, resolveWorkspace } from "@/lib/dal";
 import { prisma } from "@/lib/prisma";
 import PageHeader from "@/components/page-header";
+import EmptyState from "@/components/empty-state";
 import SyncPagesForm from "@/components/sync-pages-form";
 import {
   PageDeleteButton,
@@ -61,20 +62,20 @@ export default async function PagesPage({
 
       <div className="mt-6 space-y-3">
         {pages.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-gray-300 bg-white p-10 text-center">
-            <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-gray-100 text-3xl">
-              📄
-            </div>
-            <h2 className="text-lg font-semibold text-gray-900">Chưa có Page nào</h2>
-            <p className="mx-auto mt-2 max-w-md text-sm text-gray-500">
-              Đồng bộ Pages phía trên để import danh sách Page bạn quản lý. Mỗi
-              Facebook App lấy được một nhóm Page — thêm nhiều App ở trang{" "}
-              <a href="/facebook-apps" className="text-blue-600 hover:underline">
-                Facebook Apps
-              </a>{" "}
-              để quản lý nhiều Page hơn.
-            </p>
-          </div>
+          <EmptyState
+            icon="📄"
+            title="Chưa có Page nào"
+            description={
+              <>
+                Đồng bộ Pages phía trên để import danh sách Page bạn quản lý. Mỗi
+                Facebook App lấy được một nhóm Page — thêm nhiều App ở trang{" "}
+                <a href="/facebook-apps" className="font-medium text-blue-600 hover:underline">
+                  Facebook Apps
+                </a>{" "}
+                để quản lý nhiều Page hơn.
+              </>
+            }
+          />
         ) : (
           pages.map((page) => {
             const daysLeft = page.tokenExpiresAt
@@ -84,7 +85,7 @@ export default async function PagesPage({
             return (
               <div
                 key={page.id}
-                className="flex flex-wrap items-center gap-4 rounded-2xl border border-gray-200 bg-white p-4"
+                className="flex flex-wrap items-center gap-4 ui-card p-4"
                 data-testid={`page-card-${page.fbPageId}`}
               >
                 {page.avatarUrl ? (

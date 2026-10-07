@@ -10,9 +10,9 @@ export default function LoginPage() {
   const [state, formAction, pending] = useActionState(login, null);
 
   return (
-    <div className="rounded-2xl border border-gray-200 bg-white p-8 shadow-lg">
+    <div className="ui-card p-8 shadow-lg">
       <div className="mb-8 text-center">
-        <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-blue-600 text-3xl">
+        <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center ui-logo text-3xl">
           🚀
         </div>
         <h1 className="text-2xl font-bold text-gray-900">
@@ -58,7 +58,7 @@ export default function LoginPage() {
         <button
           type="submit"
           disabled={pending}
-          className="w-full rounded-lg bg-blue-600 py-2.5 font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+          className="ui-btn ui-btn-primary w-full py-2.5 font-semibold transition disabled:cursor-not-allowed disabled:opacity-60"
         >
           {pending ? "Đang đăng nhập..." : "Đăng nhập"}
         </button>

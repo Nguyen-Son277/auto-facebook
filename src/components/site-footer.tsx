@@ -10,7 +10,7 @@ export default function SiteFooter() {
       <div className="mx-auto grid max-w-6xl gap-8 px-4 py-10 md:grid-cols-3 md:px-6">
         <div>
           <div className="flex items-center gap-2">
-            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-600 text-lg">
+            <span className="flex h-8 w-8 items-center justify-center ui-logo text-lg">
               🚀
             </span>
             <p className="text-sm font-bold text-gray-900">{APP_NAME}</p>

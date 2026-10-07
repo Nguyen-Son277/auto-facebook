@@ -103,7 +103,7 @@ export default function NotificationsClient({
             data-testid="notifications-filter-unread"
             className={`rounded-lg px-4 py-1.5 text-sm font-medium transition ${
               !showAll
-                ? "bg-blue-600 text-white"
+                ? "ui-btn ui-btn-primary "
                 : "text-gray-600 hover:bg-gray-50"
             }`}
           >
@@ -116,7 +116,7 @@ export default function NotificationsClient({
             data-testid="notifications-filter-all"
             className={`rounded-lg px-4 py-1.5 text-sm font-medium transition ${
               showAll
-                ? "bg-blue-600 text-white"
+                ? "ui-btn ui-btn-primary "
                 : "text-gray-600 hover:bg-gray-50"
             }`}
           >
@@ -136,7 +136,7 @@ export default function NotificationsClient({
       </div>
 
       {/* Danh sách */}
-      <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white">
+      <div className="overflow-hidden ui-card">
         {rows.length === 0 && (
           <div
             data-testid="notifications-empty"

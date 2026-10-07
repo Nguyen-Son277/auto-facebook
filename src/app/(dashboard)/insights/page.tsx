@@ -3,6 +3,7 @@ import { requireCurrentUser } from "@/lib/dal";
 import { prisma } from "@/lib/prisma";
 import { loadInsightsPageView, loadLearningView } from "@/lib/insights-view";
 import PageHeader from "@/components/page-header";
+import EmptyState from "@/components/empty-state";
 import InsightsDashboard from "@/components/insights-dashboard";
 
 // ============================================================
@@ -44,18 +45,14 @@ export default async function InsightsPage({
           title="Số liệu & tự tối ưu"
           description="Đọc số liệu thật của bài đã đăng để biết nội dung nào đang được người xem quan tâm."
         />
-        <div
-          className="rounded-xl border border-dashed border-gray-300 p-8 text-center"
-          data-testid="insights-no-page"
-        >
-          <p className="text-gray-600">Bạn chưa kết nối Facebook Page nào.</p>
-          <Link
-            href="/pages"
-            className="mt-3 inline-block rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
-          >
-            Kết nối Page ngay
-          </Link>
-        </div>
+        <EmptyState
+          icon="📈"
+          testId="insights-no-page"
+          title="Bạn chưa kết nối Facebook Page nào"
+          description="Nối một Page để xem lượt xem, tương tác thật của từng bài — và để AutoPilot học dần cách viết phù hợp hơn."
+          actionHref="/pages"
+          actionLabel="Kết nối Page ngay"
+        />
       </div>
     );
   }

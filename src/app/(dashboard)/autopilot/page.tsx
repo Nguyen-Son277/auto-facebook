@@ -7,6 +7,7 @@ import { getPexelsQuota } from "@/lib/pexels";
 import { getPexelsKeyForUser } from "@/lib/settings";
 import { countDriveFilesForBrand, getDriveStatus } from "@/app/actions/drive";
 import PageHeader from "@/components/page-header";
+import EmptyState from "@/components/empty-state";
 import AutopilotDashboard from "@/components/autopilot-dashboard";
 import AutopilotListClient from "./autopilot-list-client";
 
@@ -37,18 +38,14 @@ export default async function AutopilotPage({
           title="Tự động đăng"
           description="Đặt thông số một lần, hệ thống tự viết nội dung và đăng liên tục."
         />
-        <div
-          className="rounded-xl border border-dashed border-gray-300 p-8 text-center"
-          data-testid="ap-no-page"
-        >
-          <p className="text-gray-600">Bạn chưa kết nối Facebook Page nào.</p>
-          <Link
-            href="/pages"
-            className="mt-3 inline-block rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
-          >
-            Kết nối Page ngay
-          </Link>
-        </div>
+        <EmptyState
+          icon="🔗"
+          testId="ap-no-page"
+          title="Bạn chưa kết nối Facebook Page nào"
+          description="Nối Facebook App và đồng bộ Page để AutoPilot có nơi đăng bài tự động."
+          actionHref="/pages"
+          actionLabel="Kết nối Page ngay"
+        />
       </div>
     );
   }

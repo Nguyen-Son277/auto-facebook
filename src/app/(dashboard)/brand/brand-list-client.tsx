@@ -30,7 +30,7 @@ type BrandItem = {
 const inputCls =
   "w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 focus:outline-none";
 const btnPrimary =
-  "rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60";
+  "ui-btn ui-btn-primary px-4 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-60";
 const btnGhost =
   "rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 transition hover:bg-gray-50 disabled:opacity-60";
 
@@ -114,7 +114,7 @@ export default function BrandListClient({
         </div>
       ) : null}
       {/* ===== Form tạo thương hiệu ===== */}
-      <div className="rounded-xl border border-gray-200 bg-white p-4" data-testid="brand-create-panel">
+      <div className="ui-card p-4" data-testid="brand-create-panel">
         <div className="flex items-center justify-between">
           <h2 className="text-sm font-semibold text-gray-900">Thêm thương hiệu</h2>
           {!creating ? (
@@ -213,7 +213,7 @@ export default function BrandListClient({
                     <div className="flex shrink-0 gap-2">
                       <Link
                         href={`/brand?brand=${b.id}`}
-                        className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700"
+                        className="ui-btn ui-btn-primary px-3 py-1.5 text-xs font-semibold"
                         data-testid="brand-select"
                       >
                         Hồ sơ &amp; nội dung

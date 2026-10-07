@@ -8,7 +8,7 @@ export default function SetupPage() {
   const [state, formAction, pending] = useActionState(setupAdmin, null);
 
   return (
-    <div className="rounded-2xl border border-gray-200 bg-white p-8 shadow-lg">
+    <div className="ui-card p-8 shadow-lg">
       <div className="mb-8 text-center">
         <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-600 text-3xl">
           ⚙️

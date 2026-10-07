@@ -46,7 +46,7 @@ export default async function DocDetailPage({
       </Link>
 
       <article
-        className="mt-4 rounded-2xl border border-gray-200 bg-white p-6 shadow-sm sm:p-8"
+        className="mt-4 ui-card p-6 sm:p-8"
         data-testid="doc-detail"
       >
         <h1 className="text-2xl font-bold text-gray-900">{doc.title}</h1>

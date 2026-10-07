@@ -137,7 +137,7 @@ export default function OnboardingGuide() {
                   <p className="text-xs text-gray-600">{step.desc}</p>
                   <Link
                     href={step.href}
-                    className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-blue-700"
+                    className="ui-btn ui-btn-primary px-3 py-1.5 text-xs font-semibold transition"
                   >
                     {step.cta} →
                   </Link>

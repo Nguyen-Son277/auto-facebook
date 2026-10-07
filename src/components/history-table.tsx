@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import EmptyState from "@/components/empty-state";
 import { deleteHistoryPost, retryPostAction } from "@/app/actions/history";
 
 export type HistoryRow = {
@@ -79,25 +80,21 @@ export default function HistoryTable({
 
   if (rows.length === 0) {
     return (
-      <div
-        data-testid="history-empty"
-        className="rounded-2xl border border-dashed border-gray-300 bg-white px-4 py-12 text-center"
-      >
-        <p className="text-sm font-medium text-gray-700">
-          {query ? `Không tìm thấy bài nào chứa "${query}"` : "Chưa có bài đăng nào"}
-        </p>
-        <p className="mt-1 text-xs text-gray-500">
-          {query
+      <EmptyState
+        icon={query ? "🔍" : "🗂️"}
+        testId="history-empty"
+        title={query ? `Không tìm thấy bài nào chứa "${query}"` : "Chưa có bài đăng nào"}
+        description={
+          query
             ? "Thử từ khóa khác hoặc xóa bộ lọc."
-            : "Vào trang Soạn bài để tạo và đăng bài đầu tiên."}
-        </p>
-        <Link
-          href="/composer"
-          className="mt-4 inline-block rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700"
-        >
-          ✍️ Soạn bài mới
-        </Link>
-      </div>
+            : "Vào trang Soạn bài để tạo và đăng bài đầu tiên."
+        }
+        action={
+          <Link href="/composer" className="ui-btn ui-btn-primary">
+            ✍️ Soạn bài mới
+          </Link>
+        }
+      />
     );
   }
 

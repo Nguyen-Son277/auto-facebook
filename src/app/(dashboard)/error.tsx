@@ -19,7 +19,7 @@ export default function DashboardError({
   }, [error]);
 
   return (
-    <div className="mx-auto max-w-lg rounded-2xl border border-gray-200 bg-white p-8 text-center shadow-sm">
+    <div className="mx-auto max-w-lg ui-card p-8 text-center">
       <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-red-50 text-3xl">
         ⚠️
       </div>
@@ -31,7 +31,7 @@ export default function DashboardError({
         <button
           type="button"
           onClick={reset}
-          className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700"
+          className="ui-btn ui-btn-primary px-4 py-2 text-sm font-semibold transition"
         >
           Thử lại
         </button>

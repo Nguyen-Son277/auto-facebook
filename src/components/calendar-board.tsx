@@ -205,7 +205,7 @@ export default function CalendarBoard({
   return (
     <div className="space-y-4">
       {/* ================= Trạng thái worker ================= */}
-      <div className="rounded-2xl border border-gray-200 bg-white p-4">
+      <div className="ui-card p-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-wrap items-center gap-2">
             <span
@@ -252,7 +252,7 @@ export default function CalendarBoard({
       )}
 
       {/* ================= Lưới tháng ================= */}
-      <div className="rounded-2xl border border-gray-200 bg-white p-4">
+      <div className="ui-card p-4">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <Link
@@ -281,7 +281,7 @@ export default function CalendarBoard({
           </div>
           <Link
             href="/composer"
-            className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700"
+            className="ui-btn ui-btn-primary px-4 py-2 text-sm font-semibold transition"
           >
             ✍️ Hẹn bài mới
           </Link>
@@ -354,7 +354,7 @@ export default function CalendarBoard({
 
       {/* ================= Chi tiết ngày được chọn ================= */}
       {selectedDay && (
-        <div className="rounded-2xl border border-gray-200 bg-white p-4" data-testid="calendar-detail">
+        <div className="ui-card p-4" data-testid="calendar-detail">
           <h3 className="mb-3 font-semibold text-gray-900">
             Bài trong ngày {selectedDay.split("-").reverse().join("/")}
             <span className="ml-2 text-sm font-normal text-gray-500">
@@ -443,7 +443,7 @@ export default function CalendarBoard({
                           disabled={busy || !rescheduleValue}
                           data-testid="reschedule-save"
                           onClick={() => run(() => reschedulePostAction(p.id, rescheduleValue), p.id)}
-                          className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-60"
+                          className="ui-btn ui-btn-primary px-3 py-1.5 text-xs font-semibold disabled:opacity-60"
                         >
                           {busy ? "Đang lưu…" : "Lưu lịch mới"}
                         </button>

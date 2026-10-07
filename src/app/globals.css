@@ -76,6 +76,21 @@
 
   --background: #f7f8fa;
   --foreground: #000000;
+
+  /* ---------- Hệ thống thiết kế (design tokens) ----------
+     Nâng cấp giao diện lên dạng dashboard: nền card có chiều sâu,
+     hiệu ứng đổ bóng nhẹ, thương hiệu gradient và viền focus rõ. */
+  --surface: #ffffff;             /* nền card / sidebar */
+  --surface-sunken: #f2f4f8;      /* nền khối phụ trong card */
+  --surface-topbar: rgb(255 255 255 / 0.82);
+  --surface-sidebar: #ffffff;
+  --elev-card: 0 1px 2px rgb(16 24 40 / 0.04), 0 1px 3px rgb(16 24 40 / 0.05);
+  --elev-raised: 0 12px 28px -12px rgb(16 24 40 / 0.18),
+    0 4px 10px -4px rgb(16 24 40 / 0.08);
+  --elev-pop: 0 20px 40px -16px rgb(16 24 40 / 0.24);
+  --brand-gradient: linear-gradient(135deg, #2563eb 0%, #4f46e5 52%, #7c3aed 100%);
+  --brand-soft: linear-gradient(135deg, #eff6ff 0%, #eef2ff 100%);
+  --ring-color: rgb(37 99 235 / 0.45);
 }
 
 .dark {
@@ -133,6 +148,19 @@
 
   --background: #0b1120;
   --foreground: #ffffff;
+
+  /* ---------- Design tokens — theme tối ---------- */
+  --surface: #141c2b;
+  --surface-sunken: #101725;
+  --surface-topbar: rgb(15 23 42 / 0.82);
+  --surface-sidebar: #0f1626;
+  --elev-card: 0 1px 2px rgb(0 0 0 / 0.35), 0 1px 3px rgb(0 0 0 / 0.28);
+  --elev-raised: 0 14px 30px -14px rgb(0 0 0 / 0.65),
+    0 4px 12px -6px rgb(0 0 0 / 0.4);
+  --elev-pop: 0 22px 44px -18px rgb(0 0 0 / 0.75);
+  --brand-gradient: linear-gradient(135deg, #3b82f6 0%, #6366f1 52%, #8b5cf6 100%);
+  --brand-soft: linear-gradient(135deg, rgb(30 58 99 / 0.55) 0%, rgb(49 46 129 / 0.55) 100%);
+  --ring-color: rgb(96 165 250 / 0.55);
 }
 
 /* Map token Tailwind → biến theme. `inline` khiến utility tham chiếu
@@ -193,6 +221,15 @@
 
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+
+  /* ---------- Token thiết kế mới → utility (bg-surface, shadow-card…) ---------- */
+  --color-surface: var(--surface);
+  --color-sunken: var(--surface-sunken);
+  --color-sidebar: var(--surface-sidebar);
+  --color-topbar: var(--surface-topbar);
+  --shadow-card: var(--elev-card);
+  --shadow-raised: var(--elev-raised);
+  --shadow-pop: var(--elev-pop);
 }
 
 /* Nền card (`bg-white`) ở theme tối — dùng :where() để specificity bằng
@@ -245,7 +282,10 @@ textarea::placeholder {
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-geist-sans), ui-sans-serif, system-ui, "Segoe UI",
+    Roboto, "Helvetica Neue", Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
 /* Chuyển màu mượt khi đổi theme — chỉ khi có class .theme-anim
@@ -258,4 +298,323 @@ html.theme-anim *::after {
     background-color 0.25s ease,
     border-color 0.25s ease,
     color 0.25s ease;
+}
+
+/* ============================================================
+   HỆ THỐNG THIẾT KẾ — lớp component dùng chung cho toàn dashboard.
+   Nguyên tắc:
+   - Nền card / đổ bóng / gradient thương hiệu lấy từ design token ở trên
+     nên TỰ ĐỔI theo theme sáng/tối mà không cần sửa component.
+   - Đặt trong @layer components → utility Tailwind vẫn ghi đè được.
+   ============================================================ */
+@layer components {
+  /* ---------- Card & khối chương ---------- */
+  .ui-card {
+    background-color: var(--surface);
+    border: 1px solid var(--g-200);
+    border-radius: 1rem;
+    box-shadow: var(--elev-card);
+  }
+  .ui-card-hover {
+    transition:
+      transform 0.18s cubic-bezier(0.22, 1, 0.36, 1),
+      box-shadow 0.18s ease,
+      border-color 0.18s ease;
+  }
+  .ui-card-hover:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--elev-raised);
+    border-color: var(--g-300);
+  }
+
+  .ui-section-title {
+    font-size: 0.95rem;
+    font-weight: 650;
+    letter-spacing: -0.01em;
+    color: var(--g-900);
+  }
+  .ui-kicker {
+    font-size: 0.6875rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--g-400);
+  }
+  .ui-divider {
+    border-top: 1px solid var(--g-200);
+  }
+
+  /* ---------- Ô icon có nền màu ---------- */
+  .ui-tile {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.5rem;
+    height: 2.5rem;
+    border-radius: 0.875rem;
+    font-size: 1.25rem;
+    line-height: 1;
+    flex: none;
+  }
+  .ui-tile-sm {
+    width: 2rem;
+    height: 2rem;
+    border-radius: 0.65rem;
+    font-size: 1rem;
+  }
+  .ui-tile-lg {
+    width: 3rem;
+    height: 3rem;
+    border-radius: 1rem;
+    font-size: 1.5rem;
+  }
+  .ui-tile-blue { background-color: var(--blue-100); color: var(--blue-700); }
+  .ui-tile-emerald { background-color: var(--emerald-100); color: var(--emerald-700); }
+  .ui-tile-amber { background-color: var(--amber-100); color: var(--amber-700); }
+  .ui-tile-violet { background-color: var(--violet-100); color: var(--violet-700); }
+  .ui-tile-cyan { background-color: var(--cyan-100); color: var(--cyan-700); }
+  .ui-tile-red { background-color: var(--red-100); color: var(--red-700); }
+  .ui-tile-slate { background-color: var(--g-100); color: var(--g-600); }
+
+  /* ---------- Nút ---------- */
+  .ui-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    border-radius: 0.75rem;
+    padding: 0.5rem 0.9rem;
+    font-size: 0.875rem;
+    font-weight: 600;
+    line-height: 1.25rem;
+    white-space: nowrap;
+    transition:
+      background-color 0.15s ease,
+      border-color 0.15s ease,
+      color 0.15s ease,
+      box-shadow 0.15s ease,
+      transform 0.12s ease;
+  }
+  .ui-btn:active { transform: translateY(1px); }
+  .ui-btn:disabled { opacity: 0.55; cursor: not-allowed; transform: none; }
+  .ui-btn-primary {
+    background-image: var(--brand-gradient);
+    color: #fff;
+    box-shadow: 0 8px 16px -8px rgb(37 99 235 / 0.65);
+  }
+  .ui-btn-primary:hover { filter: brightness(1.07); }
+  .ui-btn-ghost {
+    background-color: var(--surface);
+    border: 1px solid var(--g-300);
+    color: var(--g-700);
+  }
+  .ui-btn-ghost:hover {
+    background-color: var(--g-50);
+    border-color: var(--g-400);
+    color: var(--g-900);
+  }
+  .ui-btn-soft {
+    background-color: var(--blue-50);
+    color: var(--blue-700);
+    border: 1px solid var(--blue-200);
+  }
+  .ui-btn-soft:hover { background-color: var(--blue-100); }
+  .ui-btn-sm { padding: 0.35rem 0.7rem; font-size: 0.8125rem; border-radius: 0.625rem; }
+  .ui-btn-lg { padding: 0.65rem 1.15rem; font-size: 0.9375rem; border-radius: 0.85rem; }
+
+  /* ---------- Nhãn / chip ---------- */
+  .ui-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    border-radius: 999px;
+    padding: 0.2rem 0.6rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    line-height: 1.25rem;
+  }
+
+  /* ---------- Mục điều hướng (sidebar + mobile) ---------- */
+  .ui-nav-link {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
+    border-radius: 0.7rem;
+    padding: 0.4rem 0.625rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--g-500);
+    transition:
+      background-color 0.15s ease,
+      color 0.15s ease;
+  }
+  .ui-nav-link:hover {
+    background-color: var(--g-100);
+    color: var(--g-900);
+  }
+  .ui-nav-link.is-active {
+    background-color: var(--blue-50);
+    color: var(--blue-700);
+    font-weight: 600;
+  }
+  /* Thanh nhấn bên trái — nằm ngoài padding của nav nên tràn tới mép sidebar */
+  .ui-nav-link.is-active::before {
+    content: "";
+    position: absolute;
+    left: -0.75rem;
+    top: 22%;
+    bottom: 22%;
+    width: 3px;
+    border-radius: 0 3px 3px 0;
+    background-image: var(--brand-gradient);
+  }
+  .ui-nav-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.75rem;
+    height: 1.75rem;
+    border-radius: 0.55rem;
+    background-color: var(--g-100);
+    font-size: 0.95rem;
+    line-height: 1;
+    flex: none;
+    transition:
+      background-color 0.15s ease,
+      background-image 0.15s ease;
+  }
+  .ui-nav-link.is-active .ui-nav-icon {
+    background-color: transparent;
+    background-image: var(--brand-gradient);
+    box-shadow: 0 4px 10px -4px rgb(37 99 235 / 0.6);
+  }
+  .ui-nav-group-label {
+    padding: 0 0.625rem;
+    margin: 0.6rem 0 0.15rem;
+    font-size: 0.6875rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--g-400);
+  }
+
+  /* ---------- Số liệu (KPI) ---------- */
+  .ui-stat-value {
+    font-size: 1.85rem;
+    font-weight: 700;
+    letter-spacing: -0.03em;
+    line-height: 1.1;
+    color: var(--g-900);
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+/* ---------- Avatar thương hiệu ---------- */
+.ui-avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background-image: var(--brand-gradient);
+  color: #fff;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  flex: none;
+}
+.ui-logo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.9rem;
+  background-image: var(--brand-gradient);
+  box-shadow: 0 8px 16px -8px rgb(37 99 235 / 0.7);
+}
+.ui-hero-surface {
+  background-image: var(--brand-soft);
+}
+
+/* ---------- Thanh cuộn mỏng, theo theme ---------- */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--g-300) transparent;
+}
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--g-300);
+  background-clip: content-box;
+  border: 2px solid transparent;
+  border-radius: 999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--g-400);
+  background-clip: content-box;
+}
+
+/* ---------- Focus thấy rõ (bàn phím) + vùng chọn ---------- */
+:focus-visible {
+  outline: 2px solid var(--ring-color);
+  outline-offset: 2px;
+}
+::selection {
+  background: var(--blue-200);
+  color: var(--g-900);
+}
+
+/* ---------- Hiệu ứng vào trang ---------- */
+@keyframes ui-rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.ui-rise {
+  animation: ui-rise 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: var(--rise-delay, 0ms);
+}
+
+@keyframes ui-bar-grow {
+  from {
+    transform: scaleY(0);
+  }
+  to {
+    transform: scaleY(1);
+  }
+}
+.ui-bar-grow {
+  transform-origin: bottom;
+  animation: ui-bar-grow 0.6s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: var(--rise-delay, 0ms);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ui-rise,
+  .ui-bar-grow {
+    animation: none;
+  }
+  .ui-card-hover:hover {
+    transform: none;
+  }
+}
+
+/* Thanh điều hướng ngang (mobile): ẩn thanh nhấn dọc — pill active giữ màu nền */
+@layer components {
+  .ui-nav-pill.is-active::before {
+    display: none;
+  }
+  .ui-nav-pill {
+    padding-top: 0.4rem;
+    padding-bottom: 0.4rem;
+    font-size: 0.8125rem;
+  }
 }

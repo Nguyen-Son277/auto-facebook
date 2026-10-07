@@ -30,7 +30,7 @@ export default function SyncPagesForm({
         </p>
         <a
           href="/facebook-apps"
-          className="mt-3 inline-block rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+          className="ui-btn ui-btn-primary mt-3 px-4 py-2 text-sm font-semibold"
         >
           🔗 Quản lý Facebook Apps
         </a>
@@ -96,7 +96,7 @@ export default function SyncPagesForm({
         <button
           type="submit"
           disabled={pending}
-          className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:opacity-60"
+          className="ui-btn ui-btn-primary px-4 py-2 text-sm font-semibold transition disabled:opacity-60"
         >
           {pending ? "Đang đồng bộ..." : "Đồng bộ Pages"}
         </button>

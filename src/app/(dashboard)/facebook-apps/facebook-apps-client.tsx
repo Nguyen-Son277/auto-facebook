@@ -62,7 +62,7 @@ function SyncForm({ conn }: { conn: ConnectionView }) {
       <button
         type="submit"
         disabled={pending}
-        className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:opacity-50"
+        className="ui-btn ui-btn-primary px-4 py-2 text-sm font-semibold transition disabled:opacity-50"
       >
         {pending ? "Đang đồng bộ…" : "🔄 Đồng bộ Pages"}
       </button>
@@ -118,7 +118,7 @@ export default function FacebookAppsClient({
   return (
     <div className="space-y-6" data-testid="fbapps-root">
       {/* Form thêm/sửa connection */}
-      <section className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+      <section className="ui-card p-5">
         <h2 className="text-base font-semibold text-gray-900">
           {editing ? `Sửa "${editing.name}"` : "➕ Thêm Facebook App"}
         </h2>
@@ -183,7 +183,7 @@ export default function FacebookAppsClient({
             <button
               type="submit"
               disabled={savePending}
-              className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:opacity-50"
+              className="ui-btn ui-btn-primary px-4 py-2 text-sm font-semibold transition disabled:opacity-50"
               data-testid="fbapps-save"
             >
               {savePending ? "Đang lưu…" : editing ? "💾 Cập nhật" : "➕ Thêm App"}
@@ -230,7 +230,7 @@ export default function FacebookAppsClient({
           return (
             <article
               key={conn.id}
-              className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm"
+              className="ui-card p-5"
               data-testid={`fbapps-conn-${conn.appId}`}
             >
               <div className="flex flex-wrap items-start justify-between gap-2">

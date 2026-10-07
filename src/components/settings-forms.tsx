@@ -39,7 +39,7 @@ function StatusAlert({ state }: { state: ActionState }) {
 const inputCls =
   "w-full rounded-lg border border-gray-300 px-3 py-2 text-gray-900 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 focus:outline-none";
 const btnPrimary =
-  "rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60";
+  "ui-btn ui-btn-primary px-4 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-60";
 const btnGhost =
   "rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60";
 
@@ -101,7 +101,7 @@ export function AiSettingsForm({
   const modelListId = "ai-model-options";
 
   return (
-    <div className="rounded-2xl border border-gray-200 bg-white p-5">
+    <div className="ui-card p-5">
       <div className="mb-4 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-violet-100 text-xl">
@@ -242,7 +242,7 @@ export function PexelsSettingsForm({ masked }: { masked: MaskedSettings }) {
   const [apiKey, setApiKey] = useState("");
 
   return (
-    <div className="rounded-2xl border border-gray-200 bg-white p-5">
+    <div className="ui-card p-5">
       <div className="mb-4 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-cyan-100 text-xl">

@@ -32,7 +32,7 @@ import {
 // ============================================================
 
 const btnPrimary =
-  "rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60";
+  "ui-btn ui-btn-primary px-4 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-60";
 const btnGhost =
   "rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 transition hover:bg-gray-50 disabled:opacity-60";
 const inputCls =
@@ -110,7 +110,7 @@ function FacebookPreview({
 
   return (
     <div
-      className="overflow-hidden rounded-xl border border-gray-200 bg-white"
+      className="overflow-hidden ui-card"
       data-testid="post-preview"
     >
       <div className="flex items-center gap-2 border-b border-gray-100 p-3">
@@ -212,7 +212,7 @@ export default function PostEditor({
   return (
     <div className="space-y-4" data-testid="post-editor" data-status={post.status}>
       {/* ---- Thông tin đầu trang ---- */}
-      <div className="rounded-xl border border-gray-200 bg-white p-5">
+      <div className="ui-card p-5">
         <div className="flex flex-wrap items-center gap-2">
           <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${badge.cls}`}>
             {badge.label}
@@ -297,7 +297,7 @@ export default function PostEditor({
       <div className="grid gap-4 lg:grid-cols-2">
         {/* ---- Cột trái: sửa ---- */}
         <div className="space-y-4">
-          <form action={saveAction} className="rounded-xl border border-gray-200 bg-white p-5">
+          <form action={saveAction} className="ui-card p-5">
             <input type="hidden" name="postId" value={post.id} />
 
             <h3 className="text-sm font-semibold text-gray-900">Nội dung bài viết</h3>
@@ -398,7 +398,7 @@ export default function PostEditor({
           </form>
 
           {/* ---- Ảnh / video ---- */}
-          <div className="rounded-xl border border-gray-200 bg-white p-5">
+          <div className="ui-card p-5">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <h3 className="text-sm font-semibold text-gray-900">
                 Ảnh / video ({media.length})
@@ -542,7 +542,7 @@ export default function PostEditor({
           </div>
 
           {!locked ? (
-            <div className="rounded-xl border border-gray-200 bg-white p-5">
+            <div className="ui-card p-5">
               <h3 className="text-sm font-semibold text-gray-900">Hành động</h3>
               <div className="mt-3 flex flex-wrap gap-2">
                 {post.status === "PENDING_REVIEW" ? (

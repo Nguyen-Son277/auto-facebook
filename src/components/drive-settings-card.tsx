@@ -84,7 +84,7 @@ export default function DriveSettingsCard({
 
   return (
     <section
-      className="rounded-2xl border border-gray-200 bg-white p-5"
+      className="ui-card p-5"
       data-testid="drive-settings-card"
     >
       <div className="mb-1 flex items-center justify-between">
@@ -216,7 +216,7 @@ export default function DriveSettingsCard({
             type="button"
             data-testid="drive-connect"
             onClick={startDriveConnect}
-            className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700"
+            className="ui-btn ui-btn-primary px-4 py-2 text-sm font-semibold transition"
           >
             {status.connected
               ? "Cấp quyền lại"

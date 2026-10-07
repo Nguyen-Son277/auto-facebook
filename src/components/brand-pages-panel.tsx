@@ -68,7 +68,7 @@ export default function BrandPagesPanel({
 
   return (
     <div
-      className="mb-4 rounded-xl border border-gray-200 bg-white p-4"
+      className="mb-4 ui-card p-4"
       data-testid="brand-pages-panel"
     >
       <div className="mb-2 flex items-center justify-between">

@@ -97,7 +97,7 @@ export default function AdminClient({
         <button
           type="button"
           onClick={() => setShowCreate((v) => !v)}
-          className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700"
+          className="ui-btn ui-btn-primary px-4 py-2 text-sm font-semibold transition"
         >
           {showCreate ? "Đóng" : "＋ Tạo tài khoản"}
         </button>
@@ -110,7 +110,7 @@ export default function AdminClient({
           { label: "Đã duyệt", value: approvedCount, cls: "text-emerald-600" },
           { label: "Bị từ chối", value: rejectedCount, cls: "text-red-500" },
         ].map((s) => (
-          <div key={s.label} className="rounded-xl border border-gray-200 bg-white p-4">
+          <div key={s.label} className="ui-card p-4">
             <p className="text-sm text-gray-500">{s.label}</p>
             <p className={`mt-1 text-2xl font-bold ${s.cls}`}>{s.value}</p>
           </div>
@@ -161,7 +161,7 @@ export default function AdminClient({
           <button
             type="submit"
             disabled={busy}
-            className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+            className="ui-btn ui-btn-primary px-4 py-2 text-sm font-semibold disabled:opacity-60"
           >
             {busy ? "Đang tạo..." : "Tạo tài khoản"}
           </button>
@@ -182,7 +182,7 @@ export default function AdminClient({
       )}
 
       {/* Bảng user */}
-      <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white">
+      <div className="overflow-x-auto ui-card">
         <table className="w-full min-w-[860px] text-left text-sm">
           <thead className="border-b border-gray-200 bg-gray-50 text-xs uppercase tracking-wide text-gray-500">
             <tr>
@@ -364,7 +364,7 @@ export default function AdminClient({
               <button
                 type="submit"
                 disabled={busy}
-                className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+                className="ui-btn ui-btn-primary px-4 py-2 text-sm font-semibold disabled:opacity-60"
               >
                 {busy ? "Đang lưu..." : "Đặt lại mật khẩu"}
               </button>

@@ -9,9 +9,9 @@ export default function RegisterPage() {
   const [state, formAction, pending] = useActionState(register, null);
 
   return (
-    <div className="rounded-2xl border border-gray-200 bg-white p-8 shadow-lg">
+    <div className="ui-card p-8 shadow-lg">
       <div className="mb-8 text-center">
-        <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-blue-600 text-3xl">
+        <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center ui-logo text-3xl">
           📝
         </div>
         <h1 className="text-2xl font-bold text-gray-900">Đăng ký tài khoản</h1>
@@ -27,7 +27,7 @@ export default function RegisterPage() {
           </p>
           <Link
             href="/login"
-            className="block w-full rounded-lg bg-blue-600 py-2.5 text-center font-semibold text-white transition hover:bg-blue-700"
+            className="ui-btn ui-btn-primary w-full py-2.5 font-semibold transition"
           >
             Về trang đăng nhập
           </Link>
@@ -95,7 +95,7 @@ export default function RegisterPage() {
           <button
             type="submit"
             disabled={pending}
-            className="w-full rounded-lg bg-blue-600 py-2.5 font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+            className="ui-btn ui-btn-primary w-full py-2.5 font-semibold transition disabled:cursor-not-allowed disabled:opacity-60"
           >
             {pending ? "Đang gửi đăng ký..." : "Gửi đăng ký"}
           </button>

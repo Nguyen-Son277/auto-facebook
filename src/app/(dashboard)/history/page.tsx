@@ -108,14 +108,14 @@ export default async function HistoryPage({
         </div>
         <Link
           href="/composer"
-          className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700"
+          className="ui-btn ui-btn-primary px-4 py-2 text-sm font-semibold transition"
         >
           ✍️ Soạn bài mới
         </Link>
       </header>
 
       {/* Bộ lọc trạng thái + tìm kiếm */}
-      <div className="space-y-3 rounded-2xl border border-gray-200 bg-white p-4">
+      <div className="space-y-3 ui-card p-4">
         <div className="flex flex-wrap gap-2" data-testid="history-tabs">
           {TABS.map((t) => (
             <Link
@@ -124,7 +124,7 @@ export default async function HistoryPage({
               data-testid={`history-tab-${t.key}`}
               className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
                 status === t.key
-                  ? "bg-blue-600 text-white"
+                  ? "ui-btn ui-btn-primary "
                   : "bg-gray-100 text-gray-600 hover:bg-gray-200"
               }`}
             >
@@ -148,7 +148,7 @@ export default async function HistoryPage({
       <HistoryTable rows={rows} query={q} />
 
       {totalPages > 1 && (
-        <div className="flex items-center justify-between rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm">
+        <div className="flex items-center justify-between ui-card px-4 py-3 text-sm">
           <span className="text-gray-500">
             Trang {pageNum}/{totalPages} · {total} bài
           </span>

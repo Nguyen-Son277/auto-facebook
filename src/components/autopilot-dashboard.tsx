@@ -33,7 +33,7 @@ const inputCls =
 const labelCls = "block text-sm font-medium text-gray-700";
 const hintCls = "mt-1 text-xs text-gray-500";
 const btnPrimary =
-  "rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60";
+  "ui-btn ui-btn-primary px-4 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-60";
 const btnGhost =
   "rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 transition hover:bg-gray-50 disabled:opacity-60";
 
@@ -264,7 +264,7 @@ function SettingsForm({
   };
 
   return (
-    <form action={action} className="space-y-6 rounded-xl border border-gray-200 bg-white p-5">
+    <form action={action} className="space-y-6 ui-card p-5">
       <input type="hidden" name="pageId" value={pageId} />
       {/* mediaKind cũ vẫn gửi lên để tương thích; mediaMix mới quyết định */}
       <input type="hidden" name="mediaKind" value={mediaMix === "VIDEO_ONLY" ? "VIDEO" : "IMAGE"} />
@@ -348,7 +348,7 @@ function SettingsForm({
               onClick={() => toggleDay(d.value)}
               className={`h-10 w-12 rounded-lg text-sm font-medium transition ${
                 days.has(d.value)
-                  ? "bg-blue-600 text-white"
+                  ? "ui-btn ui-btn-primary "
                   : "border border-gray-300 text-gray-600 hover:bg-gray-50"
               }`}
             >
@@ -725,7 +725,7 @@ function PlanPreview({
     });
 
   return (
-    <div className="rounded-xl border border-gray-200 bg-white p-5">
+    <div className="ui-card p-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h3 className="text-sm font-semibold text-gray-900">Kế hoạch sắp tới</h3>

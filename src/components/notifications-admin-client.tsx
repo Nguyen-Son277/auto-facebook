@@ -68,13 +68,13 @@ export default function NotificationsAdminClient({
       )}
 
       {/* ===== Soạn thông báo mới ===== */}
-      <section className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+      <section className="ui-card p-5">
         <div className="flex items-center justify-between">
           <h2 className="font-semibold text-gray-900">Soạn thông báo mới</h2>
           <button
             type="button"
             onClick={() => setShowForm((v) => !v)}
-            className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700"
+            className="ui-btn ui-btn-primary px-4 py-2 text-sm font-semibold transition"
           >
             {showForm ? "Đóng" : "＋ Soạn thông báo"}
           </button>
@@ -151,7 +151,7 @@ export default function NotificationsAdminClient({
             <button
               type="submit"
               disabled={busy}
-              className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+              className="ui-btn ui-btn-primary px-4 py-2 text-sm font-semibold disabled:opacity-60"
             >
               {busy ? "Đang gửi..." : "📣 Gửi thông báo"}
             </button>
@@ -160,7 +160,7 @@ export default function NotificationsAdminClient({
       </section>
 
       {/* ===== Danh sách thông báo đã gửi ===== */}
-      <section className="overflow-hidden rounded-2xl border border-gray-200 bg-white">
+      <section className="overflow-hidden ui-card">
         <div className="border-b border-gray-200 px-5 py-4">
           <h2 className="font-semibold text-gray-900">
             Thông báo gần đây ({notifications.length})
@@ -218,7 +218,7 @@ export default function NotificationsAdminClient({
                     <button
                       type="submit"
                       disabled={busy}
-                      className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-60"
+                      className="ui-btn ui-btn-primary px-3 py-1.5 text-xs font-semibold disabled:opacity-60"
                     >
                       💾 Lưu
                     </button>

@@ -24,7 +24,7 @@ export default function LegalArticle({ doc }: { doc: LegalDocument }) {
         <p className="mt-3 text-sm text-gray-500">
           Ngày hiệu lực: {LEGAL.effectiveDate}
         </p>
-        <div className="mt-6 rounded-2xl border border-gray-200 bg-white p-5">
+        <div className="mt-6 ui-card p-5">
           <p className="text-sm leading-relaxed text-gray-600">
             <InlineRichText text={doc.intro} />
           </p>
@@ -66,7 +66,7 @@ export default function LegalArticle({ doc }: { doc: LegalDocument }) {
         ))}
       </div>
 
-      <footer className="mt-12 rounded-2xl border border-gray-200 bg-white p-5">
+      <footer className="mt-12 ui-card p-5">
         <p className="text-sm text-gray-600">
           Xem thêm{" "}
           {LEGAL_LINKS.map((item, index) => (

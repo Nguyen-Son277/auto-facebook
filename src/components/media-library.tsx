@@ -121,7 +121,7 @@ export default function MediaLibrary({
       </div>
 
       {tab === "search" ? (
-        <div className="rounded-2xl border border-gray-200 bg-white p-5">
+        <div className="ui-card p-5">
           <MediaBrowser
             mode="library"
             pexelsReady={pexelsReady}
@@ -130,11 +130,11 @@ export default function MediaLibrary({
           />
         </div>
       ) : tab === "drive" ? (
-        <div className="rounded-2xl border border-gray-200 bg-white p-5">
+        <div className="ui-card p-5">
           <DriveLibraryPanel folders={drive.folders} pickerApiKey={drive.pickerApiKey} />
         </div>
       ) : (
-        <div className="rounded-2xl border border-gray-200 bg-white p-5">
+        <div className="ui-card p-5">
           {saved.length === 0 ? (
             <div className="py-10 text-center">
               <p className="text-sm text-gray-500">
@@ -158,7 +158,7 @@ export default function MediaLibrary({
                     onClick={() => setFilter(value)}
                     className={`rounded-full px-3 py-1 text-xs font-medium transition ${
                       filter === value
-                        ? "bg-blue-600 text-white"
+                        ? "ui-btn ui-btn-primary "
                         : "bg-gray-100 text-gray-600 hover:bg-gray-200"
                     }`}
                   >

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { requireCurrentUser, resolveWorkspace } from "@/lib/dal";
 import { prisma } from "@/lib/prisma";
 import PageHeader from "@/components/page-header";
+import EmptyState from "@/components/empty-state";
 import BrandEditor from "@/components/brand-editor";
 import BrandPagesPanel from "@/components/brand-pages-panel";
 import BrandDrivePanel from "@/components/brand-drive-panel";
@@ -69,15 +70,12 @@ export default async function BrandPage({
       />
 
       {brands.length === 0 ? (
-        <div
-          className="rounded-xl border border-dashed border-gray-300 p-8 text-center"
-          data-testid="brand-empty"
-        >
-          <p className="text-gray-600">Chưa có thương hiệu nào trong workspace này.</p>
-          <p className="mt-1 text-sm text-gray-500">
-            Tạo thương hiệu đầu tiên — bạn có thể thêm nhiều thương hiệu khác nhau, mỗi thương hiệu gắn với một hoặc nhiều Page Facebook.
-          </p>
-        </div>
+        <EmptyState
+          icon="🏷️"
+          testId="brand-empty"
+          title="Chưa có thương hiệu nào trong workspace này"
+          description="Tạo thương hiệu đầu tiên — mỗi thương hiệu là một bộ hồ sơ, trụ cột nội dung và kho tài liệu dùng chung cho mọi Page Facebook."
+        />
       ) : null}
 
       <BrandListClient
