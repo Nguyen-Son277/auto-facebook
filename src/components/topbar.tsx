@@ -16,8 +16,8 @@ export default function Topbar({
   unread: number;
 }) {
   return (
-    <header className="sticky top-0 z-30 hidden border-b border-gray-200 bg-topbar backdrop-blur-md md:block">
-      <div className="mx-auto flex h-14 w-full max-w-[1440px] items-center gap-3 px-6 lg:px-8">
+    <header className="sticky top-0 z-30 hidden border-b border-gray-200/80 bg-topbar shadow-[0_8px_24px_-22px_rgb(15_23_42/0.45)] backdrop-blur-xl md:block">
+      <div className="mx-auto flex h-16 w-full max-w-[1440px] items-center gap-3 px-6 lg:px-8">
         <Breadcrumb role={role} />
 
         <div className="ml-auto flex items-center gap-2">

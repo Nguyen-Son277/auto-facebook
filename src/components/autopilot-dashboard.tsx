@@ -28,14 +28,11 @@ import { startDriveConnect } from "@/lib/drive-connect";
 // Mọi thứ còn lại nằm trong phần "Tùy chọn nâng cao" gấp lại được.
 // ============================================================
 
-const inputCls =
-  "w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 focus:outline-none";
-const labelCls = "block text-sm font-medium text-gray-700";
+const inputCls = "ui-input";
+const labelCls = "ui-label";
 const hintCls = "mt-1 text-xs text-gray-500";
-const btnPrimary =
-  "ui-btn ui-btn-primary px-4 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-60";
-const btnGhost =
-  "rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 transition hover:bg-gray-50 disabled:opacity-60";
+const btnPrimary = "ui-btn ui-btn-primary";
+const btnGhost = "ui-btn ui-btn-ghost ui-btn-sm";
 
 const DAYS = [
   { value: 1, label: "T2" },
@@ -115,8 +112,8 @@ function Alert({ state, testId }: { state: AutoPilotState; testId?: string }) {
   return (
     <div
       data-testid={testId}
-      className={`rounded-lg px-3 py-2 text-sm ${
-        state.error ? "bg-red-50 text-red-700" : "bg-emerald-50 text-emerald-700"
+      className={`ui-alert ${
+        state.error ? "ui-alert-error" : "ui-alert-success"
       }`}
     >
       {state.error ? `✗ ${state.error}` : `✓ ${state.message}`}
@@ -169,8 +166,8 @@ function PowerSwitch({
 
   return (
     <div
-      className={`rounded-xl border p-5 ${
-        enabled ? "border-emerald-200 bg-emerald-50" : "border-gray-200 bg-white"
+      className={`ui-card p-5 ${
+        enabled ? "border-emerald-200 bg-emerald-50" : "bg-surface"
       }`}
       data-testid="autopilot-power"
       data-enabled={enabled ? "1" : "0"}
@@ -201,8 +198,8 @@ function PowerSwitch({
               );
             })
           }
-          className={`rounded-lg px-5 py-2.5 text-sm font-semibold text-white transition disabled:opacity-60 ${
-            enabled ? "bg-slate-600 hover:bg-slate-700" : "bg-emerald-600 hover:bg-emerald-700"
+          className={`ui-btn ui-btn-lg ${
+            enabled ? "ui-btn-ghost" : "ui-btn-success"
           }`}
         >
           {pending ? "Đang xử lý…" : enabled ? "Tắt tự động" : "Bật tự động"}
@@ -346,10 +343,10 @@ function SettingsForm({
               data-testid={`ap-day-${d.value}`}
               data-active={days.has(d.value) ? "1" : "0"}
               onClick={() => toggleDay(d.value)}
-              className={`h-10 w-12 rounded-lg text-sm font-medium transition ${
+              className={`ui-btn h-10 w-12 ${
                 days.has(d.value)
-                  ? "ui-btn ui-btn-primary "
-                  : "border border-gray-300 text-gray-600 hover:bg-gray-50"
+                  ? "ui-btn-primary"
+                  : "ui-btn-ghost"
               }`}
             >
               {d.label}
@@ -376,7 +373,7 @@ function SettingsForm({
           </label>
 
           {autoMedia ? (
-            <div className="ml-6 space-y-3">
+            <div className="space-y-4 rounded-xl border border-gray-200 bg-sunken p-4 sm:ml-6">
               <div>
                 <label className={labelCls} htmlFor="ap-mediaPrimary">
                   Lấy ảnh/video từ đâu?
@@ -387,7 +384,7 @@ function SettingsForm({
                   data-testid="ap-mediaPrimary"
                   value={mediaPrimary}
                   onChange={(e) => setMediaPrimary(e.target.value)}
-                  className={`${inputCls} mt-1`}
+                  className="ui-select mt-1"
                 >
                   <option value="PEXELS">🖼️ Pexels — kho ảnh/video miễn phí</option>
                   <option value="DRIVE">
@@ -404,8 +401,8 @@ function SettingsForm({
               {/* Trạng thái Drive — nói đúng việc cần làm nếu chưa dùng được */}
               {mediaPrimary === "DRIVE" ? (
                 <div
-                  className={`rounded-lg px-3 py-2 text-xs ${
-                    driveReady ? "bg-emerald-50 text-emerald-800" : "bg-amber-50 text-amber-800"
+                  className={`ui-alert text-xs ${
+                    driveReady ? "ui-alert-success" : "ui-alert-warning"
                   }`}
                   data-testid="ap-drive-status"
                 >
@@ -475,7 +472,7 @@ function SettingsForm({
                   data-testid="ap-mediaMix"
                   value={mediaMix}
                   onChange={(e) => setMediaMix(e.target.value)}
-                  className={`${inputCls} mt-1`}
+                  className="ui-select mt-1"
                 >
                   <option value="IMAGE_ONLY">Chỉ ảnh</option>
                   <option value="VIDEO_ONLY">Chỉ video</option>
@@ -543,7 +540,7 @@ function SettingsForm({
       <div>
         <span className={labelCls}>Đăng thẳng hay chờ bạn duyệt?</span>
         <div className="mt-2 space-y-2">
-          <label className="flex cursor-pointer items-start gap-2 rounded-lg border border-gray-200 p-3 text-sm">
+          <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-gray-200 bg-sunken p-4 text-sm transition hover:border-blue-300 has-[:checked]:border-blue-300 has-[:checked]:bg-blue-50">
             <input
               type="radio"
               name="mode"
@@ -561,7 +558,7 @@ function SettingsForm({
             </span>
           </label>
 
-          <label className="flex cursor-pointer items-start gap-2 rounded-lg border border-gray-200 p-3 text-sm">
+          <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-gray-200 bg-sunken p-4 text-sm transition hover:border-blue-300 has-[:checked]:border-blue-300 has-[:checked]:bg-blue-50">
             <input
               type="radio"
               name="mode"
@@ -587,13 +584,13 @@ function SettingsForm({
           type="button"
           data-testid="ap-advanced-toggle"
           onClick={() => setAdvanced(!advanced)}
-          className="text-sm font-medium text-blue-600 hover:underline"
+          className="ui-btn ui-btn-soft ui-btn-sm"
         >
           {advanced ? "▾ Ẩn tùy chọn nâng cao" : "▸ Tùy chọn nâng cao"}
         </button>
 
         {advanced ? (
-          <div className="mt-4 grid gap-4 sm:grid-cols-2">
+          <div className="mt-4 grid gap-4 rounded-xl border border-gray-200 bg-sunken p-4 sm:grid-cols-2">
             <div>
               <label className={labelCls} htmlFor="ap-minGap">
                 Cách nhau tối thiểu (phút)
@@ -654,7 +651,7 @@ function SettingsForm({
                 id="ap-length"
                 name="length"
                 defaultValue={config?.length ?? "medium"}
-                className={`${inputCls} mt-1`}
+                className="ui-select mt-1"
               >
                 <option value="short">Ngắn</option>
                 <option value="medium">Vừa</option>
@@ -670,7 +667,7 @@ function SettingsForm({
                 id="ap-tone"
                 name="toneOverride"
                 defaultValue={config?.toneOverride ?? ""}
-                className={`${inputCls} mt-1`}
+                className="ui-select mt-1"
               >
                 <option value="">Theo hồ sơ thương hiệu</option>
                 {TONES.map((t) => (
@@ -751,7 +748,7 @@ function PlanPreview({
           {pendingReview > 0 ? (
             <button
               type="button"
-              className={`${btnGhost} border-emerald-300 text-emerald-700`}
+              className="ui-btn ui-btn-success ui-btn-sm"
               data-testid="ap-approve-all"
               disabled={pending}
               onClick={() => run(() => approveAllPlanned(pageId))}
@@ -763,7 +760,7 @@ function PlanPreview({
           {posts.length > 0 ? (
             <button
               type="button"
-              className={`${btnGhost} text-red-600`}
+              className="ui-btn ui-btn-danger ui-btn-sm"
               data-testid="ap-clear"
               disabled={pending}
               onClick={() => {
@@ -779,7 +776,7 @@ function PlanPreview({
       </div>
 
       {posts.length === 0 ? (
-        <p className="mt-4 rounded-lg border border-dashed border-gray-300 p-6 text-center text-sm text-gray-500">
+        <p className="ui-dropzone mt-4 p-6 text-center text-sm text-gray-500">
           {enabled
             ? "Hệ thống sẽ tự tạo bài trong vài phút tới. Hoặc bấm “Lên kế hoạch ngay”."
             : "Bật chế độ tự động để hệ thống bắt đầu tạo bài."}
@@ -793,7 +790,7 @@ function PlanPreview({
                 key={p.id}
                 data-testid="ap-plan-item"
                 data-status={p.status}
-                className="rounded-lg border border-gray-200 p-3"
+                className="ui-card ui-card-hover p-4"
               >
                 <div className="flex flex-wrap items-center gap-2 text-xs">
                   <span className={`rounded-full px-2 py-0.5 font-medium ${badge.cls}`}>
@@ -844,14 +841,14 @@ function PlanPreview({
                   {p.content}
                 </p>
 
-                <div className="mt-2 flex gap-2">
-                  <Link href={`/posts/${p.id}`} className={`${btnGhost} border-blue-300 text-blue-700`} data-testid="ap-edit">
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <Link href={`/posts/${p.id}`} className="ui-btn ui-btn-soft ui-btn-sm" data-testid="ap-edit">
                     ✏️ Xem & sửa
                   </Link>
                   {p.status === "PENDING_REVIEW" ? (
                     <button
                       type="button"
-                      className={`${btnGhost} border-emerald-300 text-emerald-700`}
+                      className="ui-btn ui-btn-success ui-btn-sm"
                       data-testid="ap-approve"
                       disabled={pending}
                       onClick={() => run(() => approvePlannedPost(p.id))}
@@ -864,7 +861,7 @@ function PlanPreview({
                   </Link>
                   <button
                     type="button"
-                    className={`${btnGhost} text-red-600`}
+                    className="ui-btn ui-btn-danger ui-btn-sm"
                     data-testid="ap-discard"
                     disabled={pending}
                     onClick={() => run(() => discardPlannedPost(p.id))}
@@ -975,7 +972,7 @@ export default function AutopilotDashboard({
     <div className="space-y-5">
       {!readiness.hasBrand ? (
         <div
-          className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800"
+          className="ui-alert ui-alert-error p-4"
           data-testid="ap-needs-brand"
         >
           <p className="font-medium">⚠ Page chưa gắn thương hiệu</p>
@@ -986,14 +983,14 @@ export default function AutopilotDashboard({
           </p>
           <Link
             href="/pages"
-            className="mt-2 inline-block rounded-lg bg-red-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-700"
+            className="ui-btn ui-btn-primary ui-btn-sm mt-3"
           >
             Gán thương hiệu cho Page →
           </Link>
         </div>
       ) : readiness.pillars === 0 ? (
         <div
-          className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800"
+          className="ui-alert ui-alert-warning p-4"
           data-testid="ap-needs-setup"
         >
           <p className="font-medium">⚠ Cần thiết lập hồ sơ thương hiệu trước</p>
@@ -1002,7 +999,7 @@ export default function AutopilotDashboard({
           </p>
           <Link
             href="/brand"
-            className="mt-2 inline-block rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-700"
+            className="ui-btn ui-btn-primary ui-btn-sm mt-3"
           >
             Thiết lập hồ sơ thương hiệu →
           </Link>
@@ -1012,7 +1009,7 @@ export default function AutopilotDashboard({
         // sản phẩm thì AI không có gì để bám vào — bài viết ra chung chung hoặc
         // bịa. Bộ lập kế hoạch cũng dừng ở tầng dữ liệu (xem planForAutoPilot).
         <div
-          className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800"
+          className="ui-alert ui-alert-warning p-4"
           data-testid="ap-needs-profile"
         >
           <p className="font-medium">⚠ Hồ sơ thương hiệu còn thiếu thông tin doanh nghiệp</p>
@@ -1029,7 +1026,7 @@ export default function AutopilotDashboard({
           </p>
           <Link
             href="/brand"
-            className="mt-2 inline-block rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-700"
+            className="ui-btn ui-btn-primary ui-btn-sm mt-3"
           >
             Bổ sung hồ sơ thương hiệu →
           </Link>
@@ -1042,7 +1039,7 @@ export default function AutopilotDashboard({
           Chỉ hiện khi có cấu hình (Page đã từng được thiết lập). */}
       {config ? (
         <div
-          className="rounded-xl border border-indigo-200 bg-indigo-50/60 p-4"
+          className="ui-card border-blue-200 bg-blue-50 p-5"
           data-testid="ap-insights-card"
         >
           <div className="flex flex-wrap items-center justify-between gap-3">
@@ -1050,7 +1047,7 @@ export default function AutopilotDashboard({
               <p className="text-sm font-semibold text-gray-900">
                 📈 Số liệu &amp; tự tối ưu
                 {learning ? (
-                  <span className="ml-2 rounded-full bg-white px-2 py-0.5 text-xs font-medium text-indigo-700">
+                  <span className="ml-2 rounded-full bg-surface px-2 py-0.5 text-xs font-medium text-blue-700">
                     {learning.phaseLabel}
                   </span>
                 ) : null}
@@ -1066,7 +1063,7 @@ export default function AutopilotDashboard({
             <div className="flex shrink-0 gap-2">
               <Link
                 href={`/insights?page=${pageId}`}
-                className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-indigo-700"
+                className="ui-btn ui-btn-soft ui-btn-sm"
                 data-testid="ap-insights-link"
               >
                 Xem số liệu →
@@ -1086,12 +1083,12 @@ export default function AutopilotDashboard({
       {/* Hạn mức tìm ảnh Pexels — chỉ hiện khi Pexels thực sự là nguồn */}
       {config?.autoMedia && (config.mediaPrimary ?? "PEXELS") === "PEXELS" ? (
         <div
-          className={`rounded-lg px-4 py-3 text-sm ${
+          className={`ui-alert ${
             quota.blocked
-              ? "bg-red-50 text-red-700"
+              ? "ui-alert-error"
               : quotaLow
-                ? "bg-amber-50 text-amber-800"
-                : "bg-gray-50 text-gray-600"
+                ? "ui-alert-warning"
+                : "bg-sunken text-gray-600"
           }`}
           data-testid="ap-quota"
           data-remaining={quota.remaining}
@@ -1112,8 +1109,8 @@ export default function AutopilotDashboard({
       {/* Nguồn Drive: nhắc thư mục đang dùng + cảnh báo cấu hình thiếu */}
       {config?.autoMedia && config.mediaPrimary === "DRIVE" ? (
         <div
-          className={`rounded-lg px-4 py-3 text-sm ${
-            driveReady ? "bg-gray-50 text-gray-600" : "bg-amber-50 text-amber-800"
+          className={`ui-alert ${
+            driveReady ? "bg-sunken text-gray-600" : "ui-alert-warning"
           }`}
           data-testid="ap-drive-source"
         >

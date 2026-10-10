@@ -40,19 +40,22 @@ export default async function DocDetailPage({
     <div className="mx-auto max-w-3xl">
       <Link
         href="/docs"
-        className="inline-flex items-center gap-1 text-sm font-medium text-blue-600 hover:underline"
+        className="ui-btn ui-btn-ghost ui-btn-sm"
       >
         ← Tất cả hướng dẫn
       </Link>
 
       <article
-        className="mt-4 ui-card p-6 sm:p-8"
+        className="ui-card mt-4 p-6 sm:p-8"
         data-testid="doc-detail"
       >
-        <h1 className="text-2xl font-bold text-gray-900">{doc.title}</h1>
-        <p className="mt-1 text-xs text-gray-400">
-          Cập nhật {formatDate(doc.updatedAt)}
-        </p>
+        <div className="mb-5 border-b border-gray-200 pb-5">
+          <p className="ui-kicker mb-2">Tài liệu hướng dẫn</p>
+          <h1 className="break-words text-2xl font-bold tracking-tight text-gray-900">{doc.title}</h1>
+          <p className="mt-2 text-xs text-gray-400">
+            Cập nhật {formatDate(doc.updatedAt)}
+          </p>
+        </div>
         <div
           className="prose-docs mt-5 text-sm text-gray-700"
           data-testid="doc-body"

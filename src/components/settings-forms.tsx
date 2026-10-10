@@ -14,7 +14,7 @@ function StatusAlert({ state }: { state: ActionState }) {
   if (!state || (!state.ok && !state.error)) return null;
   if (state.error) {
     return (
-      <div className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+      <div className="ui-alert ui-alert-error">
         <p className="font-medium">✗ {state.error}</p>
         {state.details?.map((d, i) => (
           <p key={i} className="mt-1 break-words font-mono text-xs opacity-80">
@@ -25,7 +25,7 @@ function StatusAlert({ state }: { state: ActionState }) {
     );
   }
   return (
-    <div className="rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+    <div className="ui-alert ui-alert-success">
       <p className="font-medium">✓ {state.message}</p>
       {state.details?.map((d, i) => (
         <p key={i} className="mt-1 text-xs opacity-80">
@@ -36,12 +36,9 @@ function StatusAlert({ state }: { state: ActionState }) {
   );
 }
 
-const inputCls =
-  "w-full rounded-lg border border-gray-300 px-3 py-2 text-gray-900 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 focus:outline-none";
-const btnPrimary =
-  "ui-btn ui-btn-primary px-4 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-60";
-const btnGhost =
-  "rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60";
+const inputCls = "ui-input";
+const btnPrimary = "ui-btn ui-btn-primary";
+const btnGhost = "ui-btn ui-btn-ghost";
 
 /** Nút xóa toàn bộ key của một nhóm (form độc lập — không được lồng form). */
 function ClearSettingsButton({
@@ -53,12 +50,12 @@ function ClearSettingsButton({
 }) {
   const [state, action, pending] = useActionState(clearUserSettingAction, null);
   return (
-    <form action={action} className="mt-3 flex items-center gap-3">
+    <form action={action} className="mt-4 flex flex-wrap items-center gap-3 border-t border-gray-200 pt-4">
       <input type="hidden" name="group" value={group} />
       <button
         type="submit"
         disabled={pending}
-        className="text-xs font-medium text-gray-400 underline-offset-2 transition hover:text-red-600 hover:underline disabled:opacity-60"
+        className="ui-btn ui-btn-ghost ui-btn-sm text-red-600 hover:text-red-700"
       >
         🗑 {label}
       </button>
@@ -102,7 +99,7 @@ export function AiSettingsForm({
 
   return (
     <div className="ui-card p-5">
-      <div className="mb-4 flex items-center justify-between">
+      <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-violet-100 text-xl">
             🤖
@@ -129,7 +126,7 @@ export function AiSettingsForm({
 
       <form action={action} className="space-y-3">
         <div>
-          <label className="mb-1 block text-sm font-medium text-gray-700">
+          <label className="ui-label">
             Base URL
           </label>
           <input
@@ -146,7 +143,7 @@ export function AiSettingsForm({
         </div>
 
         <div>
-          <label className="mb-1 block text-sm font-medium text-gray-700">
+          <label className="ui-label">
             API Key{" "}
             {masked["ai.apiKey"] && (
               <span className="font-mono text-xs text-gray-400">
@@ -164,12 +161,12 @@ export function AiSettingsForm({
           />
         </div>
 
-        <div className="rounded-xl border border-violet-200 bg-violet-50/60 p-3">
-          <div className="flex items-center justify-between gap-2">
-            <label className="text-sm font-medium text-violet-900">
+        <div className="rounded-xl border border-gray-200 bg-sunken p-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <label className="ui-label mb-0">
               Model{" "}
               {models.length > 0 && (
-                <span className="font-normal text-violet-700">
+                <span className="font-normal text-gray-500">
                   ({models.length} model — gõ để tìm nhanh)
                 </span>
               )}
@@ -179,7 +176,7 @@ export function AiSettingsForm({
               name="intent"
               value="load"
               disabled={pending}
-              className="shrink-0 rounded-lg border border-violet-300 bg-white px-3 py-1.5 text-xs font-medium text-violet-700 transition hover:bg-violet-100 disabled:opacity-60"
+              className="ui-btn ui-btn-soft ui-btn-sm shrink-0"
             >
               {pending ? "Đang tải..." : "⬇ Tải danh sách model"}
             </button>
@@ -189,7 +186,7 @@ export function AiSettingsForm({
             name="model"
             type="text"
             list={modelListId}
-            className={`${inputCls} mt-2 bg-white`}
+            className={`${inputCls} mt-2`}
             placeholder={
               models.length > 0
                 ? "Chọn model từ danh sách hoặc gõ để tìm..."
@@ -211,7 +208,7 @@ export function AiSettingsForm({
           )}
           {modelsError && <p className="mt-1 text-xs text-amber-600">⚠ {modelsError}</p>}
           {models.length === 0 && !modelsError && (
-            <p className="mt-1 text-xs text-violet-700/70">
+            <p className="mt-1 text-xs text-gray-500">
               Nhập Base URL + API Key rồi bấm &quot;Tải danh sách model&quot; — bạn không cần gõ tên model.
             </p>
           )}
@@ -219,7 +216,7 @@ export function AiSettingsForm({
 
         <StatusAlert state={state} />
 
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <button type="submit" name="intent" value="save" disabled={pending} className={btnGhost}>
             {pending ? "Đang xử lý..." : "Chỉ lưu"}
           </button>
@@ -243,7 +240,7 @@ export function PexelsSettingsForm({ masked }: { masked: MaskedSettings }) {
 
   return (
     <div className="ui-card p-5">
-      <div className="mb-4 flex items-center justify-between">
+      <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-cyan-100 text-xl">
             🖼️
@@ -268,7 +265,7 @@ export function PexelsSettingsForm({ masked }: { masked: MaskedSettings }) {
 
       <form action={action} className="space-y-3">
         <div>
-          <label className="mb-1 block text-sm font-medium text-gray-700">
+          <label className="ui-label">
             API Key{" "}
             {masked["pexels.apiKey"] && (
               <span className="font-mono text-xs text-gray-400">
@@ -290,7 +287,7 @@ export function PexelsSettingsForm({ masked }: { masked: MaskedSettings }) {
 
         <StatusAlert state={state} />
 
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <button type="submit" name="intent" value="save" disabled={pending} className={btnGhost}>
             {pending ? "Đang xử lý..." : "Chỉ lưu"}
           </button>

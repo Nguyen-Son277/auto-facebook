@@ -77,19 +77,19 @@ export default function DriveLibraryPanel({
 
   return (
     <div className="space-y-4" data-testid="drive-library">
-      <div className="rounded-xl bg-blue-50 px-4 py-3 text-sm text-blue-900">
-        <p className="font-medium">Chọn ảnh/video trực tiếp từ Google Drive</p>
-        <p className="mt-1 text-xs">
+      <div className="ui-alert ui-alert-info p-4 sm:p-5">
+        <p className="font-semibold">Chọn ảnh/video trực tiếp từ Google Drive</p>
+        <p className="mt-2 max-w-3xl text-sm leading-relaxed">
           Mở Google Picker, đi vào thư mục của bạn rồi <strong>chọn các tấm ảnh</strong> (giữ
           Ctrl/Cmd để chọn nhiều). App ghi nhớ đúng những ảnh bạn chọn, nên chúng dùng được ngay
           ở đây, khi soạn bài và cho AutoPilot.
         </p>
       </div>
 
-      <div className="flex flex-wrap items-center gap-3">
+      <div className="ui-dropzone flex flex-col gap-3 p-4 sm:flex-row sm:flex-wrap sm:items-end sm:p-5">
         {folders.length > 0 ? (
-          <>
-            <label className="text-sm font-medium text-gray-700" htmlFor="drive-brand">
+          <div className="min-w-0 flex-1 sm:min-w-52">
+            <label className="ui-label" htmlFor="drive-brand">
               Gán vào thương hiệu
             </label>
             <select
@@ -97,7 +97,7 @@ export default function DriveLibraryPanel({
               data-testid="drive-brand-select"
               value={brandId}
               onChange={(e) => setBrandId(e.target.value)}
-              className="rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-blue-500 focus:outline-none"
+              className="ui-select"
             >
               {folders.map((f) => (
                 <option key={f.brandId} value={f.brandId}>
@@ -105,7 +105,7 @@ export default function DriveLibraryPanel({
                 </option>
               ))}
             </select>
-          </>
+          </div>
         ) : null}
 
         <button
@@ -113,7 +113,7 @@ export default function DriveLibraryPanel({
           onClick={onPick}
           disabled={pending || picker.loading}
           data-testid="drive-pick"
-          className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+          className="ui-btn ui-btn-primary min-h-11"
         >
           {picker.loading ? "Đang mở Google Picker..." : "📷 Chọn ảnh/video từ Drive"}
         </button>
@@ -121,7 +121,7 @@ export default function DriveLibraryPanel({
         <button
           type="button"
           onClick={startDriveConnect}
-          className="rounded-lg border border-gray-300 px-3 py-2 text-xs font-medium text-gray-700 hover:bg-gray-50"
+          className="ui-btn ui-btn-ghost min-h-11"
         >
           {connected ? "Cấp quyền lại" : "Kết nối Google Drive"}
         </button>
@@ -130,15 +130,15 @@ export default function DriveLibraryPanel({
       {alert ? (
         <div
           data-testid="drive-library-alert"
-          className={`rounded-lg px-3 py-2 text-sm whitespace-pre-line ${
-            alert.ok ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"
+          className={`ui-alert whitespace-pre-line ${
+            alert.ok ? "ui-alert-success" : "ui-alert-error"
           }`}
         >
           {alert.ok ? `✓ ${alert.text}` : `✗ ${alert.text}`}
         </div>
       ) : null}
 
-      <p className="text-xs text-gray-500">
+      <p className="max-w-3xl text-xs leading-relaxed text-gray-500">
         Ảnh đã chọn nằm trong tab <strong>📚 Thư viện của tôi</strong> (nhãn “Drive”), dùng lại
         được nhiều lần. Muốn xem vì sao một thư mục không đọc được, vào trang{" "}
         <strong>Thương hiệu</strong> → khối “Ảnh/video từ Google Drive” → <strong>Chẩn đoán thư mục</strong>.

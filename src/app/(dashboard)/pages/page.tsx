@@ -85,7 +85,7 @@ export default async function PagesPage({
             return (
               <div
                 key={page.id}
-                className="flex flex-wrap items-center gap-4 ui-card p-4"
+                className="ui-card flex flex-wrap items-center gap-4 p-5"
                 data-testid={`page-card-${page.fbPageId}`}
               >
                 {page.avatarUrl ? (

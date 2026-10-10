@@ -10,7 +10,7 @@ export default function AuthLayout({
   children: React.ReactNode;
 }) {
   return (
-    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-gradient-to-br from-blue-50 via-surface to-indigo-100 px-4 py-10">
+    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-background bg-[image:var(--app-glow)] px-4 py-10">
       {/* Hai quầng sáng mờ — nền có chiều sâu thay vì một mảng màu phẳng.
           Dùng biến theo theme nên tối/sáng đều dễ nhìn. */}
       <div

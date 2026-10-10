@@ -186,22 +186,27 @@ export default async function DashboardPage() {
 
   return (
     <div>
-      <PageHeader
-        title={`Xin chào, ${user.name ?? "bạn"} 👋`}
-        description={`${longToday()} · Tổng quan hoạt động đăng bài của bạn`}
-        actions={
-          <>
-            <Link href="/calendar" className="ui-btn ui-btn-ghost">
-              <span aria-hidden>📅</span>
-              Lịch đăng
-            </Link>
-            <Link href="/composer" className="ui-btn ui-btn-primary">
-              <span aria-hidden>✍️</span>
-              Soạn bài mới
-            </Link>
-          </>
-        }
-      />
+      <div className="ui-hero-card mb-7 p-5 md:p-6">
+        <div className="[&>div]:mb-0">
+          <PageHeader
+            title={`Xin chào, ${user.name ?? "bạn"} 👋`}
+            description={`${longToday()} · Tổng quan hoạt động đăng bài của bạn`}
+            kicker="Tổng quan hôm nay"
+            actions={
+              <>
+                <Link href="/calendar" className="ui-btn ui-btn-ghost">
+                  <span aria-hidden>📅</span>
+                  Lịch đăng
+                </Link>
+                <Link href="/composer" className="ui-btn ui-btn-primary">
+                  <span aria-hidden>✍️</span>
+                  Soạn bài mới
+                </Link>
+              </>
+            }
+          />
+        </div>
+      </div>
 
       <div className="space-y-6">
       {showOnboarding && <OnboardingGuide />}
@@ -212,7 +217,7 @@ export default async function DashboardPage() {
           <Link
             key={s.label}
             href={s.href}
-            className="ui-card ui-card-hover ui-rise block p-4 sm:p-5"
+            className="group ui-card ui-card-hover ui-rise block border-t-2 border-t-blue-200 p-4 sm:p-5"
             style={{ "--rise-delay": `${i * 70}ms` } as unknown as React.CSSProperties}
           >
             <div className="flex items-start justify-between gap-3">
@@ -327,7 +332,7 @@ export default async function DashboardPage() {
                   <li key={post.id}>
                     <Link
                       href={`/posts/${post.id}`}
-                      className="flex items-center gap-4 px-5 py-3 transition hover:bg-gray-50"
+                      className="flex flex-wrap items-center gap-3 px-5 py-4 transition hover:bg-blue-50/40 sm:flex-nowrap"
                     >
                       {post.media[0]?.previewUrl || post.media[0]?.remoteUrl ? (
                         // eslint-disable-next-line @next/next/no-img-element

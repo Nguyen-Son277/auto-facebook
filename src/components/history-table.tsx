@@ -103,8 +103,8 @@ export default function HistoryTable({
       {notice && (
         <p
           data-testid="history-notice"
-          className={`rounded-lg px-3 py-2 text-sm font-medium ${
-            notice.ok ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"
+          className={`ui-alert font-medium ${
+            notice.ok ? "ui-alert-success" : "ui-alert-error"
           }`}
         >
           {notice.ok ? "✅" : "⚠"} {notice.text}
@@ -122,7 +122,7 @@ export default function HistoryTable({
               key={row.id}
               data-testid="history-item"
               data-status={row.status}
-              className={`rounded-2xl border bg-white p-4 ${
+              className={`ui-card ui-card-hover p-4 sm:p-5 ${
                 failed ? "border-red-200" : "border-gray-200"
               }`}
             >
@@ -163,7 +163,7 @@ export default function HistoryTable({
 
               {/* Lỗi: hiện lý do và cho xem chi tiết đầy đủ */}
               {failed && row.errorMessage && (
-                <div className="mt-3 rounded-lg bg-red-50 px-3 py-2">
+                <div className="ui-alert ui-alert-error mt-3">
                   <p className="text-xs font-semibold text-red-700">Lý do lỗi</p>
                   <p
                     data-testid="history-error"
@@ -192,7 +192,7 @@ export default function HistoryTable({
                     onClick={() => onRetry(row.id)}
                     disabled={isBusy}
                     data-testid="history-retry"
-                    className="rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-60"
+                    className="ui-btn ui-btn-primary ui-btn-sm"
                   >
                     {isBusy ? "⏳ Đang đăng lại…" : "🔁 Đăng lại"}
                   </button>
@@ -203,7 +203,7 @@ export default function HistoryTable({
                     target="_blank"
                     rel="noreferrer"
                     data-testid="history-permalink"
-                    className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-semibold text-gray-700 transition hover:bg-gray-50"
+                    className="ui-btn ui-btn-ghost ui-btn-sm"
                   >
                     🔗 Xem trên Facebook
                   </a>
@@ -211,7 +211,7 @@ export default function HistoryTable({
                 {row.status === "FAILED" && (
                   <Link
                     href="/composer"
-                    className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-semibold text-gray-700 transition hover:bg-gray-50"
+                    className="ui-btn ui-btn-ghost ui-btn-sm"
                   >
                     ✏️ Sửa &amp; đăng lại
                   </Link>
@@ -221,7 +221,7 @@ export default function HistoryTable({
                   onClick={() => onDelete(row.id)}
                   disabled={isBusy}
                   data-testid="history-delete"
-                  className="rounded-lg border border-red-200 px-3 py-1.5 text-xs font-semibold text-red-600 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="ui-btn ui-btn-danger ui-btn-sm"
                 >
                   🗑️ Xóa
                 </button>

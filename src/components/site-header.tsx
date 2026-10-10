@@ -4,7 +4,7 @@ import { APP_NAME, LEGAL_LINKS } from "@/lib/legal";
 /** Thanh điều hướng dùng chung cho các trang công khai (trang chủ + pháp lý). */
 export default function SiteHeader() {
   return (
-    <header className="sticky top-0 z-40 border-b border-gray-200 bg-topbar backdrop-blur-md">
+    <header className="sticky top-0 z-40 border-b border-gray-200/80 bg-topbar shadow-[0_8px_24px_-22px_rgb(15_23_42/0.45)] backdrop-blur-xl">
       <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-3 md:px-6">
         <Link href="/" className="flex shrink-0 items-center gap-2">
           <span className="flex h-9 w-9 items-center justify-center ui-logo text-xl">

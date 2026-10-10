@@ -109,7 +109,7 @@ export function ToastHost() {
 
   return (
     <div
-      className="fixed bottom-4 right-4 z-[60] flex w-80 max-w-[90vw] flex-col gap-2"
+      className="fixed bottom-4 right-4 z-[60] flex w-80 max-w-[calc(100vw-2rem)] flex-col gap-3"
       data-testid="notification-toast"
     >
       {list.map((t) => {
@@ -119,7 +119,7 @@ export function ToastHost() {
             key={t.key}
             role="alert"
             data-testid={t.testId ?? "toast-item"}
-            className="pointer-events-auto overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl"
+            className="ui-card pointer-events-auto overflow-hidden bg-surface shadow-pop"
           >
             <div className="flex items-start gap-3 px-4 py-3">
               <span
@@ -130,7 +130,7 @@ export function ToastHost() {
               <button
                 type="button"
                 onClick={() => open(t)}
-                className="min-w-0 flex-1 text-left"
+                className="min-w-0 flex-1 rounded-lg text-left transition hover:bg-sunken"
               >
                 <p className="truncate text-sm font-semibold text-gray-900">{t.title}</p>
                 {t.body ? (
@@ -141,7 +141,7 @@ export function ToastHost() {
                 type="button"
                 aria-label="Đóng thông báo"
                 onClick={() => dismissToast(t.key)}
-                className="shrink-0 rounded p-1 text-gray-400 transition hover:bg-gray-100 hover:text-gray-600"
+                className="ui-btn ui-btn-ghost ui-btn-sm shrink-0 px-2"
               >
                 ✕
               </button>

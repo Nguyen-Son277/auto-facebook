@@ -38,7 +38,7 @@ export default function EmptyState({
     ) : null);
 
   return (
-    <div className="ui-card p-8 text-center sm:p-10" data-testid={testId}>
+    <div className="ui-card bg-surface-highlight px-6 py-10 text-center sm:p-12" data-testid={testId}>
       <div className="ui-tile ui-tile-lg ui-tile-slate mx-auto" aria-hidden>
         {icon}
       </div>

@@ -99,7 +99,7 @@ export default function AdminClient({
         <button
           type="button"
           onClick={() => setShowCreate((v) => !v)}
-          className="ui-btn ui-btn-primary px-4 py-2 text-sm font-semibold transition"
+          className="ui-btn ui-btn-primary transition"
         >
           {showCreate ? "Đóng" : "＋ Tạo tài khoản"}
         </button>
@@ -130,7 +130,7 @@ export default function AdminClient({
           action={async (fd) => {
             await run(() => createManagedUser(null, fd));
           }}
-          className="space-y-3 rounded-xl border border-blue-200 bg-blue-50/50 p-4"
+          className="ui-card space-y-4 bg-sunken p-5"
         >
           <h2 className="text-sm font-semibold text-gray-900">
             Tạo tài khoản trực tiếp (không cần chờ đăng ký)
@@ -139,14 +139,14 @@ export default function AdminClient({
             <input
               name="name"
               placeholder="Tên hiển thị"
-              className="rounded-lg border border-gray-300 px-3 py-2 text-sm"
+              className="ui-input"
             />
             <input
               name="email"
               type="email"
               required
               placeholder="email@domain.com"
-              className="rounded-lg border border-gray-300 px-3 py-2 text-sm"
+              className="ui-input"
             />
             <PasswordInput
               id="create-temp-password"
@@ -154,11 +154,11 @@ export default function AdminClient({
               autoComplete="new-password"
               minLength={8}
               placeholder="Mật khẩu tạm (≥8 ký tự)"
-              inputClassName="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+              inputClassName="ui-input"
             />
             <select
               name="role"
-              className="rounded-lg border border-gray-300 px-3 py-2 text-sm"
+              className="ui-select"
               defaultValue="USER"
             >
               <option value="USER">USER</option>
@@ -168,7 +168,7 @@ export default function AdminClient({
           <button
             type="submit"
             disabled={busy}
-            className="ui-btn ui-btn-primary px-4 py-2 text-sm font-semibold disabled:opacity-60"
+            className="ui-btn ui-btn-primary disabled:opacity-60"
           >
             {busy ? "Đang tạo..." : "Tạo tài khoản"}
           </button>
@@ -180,10 +180,10 @@ export default function AdminClient({
 
       {/* Thông báo hành động tức thì */}
       {notice?.error && (
-        <p className="rounded-lg bg-red-50 px-4 py-2 text-sm text-red-600">✗ {notice.error}</p>
+        <p className="ui-alert ui-alert-error">✗ {notice.error}</p>
       )}
       {notice?.ok && notice.message && (
-        <p className="rounded-lg bg-emerald-50 px-4 py-2 text-sm text-emerald-700">
+        <p className="ui-alert ui-alert-success">
           ✓ {notice.message}
         </p>
       )}
@@ -191,7 +191,7 @@ export default function AdminClient({
       {/* Bảng user */}
       <div className="overflow-x-auto ui-card">
         <table className="w-full min-w-[860px] text-left text-sm">
-          <thead className="border-b border-gray-200 bg-gray-50 text-xs uppercase tracking-wide text-gray-500">
+          <thead className="border-b border-gray-200 bg-sunken text-xs uppercase tracking-wide text-gray-500">
             <tr>
               <th className="px-4 py-3">Người dùng</th>
               <th className="px-4 py-3">Quyền</th>
@@ -228,7 +228,7 @@ export default function AdminClient({
                       onChange={(e) =>
                         run(() => changeUserRole(u.id, e.target.value as "ADMIN" | "USER"))
                       }
-                      className="rounded-lg border border-gray-300 px-2 py-1 text-xs disabled:opacity-50"
+                      className="ui-select w-auto py-1.5 text-xs disabled:opacity-50"
                     >
                       <option value="USER">USER</option>
                       <option value="ADMIN">ADMIN</option>
@@ -257,7 +257,7 @@ export default function AdminClient({
                               run(() => approveUser(u.id));
                             }
                           }}
-                          className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+                          className="ui-btn ui-btn-success ui-btn-sm disabled:opacity-50"
                         >
                           ✓ Duyệt
                         </button>
@@ -276,7 +276,7 @@ export default function AdminClient({
                               run(() => rejectUser(u.id));
                             }
                           }}
-                          className="rounded-lg border border-red-300 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
+                          className="ui-btn ui-btn-danger ui-btn-sm disabled:opacity-50"
                         >
                           ⛔ Từ chối
                         </button>
@@ -287,7 +287,7 @@ export default function AdminClient({
                           type="button"
                           disabled={busy}
                           onClick={() => run(() => reinstateUser(u.id))}
-                          className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+                          className="ui-btn ui-btn-success ui-btn-sm disabled:opacity-50"
                         >
                           ✓ Mở lại
                         </button>
@@ -300,7 +300,7 @@ export default function AdminClient({
                             setResetEmail(u.email);
                             setDeleteEmail(null);
                           }}
-                          className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50"
+                          className="ui-btn ui-btn-ghost ui-btn-sm"
                         >
                           🔑 Reset MK
                         </button>
@@ -322,7 +322,7 @@ export default function AdminClient({
                               setResetEmail(null);
                             }
                           }}
-                          className="rounded-lg border border-red-300 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50"
+                          className="ui-btn ui-btn-danger ui-btn-sm"
                         >
                           🗑 Xoá
                         </button>
@@ -358,20 +358,20 @@ export default function AdminClient({
               autoComplete="new-password"
               minLength={8}
               defaultValue="Abc@12345"
-              inputClassName="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+              inputClassName="ui-input"
             />
             <div className="flex justify-end gap-2">
               <button
                 type="button"
                 onClick={() => setResetEmail(null)}
-                className="rounded-lg border border-gray-300 px-4 py-2 text-sm"
+                className="ui-btn ui-btn-ghost"
               >
                 Huỷ
               </button>
               <button
                 type="submit"
                 disabled={busy}
-                className="ui-btn ui-btn-primary px-4 py-2 text-sm font-semibold disabled:opacity-60"
+                className="ui-btn ui-btn-primary disabled:opacity-60"
               >
                 {busy ? "Đang lưu..." : "Đặt lại mật khẩu"}
               </button>
@@ -404,20 +404,20 @@ export default function AdminClient({
               name="confirmEmail"
               required
               placeholder={`Gõ đúng email: ${deleteEmail}`}
-              className="w-full rounded-lg border border-red-300 px-3 py-2 text-sm"
+              className="ui-input border-red-300"
             />
             <div className="flex justify-end gap-2">
               <button
                 type="button"
                 onClick={() => setDeleteEmail(null)}
-                className="rounded-lg border border-gray-300 px-4 py-2 text-sm"
+                className="ui-btn ui-btn-ghost"
               >
                 Huỷ
               </button>
               <button
                 type="submit"
                 disabled={busy}
-                className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+                className="ui-btn ui-btn-danger disabled:opacity-60"
               >
                 {busy ? "Đang xoá..." : "Xoá vĩnh viễn"}
               </button>
@@ -438,11 +438,11 @@ function ModalBackdrop({
 }) {
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm"
       onClick={onClose}
     >
       <div
-        className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl"
+        className="ui-card max-h-[calc(100dvh-2rem)] w-full max-w-md overflow-y-auto bg-surface p-6 shadow-pop"
         onClick={(e) => e.stopPropagation()}
       >
         {children}

@@ -56,7 +56,7 @@ function SyncForm({ conn }: { conn: ConnectionView }) {
         <input
           name="userToken"
           placeholder="EAAG…"
-          className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+          className="ui-input"
         />
       </label>
       <button
@@ -138,7 +138,7 @@ export default function FacebookAppsClient({
               required
               defaultValue={editing?.name ?? ""}
               placeholder="Ví dụ: App Shop Chính"
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+              className="ui-input"
               data-testid="fbapps-name"
             />
           </label>
@@ -150,7 +150,7 @@ export default function FacebookAppsClient({
               required
               defaultValue={editing?.appId ?? ""}
               placeholder="1234567890"
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+              className="ui-input"
               data-testid="fbapps-appid"
             />
           </label>
@@ -164,7 +164,7 @@ export default function FacebookAppsClient({
               type="password"
               required={!editing}
               placeholder={editing?.hasSecret ? "•••••••• (giữ nguyên)" : "App Secret"}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+              className="ui-input"
               data-testid="fbapps-secret"
             />
           </label>
@@ -175,7 +175,7 @@ export default function FacebookAppsClient({
               name="graphVersion"
               defaultValue={editing?.graphVersion ?? "v25.0"}
               placeholder="v25.0"
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+              className="ui-input"
             />
           </label>
 

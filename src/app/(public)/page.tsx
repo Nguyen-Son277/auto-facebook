@@ -105,7 +105,7 @@ export default async function HomePage() {
   return (
     <>
       {/* ---------- Hero ---------- */}
-      <section className="relative overflow-hidden border-b border-gray-200 bg-gradient-to-br from-blue-50 via-surface to-indigo-100">
+      <section className="relative overflow-hidden border-b border-gray-200/80 bg-[image:var(--app-glow)]">
         <div
           aria-hidden
           className="pointer-events-none absolute -left-32 -top-32 h-80 w-80 rounded-full bg-blue-400/20 blur-3xl"
@@ -115,12 +115,12 @@ export default async function HomePage() {
           className="pointer-events-none absolute -bottom-40 right-0 h-96 w-96 rounded-full bg-indigo-500/15 blur-3xl"
         />
 
-        <div className="relative mx-auto grid max-w-6xl items-center gap-10 px-4 py-14 md:grid-cols-2 md:px-6 md:py-20">
+        <div className="relative mx-auto grid max-w-6xl items-center gap-10 px-4 py-16 md:grid-cols-2 md:px-6 md:py-24 lg:gap-14">
           <div>
             <span className="ui-chip border border-blue-200 bg-surface text-blue-700">
               🚀 AI Content · Auto Post
             </span>
-            <h1 className="mt-5 text-3xl font-bold leading-[1.15] tracking-tight text-gray-900 md:text-[2.6rem]">
+            <h1 className="mt-5 text-3xl font-bold leading-[1.14] tracking-[-0.035em] text-gray-900 md:text-[2.6rem] lg:text-[2.85rem]">
               Đăng bài Facebook Page đều đặn mà không cần ngồi viết mỗi ngày
             </h1>
             <p className="mt-4 max-w-xl text-base leading-relaxed text-gray-600">
@@ -156,7 +156,7 @@ export default async function HomePage() {
           </div>
 
           {/* Minh hoạ giao diện — dựng bằng HTML/CSS, không cần ảnh chụp */}
-          <div className="ui-card p-5 shadow-lg">
+          <div className="ui-card relative min-w-0 p-5 shadow-pop ring-8 ring-blue-100/30 md:p-6">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-semibold text-gray-900">
@@ -267,7 +267,7 @@ export default async function HomePage() {
           {FEATURES.map((feature, i) => (
             <div
               key={feature.title}
-              className="ui-card ui-card-hover ui-rise p-5"
+              className="ui-card ui-rise border-t-2 border-t-blue-100 p-5"
               style={{ "--rise-delay": `${i * 40}ms` } as unknown as React.CSSProperties}
             >
               <span className={`ui-tile ${feature.tone}`} aria-hidden>

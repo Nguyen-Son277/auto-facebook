@@ -101,7 +101,7 @@ export default async function BrandPage({
       {selected ? (
         <>
           <div
-            className="mt-6 mb-4 flex flex-wrap items-center gap-3 rounded-lg bg-gray-50 px-4 py-3 text-sm"
+            className="ui-card mt-6 mb-4 flex flex-wrap items-center gap-3 border-l-4 border-l-blue-400 bg-surface-highlight px-5 py-4 text-sm"
             data-testid="brand-summary"
           >
             <span className="font-medium text-gray-900">{selected.name}</span>

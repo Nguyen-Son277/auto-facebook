@@ -18,7 +18,7 @@ export default function PasswordInput({
   minLength,
   placeholder = "••••••••",
   defaultValue,
-  inputClassName = "w-full rounded-lg border border-gray-300 px-3 py-2 text-gray-900 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 focus:outline-none",
+  inputClassName = "ui-input",
 }: {
   id: string;
   name: string;
@@ -35,7 +35,7 @@ export default function PasswordInput({
   return (
     <div>
       {label && (
-        <label htmlFor={id} className="mb-1 block text-sm font-medium text-gray-700">
+        <label htmlFor={id} className="ui-label">
           {label}
         </label>
       )}
@@ -59,7 +59,7 @@ export default function PasswordInput({
           aria-pressed={visible}
           title={visible ? "Ẩn mật khẩu" : "Hiện mật khẩu"}
           data-testid={`pw-toggle-${name}`}
-          className="absolute inset-y-0 right-0 flex w-11 items-center justify-center rounded-r-lg text-gray-500 transition hover:bg-gray-100 hover:text-gray-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-300"
+          className="absolute inset-y-1 right-1 flex w-9 items-center justify-center rounded-lg text-gray-500 transition hover:bg-sunken hover:text-gray-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-300"
         >
           {visible ? "🙈" : "👁"}
         </button>

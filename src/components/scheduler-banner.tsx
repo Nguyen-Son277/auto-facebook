@@ -51,10 +51,10 @@ export default function SchedulerBanner({
   const active = status.enabled && status.workerAlive;
 
   const tone = !status.enabled
-    ? "border-gray-300 bg-gray-50"
+    ? "border-gray-300/80 bg-sunken"
     : active
-      ? "border-emerald-200 bg-emerald-50"
-      : "border-amber-200 bg-amber-50";
+      ? "border-emerald-200 bg-emerald-50/80"
+      : "border-amber-200 bg-amber-50/80";
   const dot = !status.enabled ? "bg-gray-400" : active ? "bg-emerald-500" : "bg-amber-500";
 
   const agoText =

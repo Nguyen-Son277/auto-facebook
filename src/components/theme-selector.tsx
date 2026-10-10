@@ -48,8 +48,8 @@ export default function ThemeSelector({ current }: { current: ThemePreference })
             aria-pressed={active}
             className={`flex flex-col items-center gap-1 rounded-xl border px-3 py-3 text-center transition disabled:opacity-60 ${
               active
-                ? "border-blue-500 bg-blue-50 ring-2 ring-blue-200"
-                : "border-gray-200 hover:border-gray-300 hover:bg-gray-50"
+                ? "border-blue-400 bg-blue-50 shadow-raised ring-2 ring-blue-200"
+                : "border-gray-200 bg-surface hover:border-blue-200 hover:bg-blue-50/50"
             }`}
           >
             <span className="text-2xl" aria-hidden>

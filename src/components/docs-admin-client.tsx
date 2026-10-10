@@ -72,17 +72,17 @@ export default function DocsAdminClient({
   return (
     <div className="space-y-6">
       {notice?.error && (
-        <p className="rounded-lg bg-red-50 px-4 py-2 text-sm text-red-600">✗ {notice.error}</p>
+        <p className="ui-alert ui-alert-error">✗ {notice.error}</p>
       )}
       {notice?.ok && notice.message && (
-        <p className="rounded-lg bg-emerald-50 px-4 py-2 text-sm text-emerald-700">
+        <p className="ui-alert ui-alert-success">
           ✓ {notice.message}
         </p>
       )}
 
       {/* ================= DOCS ================= */}
       <section className="ui-card p-5">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h2 className="font-semibold text-gray-900">Tài liệu hướng dẫn ({docs.length})</h2>
             <p className="mt-0.5 text-xs text-gray-500">
@@ -92,7 +92,7 @@ export default function DocsAdminClient({
           <button
             type="button"
             onClick={() => setEditing("new")}
-            className="ui-btn ui-btn-primary px-4 py-2 text-sm font-semibold transition"
+            className="ui-btn ui-btn-primary transition"
           >
             ＋ Tạo doc
           </button>
@@ -124,17 +124,17 @@ export default function DocsAdminClient({
                 </p>
                 <p className="text-xs text-gray-400">/docs/{d.slug}</p>
               </div>
-              <div className="flex gap-1.5">
+              <div className="flex flex-wrap gap-1.5">
                 <Link
                   href={`/docs/${d.slug}`}
-                  className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-50"
+                  className="ui-btn ui-btn-ghost ui-btn-sm"
                 >
                   👁 Xem
                 </Link>
                 <button
                   type="button"
                   onClick={() => setEditing(d)}
-                  className="rounded-lg border border-blue-300 px-3 py-1.5 text-xs font-medium text-blue-600 hover:bg-blue-50"
+                  className="ui-btn ui-btn-soft ui-btn-sm"
                 >
                   ✏️ Sửa
                 </button>
@@ -146,7 +146,7 @@ export default function DocsAdminClient({
                       run(() => deleteDoc(d.id));
                     }
                   }}
-                  className="rounded-lg border border-red-300 px-3 py-1.5 text-xs text-red-600 hover:bg-red-50 disabled:opacity-50"
+                  className="ui-btn ui-btn-danger ui-btn-sm disabled:opacity-50"
                 >
                   🗑 Xoá
                 </button>
@@ -158,7 +158,7 @@ export default function DocsAdminClient({
 
       {/* ================= CÂU HỎI ================= */}
       <section className="ui-card p-5">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h2 className="font-semibold text-gray-900">Câu hỏi tương tác ({questions.length})</h2>
             <p className="mt-0.5 text-xs text-gray-500">
@@ -168,7 +168,7 @@ export default function DocsAdminClient({
           <button
             type="button"
             onClick={() => setEditingQ("new")}
-            className="ui-btn ui-btn-primary px-4 py-2 text-sm font-semibold transition"
+            className="ui-btn ui-btn-primary transition"
           >
             ＋ Tạo câu hỏi
           </button>
@@ -179,7 +179,7 @@ export default function DocsAdminClient({
             <p className="py-6 text-center text-sm text-gray-500">Chưa có câu hỏi nào.</p>
           )}
           {questions.map((q) => (
-            <div key={q.id} className="rounded-xl border border-gray-100 bg-gray-50/60 p-4" data-testid={`question-row-${q.id}`}>
+            <div key={q.id} className="rounded-xl border border-gray-200 bg-sunken p-4" data-testid={`question-row-${q.id}`}>
               <div className="flex flex-wrap items-start justify-between gap-2">
                 <p className="min-w-0 flex-1 font-medium text-gray-900">
                   ❓ {q.question}
@@ -189,19 +189,19 @@ export default function DocsAdminClient({
                     </span>
                   )}
                 </p>
-                <div className="flex gap-1.5">
+                <div className="flex flex-wrap gap-1.5">
                   <button
                     type="button"
                     disabled={busy}
                     onClick={() => run(() => toggleQuestionActive(q.id))}
-                    className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-100 disabled:opacity-50"
+                    className="ui-btn ui-btn-ghost ui-btn-sm disabled:opacity-50"
                   >
                     {q.active ? "🙈 Ẩn" : "👁 Hiện"}
                   </button>
                   <button
                     type="button"
                     onClick={() => setEditingQ(q)}
-                    className="rounded-lg border border-blue-300 px-3 py-1.5 text-xs font-medium text-blue-600 hover:bg-blue-50"
+                    className="ui-btn ui-btn-soft ui-btn-sm"
                   >
                     ✏️ Sửa
                   </button>
@@ -213,7 +213,7 @@ export default function DocsAdminClient({
                         run(() => deleteQuestion(q.id));
                       }
                     }}
-                    className="rounded-lg border border-red-300 px-3 py-1.5 text-xs text-red-600 hover:bg-red-50 disabled:opacity-50"
+                    className="ui-btn ui-btn-danger ui-btn-sm disabled:opacity-50"
                   >
                     🗑 Xoá
                   </button>
@@ -228,7 +228,7 @@ export default function DocsAdminClient({
                   </summary>
                   <ul className="mt-2 space-y-2">
                     {q.answers.map((a) => (
-                      <li key={a.id} className="rounded-lg bg-white px-3 py-2 text-xs text-gray-700">
+                      <li key={a.id} className="rounded-xl border border-gray-200 bg-surface px-3 py-2 text-xs text-gray-700">
                         <span className="font-medium text-gray-900">{a.userName || a.userEmail}</span>
                         <span className="ml-1 text-gray-400">
                           ({formatDateTime(a.updatedAt)})
@@ -299,18 +299,18 @@ function DocForm({
       {doc && <input type="hidden" name="id" value={doc.id} />}
 
       <label className="block text-sm">
-        <span className="mb-1 block font-medium text-gray-700">Tiêu đề *</span>
+        <span className="ui-label">Tiêu đề *</span>
         <input
           name="title"
           required
           defaultValue={doc?.title ?? ""}
           placeholder="Ví dụ: Hướng dẫn kết nối Facebook"
-          className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+          className="ui-input"
         />
       </label>
 
       <label className="block text-sm">
-        <span className="mb-1 block font-medium text-gray-700">
+        <span className="ui-label">
           Nội dung markdown * <em className="text-gray-400">(hỗ trợ # tiêu đề, **đậm**, - danh sách, link...)</em>
         </span>
         <textarea
@@ -318,7 +318,7 @@ function DocForm({
           required
           rows={12}
           defaultValue={doc?.bodyMarkdown ?? ""}
-          className="w-full rounded-lg border border-gray-300 px-3 py-2 font-mono text-xs focus:border-blue-500 focus:outline-none"
+          className="ui-input font-mono text-xs"
         />
       </label>
 
@@ -349,14 +349,14 @@ function DocForm({
         <button
           type="button"
           onClick={onCancel}
-          className="rounded-lg border border-gray-300 px-4 py-2 text-sm"
+          className="ui-btn ui-btn-ghost"
         >
           Huỷ
         </button>
         <button
           type="submit"
           disabled={busy}
-          className="ui-btn ui-btn-primary px-4 py-2 text-sm font-semibold disabled:opacity-60"
+          className="ui-btn ui-btn-primary disabled:opacity-60"
         >
           {busy ? "Đang lưu..." : "💾 Lưu"}
         </button>
@@ -388,20 +388,20 @@ function QuestionForm({
         rows={3}
         defaultValue={q?.question ?? ""}
         placeholder="Câu hỏi dành cho người dùng — ví dụ: Bạn muốn thêm tính năng gì?"
-        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+        className="ui-input"
       />
       <div className="flex justify-end gap-2">
         <button
           type="button"
           onClick={onCancel}
-          className="rounded-lg border border-gray-300 px-4 py-2 text-sm"
+          className="ui-btn ui-btn-ghost"
         >
           Huỷ
         </button>
         <button
           type="submit"
           disabled={busy}
-          className="ui-btn ui-btn-primary px-4 py-2 text-sm font-semibold disabled:opacity-60"
+          className="ui-btn ui-btn-primary disabled:opacity-60"
         >
           {busy ? "Đang lưu..." : "💾 Lưu"}
         </button>
@@ -419,11 +419,11 @@ function ModalBackdrop({
 }) {
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/40 p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/50 p-4 backdrop-blur-sm"
       onClick={onClose}
     >
       <div
-        className="my-8 w-full max-w-2xl rounded-2xl bg-white p-6 shadow-xl"
+        className="ui-card my-8 max-h-[calc(100dvh-2rem)] w-full max-w-2xl overflow-y-auto bg-surface p-6 shadow-pop"
         onClick={(e) => e.stopPropagation()}
       >
         {children}

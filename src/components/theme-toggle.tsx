@@ -41,7 +41,7 @@ export default function ThemeToggle() {
       aria-label={dark ? "Chuyển sang giao diện sáng" : "Chuyển sang giao diện tối"}
       title={dark ? "Giao diện sáng" : "Giao diện tối"}
       data-testid="theme-toggle"
-      className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-gray-200 bg-surface text-base transition hover:border-gray-300 hover:bg-gray-50"
+      className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-gray-200/80 bg-surface text-base shadow-card transition hover:-translate-y-0.5 hover:border-blue-200 hover:bg-blue-50"
     >
       <span aria-hidden>{dark ? "☀️" : "🌙"}</span>
     </button>

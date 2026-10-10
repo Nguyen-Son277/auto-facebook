@@ -56,7 +56,7 @@ export default async function SettingsPage({
 
       <div className="space-y-5">
         {/* ================= Giao diện ================= */}
-        <section className="ui-card p-5">
+        <section className="ui-card border-t-2 border-t-blue-100 p-5 sm:p-6">
           <div className="mb-1 flex items-center gap-3">
             <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-100 text-xl">
               🎨
@@ -101,7 +101,7 @@ export default async function SettingsPage({
             Quản trị — chỉ admin điều khiển được. User thường không thấy. */}
 
         {/* ================= Đổi mật khẩu ================= */}
-        <section className="ui-card p-5">
+        <section className="ui-card border-t-2 border-t-blue-100 p-5 sm:p-6">
           <div className="mb-1 flex items-center gap-3">
             <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-100 text-xl">
               🔑

@@ -22,7 +22,7 @@ export function WeekBars({
   return (
     <div>
       <div
-        className="flex h-40 items-end gap-2 sm:gap-3"
+        className="flex h-40 items-end gap-2 rounded-xl bg-surface-highlight px-3 pb-2 sm:gap-3"
         role="img"
         aria-label={`${ariaLabel} — tổng ${total} bài`}
       >

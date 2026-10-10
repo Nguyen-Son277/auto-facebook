@@ -4,6 +4,7 @@ import { requireCurrentUser } from "@/lib/dal";
 import { statusBadgeOf } from "@/lib/posts";
 import HistoryTable, { type HistoryRow } from "@/components/history-table";
 import HistorySearch from "@/components/history-search";
+import PageHeader from "@/components/page-header";
 
 // ============================================================
 // Trang Lịch sử đăng bài — xem toàn bộ bài đã đăng / nháp / lỗi,
@@ -99,20 +100,15 @@ export default async function HistoryPage({
 
   return (
     <div className="space-y-5">
-      <header className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Lịch sử đăng bài</h1>
-          <p className="mt-1 text-sm text-gray-500">
-            Toàn bộ bài đã đăng, đang đăng và bài lỗi — kèm lý do lỗi và nút đăng lại.
-          </p>
-        </div>
-        <Link
-          href="/composer"
-          className="ui-btn ui-btn-primary px-4 py-2 text-sm font-semibold transition"
-        >
-          ✍️ Soạn bài mới
-        </Link>
-      </header>
+      <PageHeader
+        title="Lịch sử đăng bài"
+        description="Toàn bộ bài đã đăng, đang đăng và bài lỗi — kèm lý do lỗi và nút đăng lại."
+        actions={
+          <Link href="/composer" className="ui-btn ui-btn-primary">
+            ✍️ Soạn bài mới
+          </Link>
+        }
+      />
 
       {/* Bộ lọc trạng thái + tìm kiếm */}
       <div className="space-y-3 ui-card p-4">

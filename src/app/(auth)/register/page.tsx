@@ -9,7 +9,7 @@ export default function RegisterPage() {
   const [state, formAction, pending] = useActionState(register, null);
 
   return (
-    <div className="ui-card p-8 shadow-lg">
+    <div className="ui-card p-8 shadow-raised sm:p-9">
       <div className="mb-8 text-center">
         <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center ui-logo text-3xl">
           📝
@@ -37,7 +37,7 @@ export default function RegisterPage() {
           <div>
             <label
               htmlFor="name"
-              className="mb-1 block text-sm font-medium text-gray-700"
+              className="ui-label"
             >
               Tên hiển thị <span className="text-gray-400">(tùy chọn)</span>
             </label>
@@ -46,7 +46,7 @@ export default function RegisterPage() {
               name="name"
               type="text"
               autoComplete="name"
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-gray-900 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 focus:outline-none"
+              className="ui-input"
               placeholder="Nguyễn Văn A"
             />
           </div>
@@ -54,7 +54,7 @@ export default function RegisterPage() {
           <div>
             <label
               htmlFor="email"
-              className="mb-1 block text-sm font-medium text-gray-700"
+              className="ui-label"
             >
               Email
             </label>
@@ -64,7 +64,7 @@ export default function RegisterPage() {
               type="email"
               autoComplete="email"
               required
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-gray-900 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 focus:outline-none"
+              className="ui-input"
               placeholder="ban@example.com"
             />
           </div>

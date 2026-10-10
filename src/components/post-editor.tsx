@@ -31,12 +31,9 @@ import {
 // Facebook, sửa chữ, đổi ảnh, đổi giờ rồi duyệt — tất cả trong một chỗ.
 // ============================================================
 
-const btnPrimary =
-  "ui-btn ui-btn-primary px-4 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-60";
-const btnGhost =
-  "rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 transition hover:bg-gray-50 disabled:opacity-60";
-const inputCls =
-  "w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 focus:outline-none";
+const btnPrimary = "ui-btn ui-btn-primary";
+const btnGhost = "ui-btn ui-btn-ghost ui-btn-sm";
+const inputCls = "ui-input";
 
 export type PostView = {
   id: string;
@@ -60,8 +57,8 @@ function Alert({ state, testId }: { state: PostEditState; testId?: string }) {
   return (
     <div
       data-testid={testId}
-      className={`rounded-lg px-3 py-2 text-sm ${
-        state.error ? "bg-red-50 text-red-700" : "bg-emerald-50 text-emerald-700"
+      className={`ui-alert ${
+        state.error ? "ui-alert-error" : "ui-alert-success"
       }`}
     >
       {state.error ? `✗ ${state.error}` : `✓ ${state.message}`}
@@ -261,7 +258,7 @@ export default function PostEditor({
 
         {post.errorMessage ? (
           <p
-            className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700"
+            className="mt-3 ui-alert ui-alert-error"
             data-testid="post-error"
           >
             ✗ {post.errorMessage}
@@ -285,7 +282,7 @@ export default function PostEditor({
 
       {locked ? (
         <div
-          className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800"
+          className="ui-alert ui-alert-warning p-4"
           data-testid="post-locked"
         >
           {post.status === "PUBLISHING"
@@ -332,7 +329,7 @@ export default function PostEditor({
                   <li
                     key={issue.code}
                     data-issue={issue.code}
-                    className="rounded bg-amber-50 px-2 py-1 text-xs text-amber-800"
+                    className="ui-alert ui-alert-warning px-3 py-2 text-xs"
                   >
                     {issue.message}
                   </li>
@@ -340,7 +337,7 @@ export default function PostEditor({
               </ul>
             ) : null}
 
-            <label className="mt-4 block text-sm font-medium text-gray-700">Hashtag</label>
+            <label className="ui-label mt-4">Hashtag</label>
             <input
               name="hashtags"
               value={hashtags}
@@ -353,7 +350,7 @@ export default function PostEditor({
 
             {post.status !== "PUBLISHED" ? (
               <>
-                <label className="mt-4 block text-sm font-medium text-gray-700">
+                <label className="ui-label mt-4">
                   Thời gian đăng
                 </label>
                 <input
@@ -428,7 +425,7 @@ export default function PostEditor({
 
             {!mediaCheck.ok ? (
               <p
-                className="mt-2 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700"
+                className="mt-2 ui-alert ui-alert-error"
                 data-testid="post-media-error"
               >
                 ✗ {mediaCheck.error}
@@ -436,7 +433,7 @@ export default function PostEditor({
             ) : null}
 
             {media.length === 0 ? (
-              <p className="mt-3 rounded-lg border border-dashed border-gray-300 p-6 text-center text-sm text-gray-500">
+              <p className="ui-dropzone mt-3 p-6 text-center text-sm text-gray-500">
                 Chưa có ảnh nào. Bài sẽ đăng dạng chỉ có chữ.
               </p>
             ) : (
@@ -446,7 +443,7 @@ export default function PostEditor({
                     key={`${m.remoteUrl}-${i}`}
                     data-testid="post-media-item"
                     data-type={m.type}
-                    className="flex items-center gap-3 rounded-lg border border-gray-200 p-2"
+                    className="flex items-center gap-3 rounded-xl border border-gray-200 bg-sunken p-3"
                   >
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
@@ -482,7 +479,7 @@ export default function PostEditor({
                       </button>
                       <button
                         type="button"
-                        className={`${btnGhost} text-red-600`}
+                        className="ui-btn ui-btn-danger ui-btn-sm"
                         disabled={locked}
                         data-testid="post-media-remove"
                         onClick={() => setMedia(media.filter((_, idx) => idx !== i))}
@@ -548,7 +545,7 @@ export default function PostEditor({
                 {post.status === "PENDING_REVIEW" ? (
                   <button
                     type="button"
-                    className={`${btnPrimary} bg-emerald-600 hover:bg-emerald-700`}
+                    className="ui-btn ui-btn-success"
                     disabled={busy}
                     data-testid="post-approve"
                     onClick={() =>
@@ -568,7 +565,7 @@ export default function PostEditor({
 
                 <button
                   type="button"
-                  className={`${btnGhost} text-red-600`}
+                  className="ui-btn ui-btn-danger ui-btn-sm"
                   disabled={busy}
                   data-testid="post-delete"
                   onClick={() => {

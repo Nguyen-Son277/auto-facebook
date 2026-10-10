@@ -191,7 +191,7 @@ export default function MediaBrowser({
   return (
     <div className="space-y-4">
       {!pexelsReady && (
-        <div className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">
+        <div className="ui-alert ui-alert-warning">
           Chưa cấu hình Pexels API Key.{" "}
           <a href="/settings" className="font-medium underline">
             Vào Cài đặt
@@ -214,14 +214,15 @@ export default function MediaBrowser({
               }
             }}
             placeholder="Tìm ảnh/video... (từ khóa tiếng Anh cho kết quả tốt nhất)"
-            className="min-w-[200px] flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 focus:outline-none"
+            aria-label="Từ khóa tìm ảnh hoặc video"
+            className="ui-input min-w-0 basis-full sm:basis-56 sm:flex-1"
           />
           <button
             type="button"
             onClick={() => runSearch({ query, mediaType, page: 1 })}
             disabled={busy || !pexelsReady}
             data-testid="media-search-btn"
-            className="ui-btn ui-btn-primary px-4 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-60"
+            className="ui-btn ui-btn-primary"
           >
             {searching ? "Đang tìm..." : "🔍 Tìm"}
           </button>
@@ -236,7 +237,7 @@ export default function MediaBrowser({
                   ? "AI đọc nội dung bài để gợi ý từ khóa"
                   : "Nhập nội dung bài đăng trước để AI gợi ý từ khóa"
               }
-              className="rounded-lg bg-violet-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-60"
+              className="ui-btn ui-btn-soft"
             >
               {suggesting ? "AI đang đọc..." : "✨ AI gợi ý từ khóa"}
             </button>
@@ -244,7 +245,7 @@ export default function MediaBrowser({
         </div>
 
         {/* Tab loại media */}
-        <div className="flex gap-1 rounded-lg bg-gray-100 p-1 text-sm">
+        <div className="ui-segmented w-full sm:w-auto">
           {(
             [
               ["IMAGE", "🖼️ Ảnh"],
@@ -256,11 +257,8 @@ export default function MediaBrowser({
               type="button"
               data-testid={`media-tab-${value}`}
               onClick={() => changeType(value)}
-              className={`flex-1 rounded-md px-3 py-1.5 font-medium transition ${
-                mediaType === value
-                  ? "bg-white text-gray-900 shadow-sm"
-                  : "text-gray-600 hover:text-gray-900"
-              }`}
+              aria-pressed={mediaType === value}
+              className={`min-h-10 flex-1 sm:min-w-28 ${mediaType === value ? "is-active" : ""}`}
             >
               {label}
             </button>
@@ -268,13 +266,13 @@ export default function MediaBrowser({
         </div>
 
         {kwState?.error && (
-          <p className="rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">
+          <p className="ui-alert ui-alert-error">
             ✗ {kwState.error}
           </p>
         )}
         {keywords.length > 0 && (
-          <div className="rounded-lg border border-violet-200 bg-violet-50/60 p-2.5">
-            <p className="mb-1.5 text-xs font-medium text-violet-900">
+          <div className="ui-alert ui-alert-info">
+            <p className="mb-2 text-xs font-semibold">
               ✨ AI gợi ý từ khóa (bấm để tìm):
             </p>
             <div className="flex flex-wrap gap-1.5">
@@ -285,10 +283,10 @@ export default function MediaBrowser({
                   data-testid="keyword-suggestion"
                   onClick={() => applyKeyword(k)}
                   disabled={busy}
-                  className="rounded-full border border-violet-300 bg-white px-2.5 py-1 text-xs text-violet-700 transition hover:bg-violet-100 disabled:opacity-60"
+                  className="ui-btn ui-btn-soft ui-btn-sm whitespace-normal text-left"
                   title={`Tìm: ${k.query}`}
                 >
-                  {k.label} <span className="text-violet-400">· {k.query}</span>
+                  {k.label} <span className="text-blue-600">· {k.query}</span>
                 </button>
               ))}
             </div>
@@ -298,7 +296,7 @@ export default function MediaBrowser({
 
       {/* ---------- Kết quả ---------- */}
       {result?.error && (
-        <div className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+        <div className="ui-alert ui-alert-error">
           ✗ {result.error}
         </div>
       )}
@@ -316,10 +314,14 @@ export default function MediaBrowser({
       )}
 
       {!result && !searching && pexelsReady && mode === "pick" && (
-        <p className="rounded-lg border border-dashed border-gray-300 px-3 py-8 text-center text-sm text-gray-500">
-          Nhập từ khóa rồi bấm <span className="font-medium">🔍 Tìm</span> — hoặc bấm{" "}
-          <span className="font-medium">Để trống + Tìm</span> để xem ảnh phổ biến.
-        </p>
+        <div className="ui-dropzone px-5 py-10 text-center">
+          <span aria-hidden="true" className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-100 text-2xl">🔎</span>
+          <p className="font-semibold text-gray-900">Tìm hình ảnh cho câu chuyện của bạn</p>
+          <p className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-gray-500">
+            Nhập từ khóa rồi bấm <span className="font-medium">Tìm</span>, hoặc để trống từ khóa
+            để khám phá ảnh phổ biến trên Pexels.
+          </p>
+        </div>
       )}
 
       {searching && items.length === 0 && (
@@ -331,14 +333,14 @@ export default function MediaBrowser({
       )}
 
       {!searching && result?.ok && items.length === 0 && (
-        <p className="rounded-lg bg-gray-50 px-3 py-8 text-center text-sm text-gray-500">
+        <p className="ui-dropzone px-5 py-10 text-center text-sm leading-relaxed text-gray-500">
           Không tìm thấy {mediaType === "VIDEO" ? "video" : "ảnh"} nào cho &quot;{result.keyword}
           &quot; — thử từ khóa khác.
         </p>
       )}
 
       {items.length > 0 && (
-        <div className="grid max-h-[420px] grid-cols-2 gap-3 overflow-y-auto pr-1 sm:grid-cols-3">
+        <div className="grid max-h-[420px] grid-cols-2 gap-3 overflow-y-auto p-1 sm:grid-cols-3">
           {items.map((item) => {
             const k = keyOf(item);
             const isSelected = selected.has(k);
@@ -351,10 +353,11 @@ export default function MediaBrowser({
                 data-media-type={item.type}
                 data-selected={isSelected ? "1" : "0"}
                 onClick={() => toggle(item)}
-                className={`group relative overflow-hidden rounded-xl border-2 text-left transition ${
+                aria-pressed={isSelected}
+                className={`group relative overflow-hidden rounded-xl border-2 text-left shadow-sm transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 ${
                   isSelected
                     ? "border-blue-500 ring-2 ring-blue-200"
-                    : "border-transparent hover:border-gray-300"
+                    : "border-gray-200 hover:border-blue-300"
                 }`}
               >
                 <div className="relative aspect-[4/3] w-full bg-gray-100">
@@ -375,13 +378,11 @@ export default function MediaBrowser({
                       Đã lưu
                     </span>
                   )}
-                  {isSelected && (
-                    <span className="absolute left-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-blue-600 text-xs font-bold text-white">
-                      {Array.from(selected.keys()).indexOf(k) + 1}
-                    </span>
-                  )}
+                  <span aria-hidden="true" className={`absolute right-2 top-2 flex h-8 w-8 items-center justify-center rounded-full border text-sm font-bold shadow-sm ${isSelected ? "border-blue-500 bg-blue-600 text-white" : "border-white/60 bg-black/60 text-white"}`}>
+                    {isSelected ? Array.from(selected.keys()).indexOf(k) + 1 : "+"}
+                  </span>
                 </div>
-                <div className="bg-white px-2 py-1.5">
+                <div className="bg-surface px-3 py-2.5">
                   <p className="truncate text-[11px] text-gray-600">
                     {item.photographer ?? "—"}
                   </p>
@@ -397,14 +398,14 @@ export default function MediaBrowser({
 
       {/* ---------- Phân trang ---------- */}
       {result?.ok && (items.length > 0 || (result.page ?? 1) > 1) && (
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <button
             type="button"
             disabled={busy || (result.page ?? 1) <= 1}
             onClick={() =>
               runSearch({ query, mediaType, page: Math.max((result.page ?? 1) - 1, 1) })
             }
-            className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+            className="ui-btn ui-btn-ghost ui-btn-sm min-h-10"
           >
             ← Trang trước
           </button>
@@ -413,7 +414,7 @@ export default function MediaBrowser({
             type="button"
             disabled={busy || !result.hasNextPage}
             onClick={() => runSearch({ query, mediaType, page: (result.page ?? 1) + 1 })}
-            className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+            className="ui-btn ui-btn-ghost ui-btn-sm min-h-10"
           >
             Trang sau →
           </button>
@@ -424,8 +425,8 @@ export default function MediaBrowser({
       {notice && (
         <div
           data-testid="media-notice"
-          className={`rounded-lg px-3 py-2 text-sm ${
-            notice.ok ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-800"
+          className={`ui-alert ${
+            notice.ok ? "ui-alert-success" : "ui-alert-warning"
           }`}
         >
           {notice.ok ? "✓ " : "⚠ "}
@@ -433,7 +434,7 @@ export default function MediaBrowser({
         </div>
       )}
 
-      <div className="flex flex-wrap items-center justify-between gap-2 border-t border-gray-200 pt-3">
+      <div className="flex flex-col gap-3 border-t border-gray-200 pt-4 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
         <p className="text-xs text-gray-500" data-testid="selected-summary">
           {existingCounts.photos + existingCounts.videos > 0 && (
             <span className="mr-2 text-gray-600">
@@ -448,12 +449,12 @@ export default function MediaBrowser({
             (ảnh tối đa {MAX_PHOTOS_PER_POST}, video tối đa 1, không trộn lẫn)
           </span>
         </p>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           {onClose && (
             <button
               type="button"
               onClick={onClose}
-              className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-50"
+              className="ui-btn ui-btn-ghost"
             >
               Đóng
             </button>
@@ -462,7 +463,7 @@ export default function MediaBrowser({
             type="button"
             onClick={handlePrimary}
             disabled={selectedList.length === 0 || busy || !pexelsReady}
-            className="ui-btn ui-btn-primary px-4 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-60"
+            className="ui-btn ui-btn-primary"
           >
             {savingLib
               ? `Đang lưu ${savingIds.length}...`

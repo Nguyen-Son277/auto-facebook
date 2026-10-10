@@ -81,7 +81,7 @@ export default function OnboardingGuide() {
 
   return (
     <section
-      className="mb-6 rounded-2xl border border-blue-200 bg-gradient-to-br from-blue-50 to-indigo-50 p-5"
+      className="ui-hero-card mb-6 p-5"
       data-testid="onboarding-guide"
     >
       <div className="flex flex-wrap items-start justify-between gap-2">
@@ -110,7 +110,7 @@ export default function OnboardingGuide() {
           return (
             <li
               key={step.n}
-              className="rounded-xl border border-blue-100 bg-white/80"
+              className="rounded-xl border border-blue-200/70 bg-surface-highlight shadow-card"
               data-testid={`onboarding-step-${step.n}`}
             >
               <button

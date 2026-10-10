@@ -56,6 +56,7 @@ export default function MediaLibrary({
     .filter((id): id is string => Boolean(id));
 
   const visible = saved.filter((m) => filter === "ALL" || m.type === filter);
+  const quotaPercent = quotaLimit > 0 ? Math.min(100, Math.max(0, (quotaUsed / quotaLimit) * 100)) : 0;
 
   function onDelete(id: string) {
     if (!window.confirm("Xóa media này khỏi thư viện?")) return;
@@ -81,7 +82,7 @@ export default function MediaLibrary({
     <div className="space-y-5">
       {/* Quota + tab */}
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap gap-1 rounded-lg bg-gray-100 p-1 text-sm">
+        <div className="ui-segmented w-full sm:w-auto">
           {(
             [
               ["search", "🔍 Tìm trên Pexels"],
@@ -96,32 +97,43 @@ export default function MediaLibrary({
               key={value}
               type="button"
               onClick={() => setTab(value)}
-              className={`rounded-md px-3 py-1.5 font-medium transition ${
-                tab === value
-                  ? "bg-white text-gray-900 shadow-sm"
-                  : "text-gray-600 hover:text-gray-900"
-              }`}
+              aria-pressed={tab === value}
+              className={`min-h-10 flex-1 sm:flex-none ${tab === value ? "is-active" : ""}`}
             >
               {label}
             </button>
           ))}
         </div>
 
-        <p className="text-xs text-gray-500">
-          Pexels:{" "}
-          <span
-            className={
-              quotaUsed > quotaLimit * 0.8 ? "font-medium text-amber-600" : "text-gray-600"
-            }
+        <div className="w-full space-y-2 rounded-xl border border-gray-200 bg-surface px-4 py-3 sm:w-auto sm:min-w-64">
+          <p className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-xs text-gray-500">
+            <span>Pexels · 1 giờ qua</span>
+            <span
+              className={
+                quotaLimit > 0 && quotaUsed > quotaLimit * 0.8
+                  ? "font-semibold tabular-nums text-amber-600"
+                  : "font-semibold tabular-nums text-gray-700"
+              }
+            >
+              {quotaLimit > 0 ? `${quotaUsed}/${quotaLimit} request` : `${quotaUsed} request · chưa có hạn mức`}
+            </span>
+          </p>
+          <div
+            className="ui-progress"
+            role="progressbar"
+            aria-label="Số request Pexels đã sử dụng trong 1 giờ qua"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={quotaPercent}
+            aria-valuetext={quotaLimit > 0 ? `${quotaUsed} trên ${quotaLimit} request` : "Chưa có hạn mức request"}
           >
-            {quotaUsed}/{quotaLimit}
-          </span>{" "}
-          request trong 1 giờ qua
-        </p>
+            <span style={{ width: `${quotaPercent}%` }} />
+          </div>
+        </div>
       </div>
 
       {tab === "search" ? (
-        <div className="ui-card p-5">
+        <div className="ui-card p-4 sm:p-5">
           <MediaBrowser
             mode="library"
             pexelsReady={pexelsReady}
@@ -130,21 +142,23 @@ export default function MediaLibrary({
           />
         </div>
       ) : tab === "drive" ? (
-        <div className="ui-card p-5">
+        <div className="ui-card p-4 sm:p-5">
           <DriveLibraryPanel folders={drive.folders} pickerApiKey={drive.pickerApiKey} />
         </div>
       ) : (
-        <div className="ui-card p-5">
+        <div className="ui-card p-4 sm:p-5">
           {saved.length === 0 ? (
-            <div className="py-10 text-center">
-              <p className="text-sm text-gray-500">
-                Thư viện đang trống. Sang tab{" "}
-                <span className="font-medium">Tìm trên Pexels</span> để lưu ảnh/video dùng lại.
+            <div className="ui-dropzone px-5 py-12 text-center">
+              <span aria-hidden="true" className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-100 text-2xl">🖼️</span>
+              <p className="font-semibold text-gray-900">Thư viện đang chờ ý tưởng đầu tiên</p>
+              <p className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-gray-500">
+                Sang tab <span className="font-medium text-blue-700">Tìm trên Pexels</span> để lưu ảnh/video,
+                sẵn sàng dùng lại cho những bài đăng tiếp theo.
               </p>
             </div>
           ) : (
             <>
-              <div className="mb-4 flex flex-wrap gap-2">
+              <div className="ui-segmented mb-4">
                 {(
                   [
                     ["ALL", `Tất cả (${saved.length})`],
@@ -156,22 +170,26 @@ export default function MediaLibrary({
                     key={value}
                     type="button"
                     onClick={() => setFilter(value)}
-                    className={`rounded-full px-3 py-1 text-xs font-medium transition ${
-                      filter === value
-                        ? "ui-btn ui-btn-primary "
-                        : "bg-gray-100 text-gray-600 hover:bg-gray-200"
-                    }`}
+                    aria-pressed={filter === value}
+                    className={`min-h-10 ${filter === value ? "is-active" : ""}`}
                   >
                     {label}
                   </button>
                 ))}
               </div>
 
-              <ul className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              {visible.length === 0 && (
+                <div className="ui-dropzone mb-4 px-5 py-10 text-center">
+                  <p className="text-sm font-semibold text-gray-700">Chưa có media ở bộ lọc này</p>
+                  <p className="mt-1 text-sm text-gray-500">Chọn “Tất cả” để xem những nội dung đã lưu.</p>
+                </div>
+              )}
+
+              <ul className="grid grid-cols-1 gap-4 min-[420px]:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                 {visible.map((m) => (
                   <li
                     key={m.id}
-                    className="overflow-hidden rounded-xl border border-gray-200 bg-white"
+                    className="ui-card-hover overflow-hidden rounded-xl border border-gray-200 bg-surface"
                   >
                     <div className="relative aspect-[4/3] bg-gray-100">
                       {(m.previewUrl ?? (m.type === "IMAGE" ? m.remoteUrl : null)) && (
@@ -189,8 +207,8 @@ export default function MediaLibrary({
                         </span>
                       )}
                     </div>
-                    <div className="space-y-1 p-2">
-                      <p className="truncate text-[11px] text-gray-500">
+                    <div className="space-y-3 p-3">
+                      <p className="truncate text-xs text-gray-500">
                         {m.photographer ?? "Pexels"}
                         {m.width ? ` · ${m.width}×${m.height}` : ""}
                       </p>
@@ -198,7 +216,7 @@ export default function MediaLibrary({
                         <button
                           type="button"
                           onClick={() => void copyUrl(m.remoteUrl)}
-                          className="rounded border border-gray-300 px-1.5 py-0.5 text-[10px] text-gray-600 hover:bg-gray-50"
+                          className="ui-btn ui-btn-ghost ui-btn-sm min-h-10"
                         >
                           {copied === m.remoteUrl ? "✓ Đã chép" : "Chép URL"}
                         </button>
@@ -207,7 +225,7 @@ export default function MediaLibrary({
                             href={m.sourcePageUrl}
                             target="_blank"
                             rel="noreferrer"
-                            className="rounded border border-gray-300 px-1.5 py-0.5 text-[10px] text-gray-600 hover:bg-gray-50"
+                            className="ui-btn ui-btn-ghost ui-btn-sm min-h-10"
                           >
                             Nguồn
                           </a>
@@ -216,7 +234,7 @@ export default function MediaLibrary({
                           type="button"
                           onClick={() => onDelete(m.id)}
                           disabled={deletingId === m.id}
-                          className="rounded border border-red-200 px-1.5 py-0.5 text-[10px] text-red-600 hover:bg-red-50 disabled:opacity-60"
+                          className="ui-btn ui-btn-danger ui-btn-sm min-h-10"
                         >
                           {deletingId === m.id ? "..." : "Xóa"}
                         </button>

@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { requireCurrentUser, resolveWorkspace } from "@/lib/dal";
 import FacebookAppsClient from "./facebook-apps-client";
 import WorkspaceSelect from "./workspace-select";
+import PageHeader from "@/components/page-header";
 
 export const dynamic = "force-dynamic";
 
@@ -65,24 +66,17 @@ export default async function FacebookAppsPage({
 
   return (
     <div className="mx-auto max-w-6xl">
-      <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900" data-testid="fbapps-title">
-            🔗 Facebook Apps
-          </h1>
-          <p className="mt-1 text-sm text-gray-600">
-            Quản lý nhiều Facebook Graph API App trong workspace{" "}
-            <strong>{ctx.workspace.name}</strong>. Mỗi App lấy được một nhóm Page
-            khác nhau — dán token của App nào thì đồng bộ Page của App đó.
-          </p>
-        </div>
-        <div className="text-right">
-          <p className="text-xs font-medium text-gray-500">Workspace</p>
-          <WorkspaceSelect
-            workspaces={workspaces.map((w) => ({ id: w.id, name: w.name }))}
-          />
-        </div>
-      </div>
+      <PageHeader
+        title="🔗 Facebook Apps"
+        titleTestId="fbapps-title"
+        description={<>Quản lý nhiều Facebook Graph API App trong workspace <strong>{ctx.workspace.name}</strong>. Mỗi App lấy được một nhóm Page khác nhau — dán token của App nào thì đồng bộ Page của App đó.</>}
+        actions={
+          <div className="min-w-0">
+            <p className="ui-label">Workspace</p>
+            <WorkspaceSelect workspaces={workspaces.map((w) => ({ id: w.id, name: w.name }))} />
+          </div>
+        }
+      />
 
       <FacebookAppsClient
         workspaceId={ctx.workspace.id}

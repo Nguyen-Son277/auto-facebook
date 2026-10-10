@@ -70,14 +70,14 @@ const cardCls = "ui-card p-5";
 const btnPrimary =
   "ui-btn ui-btn-primary px-4 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-60";
 const btnGhost =
-  "rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 transition hover:bg-gray-50 disabled:opacity-60";
+  "ui-btn ui-btn-ghost ui-btn-sm disabled:opacity-60";
 
 const STATUS_BADGE: Record<string, { label: string; cls: string }> = {
   OK: { label: "🟢 Có số liệu", cls: "bg-emerald-50 text-emerald-700" },
   PARTIAL: { label: "🟡 Có số liệu một phần", cls: "bg-amber-50 text-amber-700" },
   FRESH: { label: "⏳ Đang thu thập", cls: "bg-gray-100 text-gray-600" },
-  NO_PERMISSION: { label: "🔒 Thiếu quyền read_insights", cls: "bg-orange-50 text-orange-700" },
-  LOW_FANS: { label: "📊 Page chưa đủ 100 lượt thích", cls: "bg-orange-50 text-orange-700" },
+  NO_PERMISSION: { label: "🔒 Thiếu quyền read_insights", cls: "bg-amber-50 text-amber-700" },
+  LOW_FANS: { label: "📊 Page chưa đủ 100 lượt thích", cls: "bg-amber-50 text-amber-700" },
   TOKEN_INVALID: { label: "🔑 Token hết hiệu lực", cls: "bg-red-50 text-red-700" },
   ERROR: { label: "🔴 Lỗi", cls: "bg-red-50 text-red-700" },
   UNKNOWN: { label: "⚪ Chưa lấy số liệu", cls: "bg-gray-100 text-gray-600" },
@@ -132,11 +132,11 @@ function pct(v: number | null | undefined): string {
 function Banner({ text, kind }: { text: string; kind: "info" | "warn" | "error" }) {
   const cls =
     kind === "error"
-      ? "border-red-200 bg-red-50 text-red-700"
+      ? "ui-alert-error"
       : kind === "warn"
-        ? "border-amber-200 bg-amber-50 text-amber-800"
-        : "border-blue-200 bg-blue-50 text-blue-800";
-  return <div className={`rounded-lg border px-3 py-2 text-sm ${cls}`}>{text}</div>;
+        ? "ui-alert-warning"
+        : "ui-alert-info";
+  return <div className={`ui-alert ${cls}`}>{text}</div>;
 }
 
 /** Tiêu đề một khối, kèm ghi chú nhỏ bên phải. */
@@ -162,9 +162,9 @@ function SectionHeader({
 
 function KpiCard({ kpi }: { kpi: Kpi }) {
   return (
-    <div className="rounded-xl border border-gray-200 bg-white p-3">
-      <p className="text-[11px] font-medium uppercase tracking-wide text-gray-500">{kpi.label}</p>
-      <p className={`mt-1 text-xl font-semibold tabular-nums ${KPI_TEXT[kpi.tone] ?? "text-gray-900"}`}>
+    <div className="min-w-0 rounded-2xl border border-gray-200/80 bg-surface-highlight p-4">
+      <p className="text-xs font-medium tracking-wide text-gray-500">{kpi.label}</p>
+      <p className={`mt-3 break-words text-2xl font-semibold tracking-tight tabular-nums ${KPI_TEXT[kpi.tone] ?? "text-gray-900"}`}>
         {kpi.value}
       </p>
       <p className="mt-0.5 text-[11px] text-gray-500">{kpi.sub}</p>
@@ -223,7 +223,7 @@ function GroupChart({
   }));
 
   return (
-    <div className="rounded-lg border border-gray-200 p-3">
+    <div className="rounded-xl border border-gray-200 bg-surface-highlight p-4">
       <p className="text-xs font-semibold text-gray-700">{title}</p>
       <div className="mt-3">
         <BarList items={items} ariaLabel={`Xếp hạng theo ${title}`} />
@@ -306,7 +306,7 @@ export default function InsightsDashboard({
   return (
     <div className="space-y-5">
       {/* ===== Thanh điều khiển ===== */}
-      <div className={cardCls} data-testid="insights-controls">
+      <div className={`${cardCls} border-t-2 border-t-blue-200`} data-testid="insights-controls">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-wrap items-center gap-2">
             <span className={`rounded-full px-3 py-1 text-xs font-semibold ${status.cls}`}>
@@ -423,7 +423,7 @@ export default function InsightsDashboard({
       </div>
 
       {/* ===== Khối 0: THẺ KPI TÓM TẮT ===== */}
-      <section className={cardCls} data-testid="insights-kpis">
+      <section className={`${cardCls} border-t-2 border-t-blue-200`} data-testid="insights-kpis">
         <SectionHeader
           title="📌 Tổng quan"
           sub="Bốn chỉ số nhìn nhanh tình hình Page và vòng học."
@@ -506,8 +506,8 @@ export default function InsightsDashboard({
 
           {/* Bảng hướng nội dung — kèm thanh hiệu quả để so bằng mắt */}
           {directionRows.length > 0 ? (
-            <div className="mt-4 overflow-x-auto">
-              <table className="w-full text-sm" data-testid="insights-directions">
+            <div className="mt-4 overflow-x-auto rounded-xl border border-gray-200">
+              <table className="ui-table w-full text-sm" data-testid="insights-directions">
                 <thead>
                   <tr className="border-b border-gray-200 text-left text-xs uppercase tracking-wide text-gray-500">
                     <th className="py-2 pr-3">Hướng</th>
@@ -657,8 +657,8 @@ export default function InsightsDashboard({
               : "Không có bài nào khớp bộ lọc đang chọn."}
           </p>
         ) : (
-          <div className="mt-3 overflow-x-auto">
-            <table className="w-full text-sm" data-testid="insights-posts-table">
+          <div className="mt-3 overflow-x-auto rounded-xl border border-gray-200">
+            <table className="ui-table w-full text-sm" data-testid="insights-posts-table">
               <thead>
                 <tr className="border-b border-gray-200 text-left text-xs uppercase tracking-wide text-gray-500">
                   <th className="py-2 pr-3">Ý chính</th>
@@ -1011,7 +1011,7 @@ export default function InsightsDashboard({
               Xem bảng trọng số trụ cột (số chính xác)
             </summary>
             <div className="mt-2 overflow-x-auto">
-              <table className="w-full text-sm">
+              <table className="ui-table w-full text-sm">
                 <thead>
                   <tr className="border-b border-gray-200 text-left text-xs uppercase tracking-wide text-gray-500">
                     <th className="py-2 pr-3">Trụ cột</th>
@@ -1113,7 +1113,7 @@ export default function InsightsDashboard({
               Xem bảng nhật ký chi tiết
             </summary>
             <div className="mt-2 overflow-x-auto">
-              <table className="w-full text-sm">
+              <table className="ui-table w-full text-sm">
                 <thead>
                   <tr className="border-b border-gray-200 text-left text-xs uppercase tracking-wide text-gray-500">
                     <th className="py-2 pr-3">Chiều điều chỉnh</th>
@@ -1194,7 +1194,7 @@ export default function InsightsDashboard({
               {daily.cards.map((card) => (
                 <div
                   key={card.key}
-                  className="rounded-lg border border-gray-200 p-3"
+                  className="rounded-xl border border-gray-200 bg-surface-highlight p-4"
                   data-testid={`insights-chart-${card.key}`}
                 >
                   <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -1243,7 +1243,7 @@ export default function InsightsDashboard({
                 Xem bảng số chi tiết (14 ngày gần nhất)
               </summary>
               <div className="mt-2 overflow-x-auto">
-                <table className="w-full text-sm">
+                <table className="ui-table w-full text-sm">
                   <thead>
                     <tr className="border-b border-gray-200 text-left text-xs uppercase tracking-wide text-gray-500">
                       <th className="py-2 pr-3">Ngày</th>

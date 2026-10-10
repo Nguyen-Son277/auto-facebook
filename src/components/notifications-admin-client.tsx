@@ -59,22 +59,22 @@ export default function NotificationsAdminClient({
   return (
     <div className="space-y-6">
       {notice?.error && (
-        <p className="rounded-lg bg-red-50 px-4 py-2 text-sm text-red-600">✗ {notice.error}</p>
+        <p className="ui-alert ui-alert-error">✗ {notice.error}</p>
       )}
       {notice?.ok && notice.message && (
-        <p className="rounded-lg bg-emerald-50 px-4 py-2 text-sm text-emerald-700">
+        <p className="ui-alert ui-alert-success">
           ✓ {notice.message}
         </p>
       )}
 
       {/* ===== Soạn thông báo mới ===== */}
       <section className="ui-card p-5">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className="font-semibold text-gray-900">Soạn thông báo mới</h2>
           <button
             type="button"
             onClick={() => setShowForm((v) => !v)}
-            className="ui-btn ui-btn-primary px-4 py-2 text-sm font-semibold transition"
+            className="ui-btn ui-btn-primary transition"
           >
             {showForm ? "Đóng" : "＋ Soạn thông báo"}
           </button>
@@ -90,10 +90,10 @@ export default function NotificationsAdminClient({
           >
             <div className="grid gap-3 sm:grid-cols-3">
               <label className="text-sm">
-                <span className="mb-1 block font-medium text-gray-700">Gửi tới</span>
+                <span className="ui-label">Gửi tới</span>
                 <select
                   name="target"
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                  className="ui-select"
                   defaultValue="all"
                 >
                   <option value="all">Tất cả người dùng (trừ bạn)</option>
@@ -106,10 +106,10 @@ export default function NotificationsAdminClient({
                 </select>
               </label>
               <label className="text-sm">
-                <span className="mb-1 block font-medium text-gray-700">Loại</span>
+                <span className="ui-label">Loại</span>
                 <select
                   name="type"
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                  className="ui-select"
                   defaultValue="ADMIN"
                 >
                   <option value="ADMIN">🛡️ Từ Admin</option>
@@ -118,40 +118,40 @@ export default function NotificationsAdminClient({
                 </select>
               </label>
               <label className="text-sm">
-                <span className="mb-1 block font-medium text-gray-700">
+                <span className="ui-label">
                   Link nội bộ <em className="text-gray-400">(tùy chọn, ví dụ /docs)</em>
                 </span>
                 <input
                   name="link"
                   placeholder="/docs"
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                  className="ui-input"
                 />
               </label>
             </div>
             <label className="block text-sm">
-              <span className="mb-1 block font-medium text-gray-700">Tiêu đề *</span>
+              <span className="ui-label">Tiêu đề *</span>
               <input
                 name="title"
                 required
                 maxLength={200}
                 placeholder="Ví dụ: 📢 Bảo trì hệ thống lúc 22:00"
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                className="ui-input"
               />
             </label>
             <label className="block text-sm">
-              <span className="mb-1 block font-medium text-gray-700">Nội dung</span>
+              <span className="ui-label">Nội dung</span>
               <textarea
                 name="body"
                 rows={3}
                 maxLength={2000}
                 placeholder="Nội dung chi tiết..."
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                className="ui-input"
               />
             </label>
             <button
               type="submit"
               disabled={busy}
-              className="ui-btn ui-btn-primary px-4 py-2 text-sm font-semibold disabled:opacity-60"
+              className="ui-btn ui-btn-primary disabled:opacity-60"
             >
               {busy ? "Đang gửi..." : "📣 Gửi thông báo"}
             </button>
@@ -161,7 +161,7 @@ export default function NotificationsAdminClient({
 
       {/* ===== Danh sách thông báo đã gửi ===== */}
       <section className="overflow-hidden ui-card">
-        <div className="border-b border-gray-200 px-5 py-4">
+        <div className="border-b border-gray-200 bg-sunken px-5 py-4">
           <h2 className="font-semibold text-gray-900">
             Thông báo gần đây ({notifications.length})
           </h2>
@@ -182,14 +182,14 @@ export default function NotificationsAdminClient({
                     const res = await run(() => adminUpdateNotification(null, fd));
                     if (res?.ok) setEditingId(null);
                   }}
-                  className="space-y-2"
+                  className="space-y-3 rounded-xl border border-gray-200 bg-sunken p-4"
                 >
                   <input type="hidden" name="id" value={n.id} />
                   <div className="grid gap-2 sm:grid-cols-3">
                     <select
                       name="type"
                       defaultValue={n.type}
-                      className="rounded-lg border border-gray-300 px-2 py-1.5 text-xs"
+                      className="ui-select text-xs"
                     >
                       <option value="ADMIN">🛡️ Admin</option>
                       <option value="SYSTEM">⚙️ Hệ thống</option>
@@ -199,33 +199,33 @@ export default function NotificationsAdminClient({
                       name="link"
                       defaultValue={n.link ?? ""}
                       placeholder="/link"
-                      className="rounded-lg border border-gray-300 px-2 py-1.5 text-xs"
+                      className="ui-input text-xs"
                     />
                     <input
                       name="title"
                       required
                       defaultValue={n.title}
-                      className="rounded-lg border border-gray-300 px-2 py-1.5 text-xs sm:col-span-3"
+                      className="ui-input text-xs sm:col-span-3"
                     />
                     <textarea
                       name="body"
                       rows={2}
                       defaultValue={n.body ?? ""}
-                      className="rounded-lg border border-gray-300 px-2 py-1.5 text-xs sm:col-span-3"
+                      className="ui-input text-xs sm:col-span-3"
                     />
                   </div>
                   <div className="flex gap-2">
                     <button
                       type="submit"
                       disabled={busy}
-                      className="ui-btn ui-btn-primary px-3 py-1.5 text-xs font-semibold disabled:opacity-60"
+                      className="ui-btn ui-btn-primary ui-btn-sm disabled:opacity-60"
                     >
                       💾 Lưu
                     </button>
                     <button
                       type="button"
                       onClick={() => setEditingId(null)}
-                      className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs text-gray-600"
+                      className="ui-btn ui-btn-ghost ui-btn-sm"
                     >
                       Huỷ
                     </button>
@@ -254,7 +254,7 @@ export default function NotificationsAdminClient({
                     <button
                       type="button"
                       onClick={() => setEditingId(n.id)}
-                      className="rounded-lg border border-blue-300 px-3 py-1.5 text-xs font-medium text-blue-600 hover:bg-blue-50"
+                      className="ui-btn ui-btn-soft ui-btn-sm"
                     >
                       ✏️ Sửa
                     </button>
@@ -266,7 +266,7 @@ export default function NotificationsAdminClient({
                           run(() => adminDeleteNotification(n.id));
                         }
                       }}
-                      className="rounded-lg border border-red-300 px-3 py-1.5 text-xs text-red-600 hover:bg-red-50 disabled:opacity-50"
+                      className="ui-btn ui-btn-danger ui-btn-sm disabled:opacity-50"
                     >
                       🗑 Xoá
                     </button>

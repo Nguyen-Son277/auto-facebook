@@ -24,22 +24,19 @@ import { autoPilotConfirmPrompt } from "@/lib/brand-scope";
 //   3. Kho tài liệu      — AI tra cứu khi cần số liệu chính xác
 // ============================================================
 
-const inputCls =
-  "w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 focus:outline-none";
-const labelCls = "block text-sm font-medium text-gray-700";
+const inputCls = "ui-input";
+const labelCls = "ui-label";
 const hintCls = "mt-1 text-xs text-gray-500";
-const btnPrimary =
-  "ui-btn ui-btn-primary px-4 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-60";
-const btnGhost =
-  "rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 transition hover:bg-gray-50 disabled:opacity-60";
+const btnPrimary = "ui-btn ui-btn-primary";
+const btnGhost = "ui-btn ui-btn-ghost ui-btn-sm";
 
 function Alert({ state, testId }: { state: BrandState; testId?: string }) {
   if (!state || (!state.ok && !state.error)) return null;
   return (
     <div
       data-testid={testId}
-      className={`rounded-lg px-3 py-2 text-sm ${
-        state.error ? "bg-red-50 text-red-700" : "bg-emerald-50 text-emerald-700"
+      className={`ui-alert ${
+        state.error ? "ui-alert-error" : "ui-alert-success"
       }`}
     >
       {state.error ? `✗ ${state.error}` : `✓ ${state.message}`}
@@ -287,7 +284,7 @@ function ProfileForm({ brandId, profile }: { brandId: string; profile: BrandProf
             name="tone"
             data-testid="brand-tone"
             defaultValue={profile?.tone ?? "friendly"}
-            className={`${inputCls} mt-1`}
+            className="ui-select mt-1"
           >
             {TONES.map((t) => (
               <option key={t.value} value={t.value}>
@@ -397,7 +394,7 @@ function PillarSection({ brandId, pillars }: { brandId: string; pillars: PillarD
 
   return (
     <div className="space-y-4">
-      <div className="rounded-lg bg-blue-50 px-4 py-3 text-sm text-blue-800">
+      <div className="ui-alert ui-alert-info">
         <p className="font-medium">Trụ cột nội dung quyết định &ldquo;hôm nay đăng loại bài gì&rdquo;.</p>
         <p className="mt-1 text-xs">
           Hệ thống xoay vòng theo tỉ trọng bạn đặt, và không bao giờ đăng 2 bài cùng loại
@@ -409,7 +406,7 @@ function PillarSection({ brandId, pillars }: { brandId: string; pillars: PillarD
 
       {guardError ? (
         <div
-          className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700"
+          className="ui-alert ui-alert-error"
           data-testid="pillar-guard-error"
         >
           ✗ {guardError}
@@ -418,7 +415,7 @@ function PillarSection({ brandId, pillars }: { brandId: string; pillars: PillarD
 
       {pillars.length === 0 ? (
         <div
-          className="rounded-lg border border-dashed border-gray-300 p-6 text-center"
+          className="ui-dropzone p-6 text-center"
           data-testid="pillar-empty"
         >
           <p className="text-sm text-gray-600">Chưa có trụ cột nội dung nào.</p>
@@ -444,8 +441,8 @@ function PillarSection({ brandId, pillars }: { brandId: string; pillars: PillarD
               key={p.id}
               data-testid="pillar-item"
               data-enabled={p.enabled ? "1" : "0"}
-              className={`rounded-lg border p-3 ${
-                p.enabled ? "border-gray-200 bg-white" : "border-gray-200 bg-gray-50 opacity-70"
+              className={`ui-card ui-card-hover p-4 ${
+                p.enabled ? "bg-surface" : "bg-sunken opacity-70"
               }`}
             >
               <div className="flex flex-wrap items-start justify-between gap-2">
@@ -484,7 +481,7 @@ function PillarSection({ brandId, pillars }: { brandId: string; pillars: PillarD
                   </button>
                   <button
                     type="button"
-                    className={`${btnGhost} text-red-600`}
+                    className="ui-btn ui-btn-danger ui-btn-sm"
                     data-testid="pillar-delete"
                     onClick={() =>
                       runGuarded(`Xoá trụ cột "${p.name}"`, (confirm) =>
@@ -501,7 +498,7 @@ function PillarSection({ brandId, pillars }: { brandId: string; pillars: PillarD
         </ul>
       )}
 
-      <form action={action} className="space-y-3 rounded-lg border border-gray-200 p-4">
+      <form action={action} className="space-y-3 rounded-xl border border-gray-200 bg-sunken p-4">
         <input type="hidden" name="brandId" value={brandId} />
         <input type="hidden" name="id" value={editing?.id ?? ""} />
         <input type="hidden" name="enabled" value={editing ? (editing.enabled ? "1" : "0") : "1"} />
@@ -523,7 +520,7 @@ function PillarSection({ brandId, pillars }: { brandId: string; pillars: PillarD
           <select
             name="goal"
             defaultValue={editing?.goal ?? "engagement"}
-            className={inputCls}
+            className="ui-select"
             key={`goal-${editing?.id ?? "new"}`}
           >
             {GOALS.map((g) => (
@@ -581,7 +578,7 @@ function DocSection({ brandId, docs }: { brandId: string; docs: DocData[] }) {
 
   return (
     <div className="space-y-4">
-      <div className="rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-800">
+      <div className="ui-alert ui-alert-warning">
         <p className="font-medium">Kho tài liệu là nơi AI tra cứu thông tin chính xác.</p>
         <p className="mt-1 text-xs">
           Dán bảng giá, câu hỏi thường gặp, chính sách bảo hành… AI chỉ dùng số liệu có trong
@@ -592,7 +589,7 @@ function DocSection({ brandId, docs }: { brandId: string; docs: DocData[] }) {
       <Alert state={state} testId="doc-alert" />
 
       {docs.length === 0 ? (
-        <p className="rounded-lg border border-dashed border-gray-300 p-6 text-center text-sm text-gray-500">
+        <p className="ui-dropzone p-6 text-center text-sm text-gray-500">
           Chưa có tài liệu nào. Thêm bảng giá hoặc câu hỏi thường gặp để bài viết chính xác hơn.
         </p>
       ) : (
@@ -601,7 +598,7 @@ function DocSection({ brandId, docs }: { brandId: string; docs: DocData[] }) {
             <li
               key={d.id}
               data-testid="doc-item"
-              className={`rounded-lg border border-gray-200 p-3 ${d.enabled ? "bg-white" : "bg-gray-50 opacity-70"}`}
+              className={`ui-card ui-card-hover p-4 ${d.enabled ? "bg-surface" : "bg-sunken opacity-70"}`}
             >
               <div className="flex flex-wrap items-start justify-between gap-2">
                 <div className="min-w-0 flex-1">
@@ -629,7 +626,7 @@ function DocSection({ brandId, docs }: { brandId: string; docs: DocData[] }) {
                   </button>
                   <button
                     type="button"
-                    className={`${btnGhost} text-red-600`}
+                    className="ui-btn ui-btn-danger ui-btn-sm"
                     onClick={() => {
                       if (confirm(`Xóa tài liệu "${d.title}"?`)) deleteKnowledgeDoc(d.id);
                     }}
@@ -643,7 +640,7 @@ function DocSection({ brandId, docs }: { brandId: string; docs: DocData[] }) {
         </ul>
       )}
 
-      <form action={action} className="space-y-3 rounded-lg border border-gray-200 p-4">
+      <form action={action} className="space-y-3 rounded-xl border border-gray-200 bg-sunken p-4">
         <input type="hidden" name="brandId" value={brandId} />
         <input type="hidden" name="id" value={editing?.id ?? ""} />
         <input type="hidden" name="enabled" value={editing ? (editing.enabled ? "1" : "0") : "1"} />
@@ -666,7 +663,7 @@ function DocSection({ brandId, docs }: { brandId: string; docs: DocData[] }) {
             name="kind"
             data-testid="doc-kind"
             defaultValue={editing?.kind ?? "OTHER"}
-            className={inputCls}
+            className="ui-select"
             key={`k-${editing?.id ?? "new"}`}
           >
             {DOC_KINDS.map((k) => (
@@ -728,25 +725,25 @@ export default function BrandEditor({
 
   return (
     <div className="space-y-4">
-      <div className="flex gap-1 overflow-x-auto border-b border-gray-200">
+      <div className="flex gap-1 overflow-x-auto rounded-2xl border border-gray-200 bg-sunken p-1.5">
         {TABS.map((t) => (
           <button
             key={t.id}
             type="button"
             data-testid={`brand-tab-${t.id}`}
             onClick={() => setTab(t.id)}
-            className={`shrink-0 border-b-2 px-4 py-2 text-sm font-medium transition ${
+            className={`ui-btn shrink-0 ${
               tab === t.id
-                ? "border-blue-600 text-blue-700"
-                : "border-transparent text-gray-500 hover:text-gray-800"
+                ? "ui-btn-primary"
+                : "text-gray-500 hover:bg-surface hover:text-gray-900"
             }`}
           >
             {t.label}
             {t.id === "pillars" && pillars.length > 0 ? (
-              <span className="ml-1 text-xs text-gray-400">({pillars.length})</span>
+              <span className="ml-1 text-xs opacity-75">({pillars.length})</span>
             ) : null}
             {t.id === "docs" && docs.length > 0 ? (
-              <span className="ml-1 text-xs text-gray-400">({docs.length})</span>
+              <span className="ml-1 text-xs opacity-75">({docs.length})</span>
             ) : null}
           </button>
         ))}

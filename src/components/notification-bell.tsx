@@ -130,7 +130,7 @@ export default function NotificationBell({
         onClick={onToggle}
         aria-label={`Thông báo${unread ? ` (${unread} chưa đọc)` : ""}`}
         data-testid={`notification-bell${testIdSuffix}`}
-        className="relative flex h-9 w-9 items-center justify-center rounded-lg border border-gray-200 bg-white text-lg transition hover:bg-gray-50"
+        className="relative flex h-9 w-9 items-center justify-center rounded-xl border border-gray-200/80 bg-surface text-lg shadow-card transition hover:-translate-y-0.5 hover:border-blue-200 hover:bg-blue-50"
       >
         🔔
         {unread > 0 && (
@@ -146,7 +146,7 @@ export default function NotificationBell({
       {open && (
         <div
           data-testid={`notification-panel${testIdSuffix}`}
-          className="absolute right-0 z-50 mt-2 flex max-h-[min(28rem,75vh)] w-[22rem] max-w-[90vw] flex-col overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl"
+          className="absolute right-0 z-50 mt-3 flex max-h-[min(28rem,75vh)] w-[22rem] max-w-[calc(100vw-6rem)] flex-col overflow-hidden rounded-2xl border border-gray-200/80 bg-surface shadow-pop"
         >
           <div className="flex shrink-0 items-center justify-between border-b border-gray-100 px-4 py-2.5">
             <p className="text-sm font-semibold text-gray-900">
@@ -178,7 +178,7 @@ export default function NotificationBell({
                 type="button"
                 onClick={() => openItem(item)}
                 className={`flex w-full items-start gap-3 border-b border-gray-50 px-4 py-3 text-left transition hover:bg-gray-50 ${
-                  item.read ? "opacity-70" : "bg-blue-50/40"
+                  item.read ? "border-l-2 border-l-transparent" : "border-l-2 border-l-blue-500 bg-blue-50/40"
                 }`}
               >
                 <span className="mt-0.5 shrink-0 text-lg">{ICON[item.type]}</span>

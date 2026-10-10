@@ -233,7 +233,7 @@ export default function CalendarBoard({
         </div>
 
         {!hasActivePage && (
-          <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          <p className="ui-alert ui-alert-warning mt-3">
             ⚠ Chưa có Facebook Page nào đang hoạt động — bài hẹn giờ sẽ không đăng được.
             Vào <Link href="/pages" className="underline">Facebook Pages</Link> để bật một Page.
           </p>
@@ -243,8 +243,8 @@ export default function CalendarBoard({
       {notice && (
         <p
           data-testid="calendar-notice"
-          className={`rounded-lg px-3 py-2 text-sm font-medium ${
-            notice.ok ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"
+          className={`ui-alert font-medium ${
+            notice.ok ? "ui-alert-success" : "ui-alert-error"
           }`}
         >
           {notice.ok ? "✅" : "⚠"} {notice.text}
@@ -252,42 +252,44 @@ export default function CalendarBoard({
       )}
 
       {/* ================= Lưới tháng ================= */}
-      <div className="ui-card p-4">
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
+      <div className="ui-card overflow-hidden p-2 sm:p-4">
+        <div className="mb-4 flex flex-col gap-3 rounded-xl bg-sunken p-3 xl:flex-row xl:items-center xl:justify-between">
+          <div className="flex min-w-0 flex-wrap items-center justify-center gap-2 sm:justify-start">
             <Link
               href={monthHref(-1)}
               data-testid="calendar-prev"
-              className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-700 transition hover:bg-gray-50"
+              aria-label="Tháng trước"
+              className="ui-btn ui-btn-ghost h-10 w-10 shrink-0 px-0"
             >
               ←
             </Link>
-            <h2 data-testid="calendar-month" className="min-w-40 text-center text-lg font-bold text-gray-900">
+            <h2 data-testid="calendar-month" className="min-w-0 flex-1 text-center text-base font-bold tracking-tight text-gray-900 sm:min-w-36 sm:flex-none sm:text-lg">
               {monthLabel}
             </h2>
             <Link
               href={monthHref(1)}
               data-testid="calendar-next"
-              className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-700 transition hover:bg-gray-50"
+              aria-label="Tháng sau"
+              className="ui-btn ui-btn-ghost h-10 w-10 shrink-0 px-0"
             >
               →
             </Link>
             <Link
               href={thisMonthHref}
-              className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-600 transition hover:bg-gray-50"
+              className="ui-btn ui-btn-ghost ui-btn-sm min-h-10 w-full sm:w-auto"
             >
               Tháng này
             </Link>
           </div>
           <Link
             href="/composer"
-            className="ui-btn ui-btn-primary px-4 py-2 text-sm font-semibold transition"
+            className="ui-btn ui-btn-primary min-h-10 sm:self-start"
           >
             ✍️ Hẹn bài mới
           </Link>
         </div>
 
-        <div className="grid grid-cols-7 gap-1 text-center text-[11px] font-semibold text-gray-500">
+        <div className="grid grid-cols-7 gap-0.5 text-center text-[11px] font-semibold text-gray-500 sm:gap-1.5">
           {WEEKDAYS.map((w) => (
             <div key={w} className="py-1">
               {w}
@@ -295,7 +297,7 @@ export default function CalendarBoard({
           ))}
         </div>
 
-        <div className="grid grid-cols-7 gap-1">
+        <div className="grid grid-cols-7 gap-0.5 sm:gap-1.5">
           {cells.map((cell) => {
             const list = byDay.get(cell.key) ?? [];
             const isToday = cell.key === todayKey;
@@ -308,12 +310,14 @@ export default function CalendarBoard({
                 data-testid="calendar-day"
                 data-day={cell.key}
                 data-count={list.length}
-                className={`min-h-24 rounded-lg border p-1.5 text-left align-top transition ${
+                aria-pressed={isSelected}
+                aria-label={`${cell.date.getDate()}/${cell.date.getMonth() + 1}/${cell.date.getFullYear()} · ${list.length} bài${isToday ? " · Hôm nay" : ""}`}
+                className={`min-h-24 min-w-0 rounded-lg border p-1 text-left align-top transition hover:-translate-y-0.5 focus-visible:z-10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 sm:min-h-28 sm:rounded-xl sm:p-2 ${
                   isSelected
                     ? "border-blue-500 bg-blue-50 ring-2 ring-blue-200"
                     : isToday
                       ? "border-blue-300 bg-blue-50/40"
-                      : "border-gray-200 hover:bg-gray-50"
+                      : "border-gray-200 bg-surface hover:bg-gray-50"
                 } ${cell.inMonth ? "" : "opacity-45"}`}
               >
                 <div className="flex items-center justify-between">
@@ -334,16 +338,16 @@ export default function CalendarBoard({
                     return (
                       <div
                         key={p.id}
-                        className={`flex items-center gap-1 truncate rounded px-1 py-0.5 text-[10px] ${st.chip}`}
+                        className={`flex items-center gap-1 overflow-hidden rounded px-0 py-0.5 text-[9px] sm:px-1 sm:text-[10px] ${st.chip}`}
                       >
-                        <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${st.dot}`} />
-                        <span className="shrink-0 font-medium">{timeLabel(p.at)}</span>
-                        <span className="truncate">{p.content.slice(0, 24)}</span>
+                        <span className={`hidden h-1.5 w-1.5 shrink-0 rounded-full lg:block ${st.dot}`} />
+                        <span className="shrink-0 font-medium tabular-nums">{timeLabel(p.at)}</span>
+                        <span className="hidden min-w-0 truncate lg:inline">{p.content.slice(0, 24)}</span>
                       </div>
                     );
                   })}
                   {list.length > 2 && (
-                    <div className="px-1 text-[10px] text-gray-400">+{list.length - 2} bài khác</div>
+                    <div className="truncate px-0.5 text-[10px] text-gray-500 sm:px-1">+{list.length - 2}<span className="hidden sm:inline"> bài khác</span></div>
                   )}
                 </div>
               </button>
@@ -363,9 +367,11 @@ export default function CalendarBoard({
           </h3>
 
           {selectedPosts.length === 0 ? (
-            <p className="rounded-lg border border-dashed border-gray-300 px-3 py-6 text-center text-sm text-gray-400">
-              Ngày này chưa có bài nào. Bấm &quot;Hẹn bài mới&quot; để tạo.
-            </p>
+            <div className="ui-dropzone px-5 py-8 text-center">
+              <span aria-hidden="true" className="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-xl bg-blue-100 text-xl">🗓️</span>
+              <p className="text-sm font-semibold text-gray-900">Một ngày mới cho ý tưởng của bạn</p>
+              <p className="mt-1 text-sm text-gray-500">Chưa có bài nào. Bấm &quot;Hẹn bài mới&quot; để bắt đầu lên lịch.</p>
+            </div>
           ) : (
             <ul className="space-y-3">
               {selectedPosts.map((p) => {
@@ -376,7 +382,7 @@ export default function CalendarBoard({
                     key={p.id}
                     data-testid="calendar-post"
                     data-status={p.status}
-                    className="rounded-xl border border-gray-200 p-3"
+                    className="rounded-xl border border-gray-200 bg-surface p-4"
                   >
                     <div className="flex flex-wrap items-center gap-2">
                       <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${st.chip}`}>
@@ -422,7 +428,7 @@ export default function CalendarBoard({
                     {p.status === "FAILED" && p.errorMessage && (
                       <p
                         data-testid="calendar-error"
-                        className="mt-2 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700"
+                        className="ui-alert ui-alert-error mt-2"
                       >
                         ⚠ {p.errorMessage}
                       </p>
@@ -436,21 +442,22 @@ export default function CalendarBoard({
                           value={rescheduleValue}
                           onChange={(e) => setRescheduleValue(e.target.value)}
                           data-testid="reschedule-input"
-                          className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm"
+                          aria-label="Thời gian đăng mới"
+                          className="ui-input min-w-0 sm:w-auto"
                         />
                         <button
                           type="button"
                           disabled={busy || !rescheduleValue}
                           data-testid="reschedule-save"
                           onClick={() => run(() => reschedulePostAction(p.id, rescheduleValue), p.id)}
-                          className="ui-btn ui-btn-primary px-3 py-1.5 text-xs font-semibold disabled:opacity-60"
+                          className="ui-btn ui-btn-primary ui-btn-sm min-h-10"
                         >
                           {busy ? "Đang lưu…" : "Lưu lịch mới"}
                         </button>
                         <button
                           type="button"
                           onClick={() => setRescheduleId(null)}
-                          className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs text-gray-600"
+                          className="ui-btn ui-btn-ghost ui-btn-sm min-h-10"
                         >
                           Hủy
                         </button>
@@ -460,7 +467,7 @@ export default function CalendarBoard({
                         <Link
                           href={`/posts/${p.id}`}
                           data-testid="calendar-detail-link"
-                          className="rounded-lg border border-blue-300 px-3 py-1.5 text-xs font-medium text-blue-700 transition hover:bg-blue-50"
+                          className="ui-btn ui-btn-soft ui-btn-sm min-h-10"
                         >
                           ✏️ Xem & sửa
                         </Link>
@@ -468,7 +475,7 @@ export default function CalendarBoard({
                           <Link
                             href="/autopilot"
                             data-testid="calendar-review-link"
-                            className="rounded-lg border border-purple-300 px-3 py-1.5 text-xs font-medium text-purple-700 transition hover:bg-purple-50"
+                            className="ui-btn ui-btn-soft ui-btn-sm min-h-10 whitespace-normal"
                           >
                             ✓ Duyệt ở trang Tự động đăng
                           </Link>
@@ -484,7 +491,7 @@ export default function CalendarBoard({
                                 const base = p.scheduledAt ? new Date(p.scheduledAt) : new Date();
                                 setRescheduleValue(toLocalInputValue(base));
                               }}
-                              className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-semibold text-gray-700 transition hover:bg-gray-50 disabled:opacity-60"
+                              className="ui-btn ui-btn-ghost ui-btn-sm min-h-10"
                             >
                               🕘 Đổi lịch
                             </button>
@@ -493,7 +500,7 @@ export default function CalendarBoard({
                               disabled={busy}
                               data-testid="calendar-publish-now"
                               onClick={() => run(() => publishScheduledNowAction(p.id), p.id)}
-                              className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-60"
+                              className="ui-btn ui-btn-success ui-btn-sm min-h-10"
                             >
                               {busy ? "Đang đăng…" : "🚀 Đăng ngay"}
                             </button>
@@ -502,7 +509,7 @@ export default function CalendarBoard({
                               disabled={busy}
                               data-testid="calendar-cancel"
                               onClick={() => run(() => cancelScheduleAction(p.id), p.id)}
-                              className="rounded-lg border border-amber-300 px-3 py-1.5 text-xs font-semibold text-amber-700 transition hover:bg-amber-50 disabled:opacity-60"
+                              className="ui-btn ui-btn-ghost ui-btn-sm min-h-10"
                             >
                               ⏸ Hủy lịch
                             </button>
@@ -513,7 +520,7 @@ export default function CalendarBoard({
                             href={`https://www.facebook.com/${p.fbPostId.replace("_", "/posts/")}`}
                             target="_blank"
                             rel="noreferrer"
-                            className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-semibold text-gray-700 transition hover:bg-gray-50"
+                            className="ui-btn ui-btn-ghost ui-btn-sm min-h-10"
                           >
                             🔗 Xem trên Facebook
                           </a>
@@ -528,14 +535,14 @@ export default function CalendarBoard({
                                 run(() => deleteScheduledPostAction(p.id), p.id);
                               }
                             }}
-                            className="rounded-lg border border-red-200 px-3 py-1.5 text-xs font-semibold text-red-600 transition hover:bg-red-50 disabled:opacity-60"
+                            className="ui-btn ui-btn-danger ui-btn-sm min-h-10"
                           >
                             🗑️ Xóa
                           </button>
                         )}
                         <Link
                           href="/history"
-                          className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-600 transition hover:bg-gray-50"
+                          className="ui-btn ui-btn-ghost ui-btn-sm min-h-10"
                         >
                           Xem lịch sử
                         </Link>
@@ -550,7 +557,7 @@ export default function CalendarBoard({
       )}
 
       {/* Chú thích màu */}
-      <div className="flex flex-wrap items-center gap-3 text-[11px] text-gray-500">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-1 text-xs text-gray-500">
         <span className="font-semibold">Chú thích:</span>
         {Object.entries(STATUS_STYLE).map(([key, st]) => (
           <span key={key} className="flex items-center gap-1">

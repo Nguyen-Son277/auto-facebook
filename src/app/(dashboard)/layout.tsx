@@ -30,21 +30,23 @@ export default async function DashboardLayout({
   const displayName = user.name ?? user.email;
 
   return (
-    <div className="flex min-h-screen bg-gray-50">
+    <div className="flex min-h-screen bg-background bg-[image:var(--app-glow)]">
       {/* ===== Sidebar desktop — sticky full-height, cuộn riêng phần menu ===== */}
-      <aside className="hidden w-[264px] shrink-0 flex-col border-r border-gray-200 bg-sidebar md:sticky md:top-0 md:flex md:h-screen">
+      <aside className="hidden w-[272px] shrink-0 flex-col border-r border-gray-200/80 bg-sidebar shadow-[8px_0_30px_-28px_rgb(15_23_42/0.35)] md:sticky md:top-0 md:flex md:h-screen">
         {/* Thương hiệu */}
-        <div className="flex items-center gap-3 px-4 py-3.5">
-          <span className="ui-logo h-10 w-10 text-xl" aria-hidden>
-            🚀
-          </span>
-          <div className="min-w-0">
-            <p className="truncate text-[15px] font-bold tracking-tight text-gray-900">
-              FB Marketing Auto
-            </p>
-            <p className="truncate text-[11px] text-gray-400">
-              AI Content · Auto Post
-            </p>
+        <div className="px-4 pb-4 pt-4">
+          <div className="flex items-center gap-3 rounded-2xl border border-blue-100/70 bg-gradient-to-br from-blue-50/80 via-surface to-violet-50/60 px-3 py-3">
+            <span className="ui-logo h-10 w-10 text-xl shadow-raised" aria-hidden>
+              🚀
+            </span>
+            <div className="min-w-0">
+              <p className="truncate text-[15px] font-bold tracking-tight text-gray-900">
+                FB Marketing Auto
+              </p>
+              <p className="mt-0.5 truncate text-[11px] text-gray-400">
+                AI Content · Auto Post
+              </p>
+            </div>
           </div>
         </div>
 
@@ -54,8 +56,8 @@ export default async function DashboardLayout({
         </div>
 
         {/* Tài khoản — một hàng cho gọn: avatar · tên · đăng xuất */}
-        <div className="border-t border-gray-200 p-2.5">
-          <div className="flex items-center gap-2.5 rounded-xl bg-sunken px-2.5 py-2">
+        <div className="border-t border-gray-200/80 p-3">
+          <div className="flex items-center gap-2.5 rounded-2xl border border-gray-200/80 bg-sunken px-2.5 py-2.5 shadow-card">
             <span className="ui-avatar h-9 w-9 text-xs" aria-hidden>
               {initialsOf(user.name, user.email)}
             </span>
@@ -90,7 +92,7 @@ export default async function DashboardLayout({
         <Topbar role={user.role} unread={unread} />
 
         {/* Header mobile */}
-        <header className="sticky top-0 z-30 border-b border-gray-200 bg-topbar backdrop-blur-md md:hidden">
+        <header className="sticky top-0 z-30 border-b border-gray-200/80 bg-topbar shadow-card backdrop-blur-xl md:hidden">
           <div className="flex items-center gap-2 px-4 py-2.5">
             <span className="ui-logo h-8 w-8 text-base" aria-hidden>
               🚀
@@ -114,8 +116,8 @@ export default async function DashboardLayout({
           </div>
         </header>
 
-        <main className="flex-1">
-          <div className="mx-auto w-full max-w-[1440px] px-4 py-5 md:px-6 md:py-7 lg:px-8">
+        <main className="flex-1 bg-transparent">
+          <div className="mx-auto w-full max-w-[1440px] px-4 py-6 md:px-6 md:py-8 lg:px-8">
             {children}
           </div>
         </main>
