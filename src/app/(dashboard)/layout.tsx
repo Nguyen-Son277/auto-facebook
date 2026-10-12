@@ -5,6 +5,7 @@ import SidebarNav from "@/components/sidebar-nav";
 import Topbar from "@/components/topbar";
 import NotificationBell from "@/components/notification-bell";
 import NotificationToast from "@/components/notification-toast";
+import NotificationProvider from "@/components/notification-provider";
 import { ToastHost } from "@/components/toast-provider";
 
 /** Chữ cái đầu của tên/email — dùng làm avatar tròn. */
@@ -30,6 +31,7 @@ export default async function DashboardLayout({
   const displayName = user.name ?? user.email;
 
   return (
+    <NotificationProvider key={user.id} initialUnread={unread}>
     <div className="flex min-h-screen bg-background bg-[image:var(--app-glow)]">
       {/* ===== Sidebar desktop — sticky full-height, cuộn riêng phần menu ===== */}
       <aside className="hidden w-[272px] shrink-0 flex-col border-r border-gray-200/80 bg-sidebar shadow-[8px_0_30px_-28px_rgb(15_23_42/0.35)] md:sticky md:top-0 md:flex md:h-screen">
@@ -124,9 +126,10 @@ export default async function DashboardLayout({
       </div>
 
       {/* Toast dùng chung — popup góc dưới phải, mọi trang dashboard.
-          NotificationToast chỉ là producer (poll DB), ToastHost lo hiển thị. */}
+          NotificationToast chỉ là producer, provider poll DB, ToastHost hiển thị. */}
       <ToastHost />
       <NotificationToast />
     </div>
+    </NotificationProvider>
   );
 }

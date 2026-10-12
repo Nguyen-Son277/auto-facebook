@@ -1,6 +1,7 @@
 import "server-only";
 
 import { prisma } from "./prisma";
+import { demandForWindow, planningWindow } from "./planner-demand";
 import { formatDateTime } from "./format-date";
 import { generatePostVariants, suggestMediaKeywords, AI_CALL_TIMEOUT_MS } from "./ai";
 import { notify, notifyOncePer } from "./notify";
@@ -28,27 +29,17 @@ import {
   deadlineExceeded,
   decideMediaKind,
   formatDateKey,
-  formatHm,
   hasRoomForPost,
   isBlockingPlanError,
-  isoDayOf,
-  makeDeadline,
   orderDaysByNeed,
-  parseDaysOfWeek,
-  parseHm,
   parseServiceAreas,
   pickPillar,
   pickPillarEvenly,
   pickProduct,
   pickServiceArea,
   detectPostProduct,
-  planTimeSlots,
   planTimeSlotsBiased,
-  remainingBudgetMs,
   shouldAbortPage,
-  startOfDay,
-  videoQuotaForDay,
-  MAX_PLAN_AHEAD_DAYS,
   MAX_POSTS_PER_DAY,
   MIN_MEDIA_BUDGET_MS,
   MIN_POST_BUDGET_MS,
@@ -88,7 +79,7 @@ export {
   videoQuotaForDay,
   MIN_MEDIA_BUDGET_MS,
   MIN_POST_BUDGET_MS,
-};
+} from "./autopilot-plan";
 export type { PillarLike, PlannerDeadline };
 import type { AttachedMedia } from "./posts";
 import { GOALS, LENGTHS, TONES, parseBrandProducts, type Goal, type PostLength, type Tone } from "./ai-prompts";
@@ -667,23 +658,23 @@ export type PlanOutcome = {
   stoppedEarly?: boolean;
 };
 
-/** Đếm số bài tự động đã có của một ngày (mọi trạng thái trừ bài đã hủy). */
-async function countPlannedForDay(pageId: string, day: Date): Promise<number> {
-  const from = startOfDay(day);
-  // Cộng ngày theo LỊCH Việt Nam — không dùng setDate (phụ thuộc múi giờ máy chạy)
-  const to = addDays(from, 1);
-
-  return prisma.post.count({
+/** Lightweight preflight: no content, media, brand or learning data loaded. */
+export async function loadPlanningDemand(config: AutoPilotConfig, now: Date) {
+  const window = planningWindow(config, now);
+  if (window.days.length === 0) return [];
+  const rows = await prisma.post.findMany({
     where: {
-      pageId,
+      pageId: config.pageId,
       origin: "AUTOPILOT",
       status: { in: ["PENDING_REVIEW", "SCHEDULED", "PUBLISHING", "PUBLISHED"] },
       OR: [
-        { scheduledAt: { gte: from, lt: to } },
-        { publishedAt: { gte: from, lt: to } },
+        { scheduledAt: { gte: window.from, lt: window.to } },
+        { publishedAt: { gte: window.from, lt: window.to } },
       ],
     },
+    select: { scheduledAt: true, publishedAt: true },
   });
+  return demandForWindow(window, rows, config.postsPerDay);
 }
 
 /** Lấy chủ đề + trụ cột gần đây để AI không viết lặp lại. */
@@ -1143,7 +1134,8 @@ export async function planForAutoPilot(
    * KHÔNG được chạy tiếp cho tới khi bị nền tảng kill (xem autopilot-plan.ts).
    * `null`/không truyền = không giới hạn (giữ hành vi cũ cho test tay).
    */
-  deadline: PlannerDeadline | null = null
+  deadline: PlannerDeadline | null = null,
+  demand?: Awaited<ReturnType<typeof loadPlanningDemand>>
 ): Promise<PlanOutcome> {
   const outcome: PlanOutcome = {
     pageId: config.pageId,
@@ -1151,6 +1143,9 @@ export async function planForAutoPilot(
     created: 0,
     skipped: 0,
   };
+
+  const dayPlans = demand ?? await loadPlanningDemand(config, now);
+  if (dayPlans.length === 0) return outcome;
 
   // Trụ cột thuộc Brand của Page (fallback pageId cho dữ liệu cũ)
   const pageForBrand = await resolvePageBrand(config.pageId);
@@ -1299,8 +1294,6 @@ export async function planForAutoPilot(
   // Cộng thêm số bài đã đăng để tỉ lệ thử nghiệm không bị "reset" mỗi lượt.
   let slotIndex = learning?.totalPublishedAutoPilot ?? 0;
 
-  const days = parseDaysOfWeek(config.daysOfWeek);
-  const ahead = Math.min(Math.max(config.planAheadDays, 1), MAX_PLAN_AHEAD_DAYS);
   const recent = await loadRecentContext(config.pageId);
   const recentNames = [...recent.pillarNames];
   const recentTopics = [...recent.topics];
@@ -1362,32 +1355,7 @@ export async function planForAutoPilot(
   // Số video đã dùng trong từng ngày — để chế độ MIXED không vượt hạn ngạch
   const videosUsedByDay = new Map<string, number>();
 
-  // ===== Mốc neo: hôm nay, hoặc startDate nếu người dùng đặt xa hơn =====
-  const todayStart = startOfDay(now);
-  const anchor =
-    config.startDate && config.startDate.getTime() > todayStart.getTime()
-      ? startOfDay(config.startDate)
-      : todayStart;
-
-  // ===== Bước 1: thu thập nhu cầu của từng ngày trong tầm kế hoạch =====
-  // Tính trước để biết ngày nào còn thiếu bao nhiêu bài, rồi mới sắp ưu tiên.
-  type DayPlan = { day: Date; existing: number; needed: number; isToday: boolean };
-  const dayPlans: DayPlan[] = [];
-  for (let offset = 0; offset < ahead; offset++) {
-    const day = addDays(anchor, offset);
-    if (!days.includes(isoDayOf(day))) continue;
-
-    const existing = await countPlannedForDay(config.pageId, day);
-    const needed = Math.min(config.postsPerDay, MAX_POSTS_PER_DAY) - existing;
-    if (needed <= 0) continue;
-
-    dayPlans.push({
-      day,
-      existing,
-      needed,
-      isToday: day.getTime() === todayStart.getTime(),
-    });
-  }
+  // Demand was checked before loading brand/media/learning context.
 
   // ===== Bước 2: ngày càng TRỐNG càng được trám trước =====
   // Nhờ vậy sau khi người dùng xoá bài của một ngày, ngày đó được lấp ngay ở
@@ -1812,7 +1780,10 @@ export async function runAutopilotPlanner(
 
   // Lấy mọi autopilot đang bật. Page bị tắt sẽ được lọc ở vòng lặp dưới —
   // vẫn giữ cấu hình để người dùng bật lại Page là chạy tiếp.
-  const all = await prisma.autoPilot.findMany({ where: { enabled: true } });
+  const all = await prisma.autoPilot.findMany({
+    where: { enabled: true },
+    include: { page: { select: { name: true, isActive: true } } },
+  });
 
   // SẮP XẾP: Page lâu chưa được lập kế hoạch nhất chạy trước (null lên đầu).
   //
@@ -1826,19 +1797,22 @@ export async function runAutopilotPlanner(
     return ta - tb;
   });
 
-  const withPage = await Promise.all(
-    ordered.map(async (c) => ({
-      config: c as unknown as AutoPilotConfig,
-      page: await prisma.facebookPage.findUnique({
-        where: { id: c.pageId },
-        select: { name: true, isActive: true },
-      }),
-    }))
-  );
+  // Preflight all Pages before spending the bounded budget on learning/AI.
+  // Full queues keep their last *real* attempt timestamp, so they must not
+  // remain at the front forever and starve Pages with missing posts.
+  const withPage = await Promise.all(ordered.map(async (c) => {
+    const config = c as unknown as AutoPilotConfig;
+    try {
+      return { config, page: c.page, demand: c.page?.isActive ? await loadPlanningDemand(config, now) : [], error: null };
+    } catch (error) {
+      return { config, page: c.page, demand: [], error };
+    }
+  }));
+  withPage.sort((a, b) => Number(b.demand.length > 0) - Number(a.demand.length > 0));
 
   const budget = { remaining: MAX_POSTS_PER_RUN };
 
-  for (const { config, page } of withPage) {
+  for (const { config, page, demand, error: preflightError } of withPage) {
     if (!page || !page.isActive) continue;
     if (budget.remaining <= 0) break;
 
@@ -1849,57 +1823,66 @@ export async function runAutopilotPlanner(
       break;
     }
 
-    // Chủ Page chưa tự nhập key → không thể soạn bài. Báo MỘT lần/6 giờ
-    // để họ vào Cài đặt, thay vì im lặng bỏ qua mãi mãi.
-    const [hasAi, hasPexels] = await Promise.all([
-      userHasAiConfig(config.userId),
-      config.autoMedia ? userHasPexelsKey(config.userId) : Promise.resolve(true),
-    ]);
-    if (!hasAi) {
-      await notifyOncePer(config.userId, {
-        type: "SYSTEM",
-        title: "⚙️ AutoPilot không chạy được vì bạn chưa cấu hình AI",
-        body: `Page "${page.name}" đang bật tự động đăng nhưng tài khoản của bạn chưa có AI Provider (Base URL + API Key + model). Vào Cài đặt để nhập key của riêng bạn.`,
-        link: "/settings",
-      });
+    if (preflightError) {
+      // A failed preflight is not an empty queue and must not stop other Pages.
+      result.pages.push({ pageId: config.pageId, pageName: page.name, created: 0, skipped: 0,
+        error: `Không kiểm tra được lịch: ${preflightError instanceof Error ? preflightError.message : String(preflightError)}` });
+      result.skipped++;
       continue;
     }
-    if (!hasPexels) {
-      await notifyOncePer(config.userId, {
-        type: "SYSTEM",
-        title: "⚙️ AutoPilot cần Pexels API Key cho bài có ảnh",
-        body: `Page "${page.name}" bật tự tìm ảnh nhưng bạn chưa nhập Pexels API Key. Bài vẫn đăng được nhưng sẽ không có ảnh.`,
-        link: "/settings",
-      });
-    }
+    let outcome: PlanOutcome = { pageId: config.pageId, pageName: page.name, created: 0, skipped: 0 };
+    if (demand.length > 0) {
+      // Chủ Page chưa tự nhập key → không thể soạn bài. Báo MỘT lần/6 giờ
+      // để họ vào Cài đặt, thay vì im lặng bỏ qua mãi mãi.
+      const [hasAi, hasPexels] = await Promise.all([
+        userHasAiConfig(config.userId),
+        config.autoMedia ? userHasPexelsKey(config.userId) : Promise.resolve(true),
+      ]);
+      if (!hasAi) {
+        await notifyOncePer(config.userId, {
+          type: "SYSTEM",
+          title: "⚙️ AutoPilot không chạy được vì bạn chưa cấu hình AI",
+          body: `Page "${page.name}" đang bật tự động đăng nhưng tài khoản của bạn chưa có AI Provider (Base URL + API Key + model). Vào Cài đặt để nhập key của riêng bạn.`,
+          link: "/settings",
+        });
+        continue;
+      }
+      if (!hasPexels) {
+        await notifyOncePer(config.userId, {
+          type: "SYSTEM",
+          title: "⚙️ AutoPilot cần Pexels API Key cho bài có ảnh",
+          body: `Page "${page.name}" bật tự tìm ảnh nhưng bạn chưa nhập Pexels API Key. Bài vẫn đăng được nhưng sẽ không có ảnh.`,
+          link: "/settings",
+        });
+      }
 
-    // Vừa lỗi CHẶN gần đây → chờ, tránh gọi AI liên tục khi provider đang hỏng.
-    //
-    // CHỈ tính lỗi chặn: cảnh báo thiếu ảnh được lưu CHUNG cột `lastPlanError`
-    // nhưng KHÔNG phải lỗi (bài vẫn được tạo), nên nếu tính nó ở đây thì một bài
-    // thiếu ảnh sẽ khoá việc lập kế hoạch của cả Page — đã gặp thật.
-    if (
-      isBlockingPlanError(config.lastPlanError) &&
-      config.lastPlannedAt &&
-      now.getTime() - config.lastPlannedAt.getTime() < RETRY_AFTER_ERROR_MS
-    ) {
-      result.skippedThrottled++;
-      continue;
-    }
+      // Vừa lỗi CHẶN gần đây → chờ, tránh gọi AI liên tục khi provider đang hỏng.
+      //
+      // CHỈ tính lỗi chặn: cảnh báo thiếu ảnh được lưu CHUNG cột `lastPlanError`
+      // nhưng KHÔNG phải lỗi (bài vẫn được tạo), nên nếu tính nó ở đây thì một bài
+      // thiếu ảnh sẽ khoá việc lập kế hoạch của cả Page — đã gặp thật.
+      if (
+        isBlockingPlanError(config.lastPlanError) &&
+        config.lastPlannedAt &&
+        now.getTime() - config.lastPlannedAt.getTime() < RETRY_AFTER_ERROR_MS
+      ) {
+        result.skippedThrottled++;
+        continue;
+      }
 
-    // Bọc try/catch để một Page lỗi KHÔNG làm mất sổ theo dõi của chính nó —
-    // đây là điều kiện để UI thôi hiển thị lỗi cũ đóng băng nhiều ngày.
-    let outcome: PlanOutcome;
-    try {
-      outcome = await planForAutoPilot(config, now, page.name, budget, random, deadline);
-    } catch (err) {
-      outcome = {
-        pageId: config.pageId,
-        pageName: page.name,
-        created: 0,
-        skipped: 0,
-        error: `Lỗi khi lập kế hoạch: ${err instanceof Error ? err.message : String(err)}`,
-      };
+      // Bọc try/catch để một Page lỗi KHÔNG làm mất sổ theo dõi của chính nó —
+      // đây là điều kiện để UI thôi hiển thị lỗi cũ đóng băng nhiều ngày.
+      try {
+        outcome = await planForAutoPilot(config, now, page.name, budget, random, deadline, demand);
+      } catch (err) {
+        outcome = {
+          pageId: config.pageId,
+          pageName: page.name,
+          created: 0,
+          skipped: 0,
+          error: `Lỗi khi lập kế hoạch: ${err instanceof Error ? err.message : String(err)}`,
+        };
+      }
     }
     result.pages.push(outcome);
     result.created += outcome.created;
@@ -1936,7 +1919,7 @@ export async function runAutopilotPlanner(
       }
     }
 
-    await prisma.autoPilot
+    if (demand.length > 0) await prisma.autoPilot
       .update({
         where: { id: config.id },
         data: {

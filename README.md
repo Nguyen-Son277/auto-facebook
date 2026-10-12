@@ -953,8 +953,9 @@ Quy ước bắt buộc từ nay:
 ### Vì sao `SCHEDULER_IN_PROCESS=0`?
 
 Trên serverless, vòng lặp `setInterval` trong `src/instrumentation.ts` không đáng tin
-(mỗi lambda instance một vòng, máy ngủ là dừng). Trên Vercel phải tắt và dùng cron
-ngoài gọi `/api/cron/tick`.
+(mỗi lambda instance một vòng, máy ngủ là dừng). App tự tắt vòng lặp khi `VERCEL=1`,
+kể cả thiếu `SCHEDULER_IN_PROCESS=0`. Vẫn nên đặt biến này rõ ràng và dùng cron ngoài
+để gọi `/api/cron/tick`. Môi trường tự host giữ hành vi cũ.
 
 ## 5. Cron ngoài (gói Hobby)
 
@@ -975,6 +976,49 @@ curl -i -X POST https://<domain>/api/cron/tick                       # 401
 curl -s -X POST -H "Authorization: Bearer $CRON_SECRET" \
   https://<domain>/api/cron/tick                                     # {"ok":true,...}
 ```
+
+### Tiết kiệm Active CPU trên Vercel Fluid Compute
+
+- **4 giờ/tháng là Active CPU**, không phải tổng thời lượng request. Chờ AI/Graph/DB
+  không tiêu Active CPU nhưng vẫn tiêu Provisioned Memory. Xem
+  [Vercel pricing](https://vercel.com/docs/functions/usage-and-pricing).
+- Giữ cron **5 phút/lần**, không thêm cron trùng và không kéo giãn cron để tiết kiệm
+  bằng cách làm trễ bài. Planner kiểm tra nhu cầu trước: lịch đủ thì không nạp kho
+  ảnh, tài liệu, lịch sử, không tính trạng thái học cho tạo bài hoặc ghi lại sổ
+  theo dõi rỗng. Verifier vẫn chạy khi có số liệu mới hoặc kết luận hết TTL.
+- Insights không có Page đến hạn thì không ghi khóa. Khóa planner/Insights dùng
+  compare-and-set nguyên tử; chủ cũ không nhả khóa của chủ mới. Không giữ transaction
+  trong lúc chờ AI/Graph. Không cần migration. Khi triển khai bản mới, tránh cho
+  cron cũ và cron mới chạy đồng thời; bản cũ chưa có CAS không bảo đảm cạnh tranh.
+- Hai chuông và toast dùng chung một GET mỗi 30 giây/tab, dừng khi tab ẩn. Request
+  định kỳ giảm khoảng 280 xuống 120/giờ/tab đang hiển thị; không đổi nội dung thông báo.
+- Log `[task]` có `wallMs`, `processCpuMs` và số bài/kết quả. `processCpuMs` là CPU
+  **chung tiến trình** (các request Fluid có thể chạy đồng thời), KHÔNG cộng nó để
+  suy ra hóa đơn. **Usage → Fluid Active CPU** mới là nguồn xác nhận cuối cùng.
+- Sau redeploy, so Active CPU, Provisioned Memory và Invocations 24–72 giờ với số
+  Page, số bài, thời gian mở dashboard tương đương. Mục tiêu giảm lượt xử lý rỗng,
+  không hứa luôn dưới 4 giờ khi tải người dùng tiếp tục tăng.
+
+Kiểm thử không cần DB thật:
+
+```bash
+npm run test:compute    # lease, polling, scheduler và planner nguồn thực với IO mock
+npm run bench:compute  # cùng fixture, baseline autopilot từ git HEAD vs working tree
+```
+
+Benchmark full-queue là microbenchmark với IO giả lập, KHÔNG là phần trăm tiết kiệm
+production; baseline lấy từ `git HEAD` nên sau khi commit bản tối ưu, cần so với
+commit cũ để có baseline có ý nghĩa. Test DB lease tùy chọn chỉ chạy khi có DB test
+riêng, không tự đọc `.env`, không truy cập bảng ứng dụng:
+
+```bash
+TEST_DATABASE_URL="postgresql://...test..." COMPUTE_TEST_DB_CONFIRMED=1 npm run test:compute:lease:db
+```
+
+Nếu chưa có DB test, script báo SKIP và không mở kết nối. Khi chưa chạy test này,
+không coi test offline là xác minh PostgreSQL thực tế. Kiểm thử browser notification
+trên deployment: mở Network lọc `notifications`, kiểm tra một luồng 30s dù có hai
+chuông; đổi tab rồi quay lại; đánh dấu đã đọc cập nhật badge và không lặp toast.
 
 ## 6. Video tải lên — vì sao không đi qua server
 

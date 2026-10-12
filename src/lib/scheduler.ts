@@ -10,13 +10,30 @@ import {
 } from "./notify";
 import { buildMessage, deliverToFacebook } from "@/lib/deliver";
 import type { GraphContext } from "@/lib/facebook";
-import { getSetting, setSetting } from "@/lib/settings";
+import { decryptValue, encryptValue, getSetting, setSetting } from "@/lib/settings";
+import { acquireTaskLease, releaseTaskLease, type LeaseStore } from "./task-lease";
+import { startTaskMetrics } from "./task-metrics";
 import { attachedFromDbMedia, validateAttachments, type AttachedMedia } from "@/lib/posts";
-import {
-  hasRoomForPost,
-  makeDeadline,
-  type PlannerDeadline,
-} from "./autopilot-plan";
+import { hasRoomForPost, makeDeadline, type PlannerDeadline } from "./autopilot-plan";
+
+const leaseStore: LeaseStore = {
+  read: (key) => prisma.appSetting.findUnique({ where: { key }, select: { value: true, updatedAt: true } }),
+  encode: encryptValue,
+  decode: decryptValue,
+  create: async (key, value) => {
+    try {
+      await prisma.appSetting.create({ data: { key, value, group: "MISC" } });
+      return true;
+    } catch (error) {
+      if (typeof error === "object" && error !== null && "code" in error && error.code === "P2002") return false;
+      throw error;
+    }
+  },
+  compareAndSet: async (key, expected, value) => {
+    const result = await prisma.appSetting.updateMany({ where: { key, value: expected }, data: { value } });
+    return result.count === 1;
+  },
+};
 
 // ============================================================
 // Worker tự động đăng bài theo lịch.
@@ -152,6 +169,7 @@ export async function runSchedulerTick(
   now: Date = new Date(),
   source: TickSource = "server"
 ): Promise<TickResult> {
+  const finishMetrics = startTaskMetrics("publish");
   const result: TickResult = {
     claimed: 0,
     published: 0,
@@ -345,10 +363,16 @@ export async function runSchedulerTick(
 
   // Ghi nhịp tim + nguồn chạy để giao diện biết scheduler còn sống và đang
   // chạy ở đâu (trong app, hay do worker/cron bên ngoài gọi vào)
-  await Promise.all([
-    setSetting(HEARTBEAT_KEY, new Date().toISOString()),
-    setSetting(SOURCE_KEY, source),
-  ]).catch(() => {
+  await Promise.all(
+    [[HEARTBEAT_KEY, new Date().toISOString()], [SOURCE_KEY, source]].map(([key, raw]) => {
+      // Encrypt once per key, not once for each upsert branch. These heartbeat
+      // writes are independent: avoid transaction begin/commit overhead.
+      const value = encryptValue(raw);
+      return prisma.appSetting.upsert({
+        where: { key }, update: { value }, create: { key, value, group: "MISC" },
+      });
+    }),
+  ).catch(() => {
     // Không quan trọng nếu không ghi được
   });
 
@@ -369,6 +393,7 @@ export async function runSchedulerTick(
     });
   }
 
+  finishMetrics({ claimed: result.claimed, published: result.published, failed: result.failed, retrying: result.retrying });
   return result;
 }
 
@@ -444,21 +469,11 @@ const PLANNER_LEASE_KEY = "scheduler.plannerLease";
  * riêng, nên 2 instance có thể cùng lập kế hoạch → cùng tính ra một bộ slot →
  * tạo bài TRÙNG, vì Post không có ràng buộc duy nhất trên (pageId, scheduledAt).
  */
-async function acquirePlannerLease(): Promise<boolean> {
-  const raw = await getSetting(PLANNER_LEASE_KEY).catch(() => null);
-  const last = raw ? Date.parse(raw) : NaN;
-  if (Number.isFinite(last) && Date.now() - last < PLANNER_LEASE_MS) return false;
-  // Ghi NGAY, trước khi gọi AI — để instance khác thấy khoá.
-  await setSetting(PLANNER_LEASE_KEY, new Date().toISOString()).catch(() => {});
-  return true;
-}
-
-/** Nhả thuê bao: ghi mốc đã cũ để lượt kế tiếp chạy được ngay. */
-async function releasePlannerLease(): Promise<void> {
-  await setSetting(
-    PLANNER_LEASE_KEY,
-    new Date(Date.now() - PLANNER_LEASE_MS).toISOString()
-  ).catch(() => {});
+async function acquirePlannerLease() {
+  return acquireTaskLease(leaseStore, PLANNER_LEASE_KEY, PLANNER_LEASE_MS).catch((error) => {
+    console.error("[planner] lease unavailable", error);
+    return null; // Fail closed: never generate concurrently after a database error.
+  });
 }
 
 /**
@@ -475,12 +490,18 @@ async function releasePlannerLease(): Promise<void> {
  * tới hạn `maxDuration` — xem src/app/api/cron/tick/route.ts.
  */
 export async function runAutopilotPlannerTask(): Promise<void> {
-  if (!(await acquirePlannerLease())) {
+  const finishMetrics = startTaskMetrics("planner");
+  const lease = await acquirePlannerLease();
+  if (!lease) {
+    finishMetrics({ skippedLease: true });
     console.log(
       "[tự động] bỏ qua lượt lập kế hoạch — một tiến trình khác đang giữ thuê bao."
     );
     return;
   }
+  let created = 0;
+  let skipped = 0;
+  let pages = 0;
   try {
     // KHÔNG gửi thông báo "AutoPilot bắt đầu chạy" nữa.
     //
@@ -501,6 +522,9 @@ export async function runAutopilotPlannerTask(): Promise<void> {
     // Log thời lượng thật của lượt: nếu nó thường xuyên sát/vượt ngân sách thì
     // function đang bị nền tảng treo hoặc provider chậm — khác hẳn "planner lỗi".
     if (result) {
+      created = result.created;
+      skipped = result.skipped;
+      pages = result.pages.length;
       console.log(
         `[tự động] lượt lập kế hoạch ${((Date.now() - plannedAt) / 1000).toFixed(1)}s` +
           ` (ngân sách ${Math.round(PLANNER_BUDGET_MS / 1000)}s) — tạo ${result.created},` +
@@ -575,7 +599,8 @@ export async function runAutopilotPlannerTask(): Promise<void> {
   } finally {
     // Nhả thuê bao kể cả khi lỗi — nếu không, một lần chết giữa chừng sẽ
     // chặn mọi lượt lập kế hoạch cho tới khi thuê bao hết hạn.
-    await releasePlannerLease();
+    await releaseTaskLease(leaseStore, lease).catch((error) => console.error("[lease] release failed", error));
+    finishMetrics({ created, skipped, pages });
   }
 }
 
@@ -639,19 +664,11 @@ export const INSIGHTS_LEASE_MS = Number(
 
 const INSIGHTS_LEASE_KEY = "scheduler.insightsLease";
 
-async function acquireInsightsLease(): Promise<boolean> {
-  const raw = await getSetting(INSIGHTS_LEASE_KEY).catch(() => null);
-  const last = raw ? Date.parse(raw) : NaN;
-  if (Number.isFinite(last) && Date.now() - last < INSIGHTS_LEASE_MS) return false;
-  await setSetting(INSIGHTS_LEASE_KEY, new Date().toISOString()).catch(() => {});
-  return true;
-}
-
-async function releaseInsightsLease(): Promise<void> {
-  await setSetting(
-    INSIGHTS_LEASE_KEY,
-    new Date(Date.now() - INSIGHTS_LEASE_MS).toISOString()
-  ).catch(() => {});
+async function acquireInsightsLease() {
+  return acquireTaskLease(leaseStore, INSIGHTS_LEASE_KEY, INSIGHTS_LEASE_MS).catch((error) => {
+    console.error("[insights] lease unavailable", error);
+    return null;
+  });
 }
 
 /**
@@ -678,7 +695,25 @@ export const INSIGHTS_MIN_BUDGET_MS = Number(
 export async function runInsightsRefreshTask(
   deadline: PlannerDeadline | null = null
 ): Promise<void> {
-  if (!(await acquireInsightsLease())) {
+  const finishMetrics = startTaskMetrics("insights");
+  // Check actual work before any lock writes. Recheck after winning the lock,
+  // because another instance may have refreshed these pages in between.
+  const { pagesDueForInsights, refreshInsightsForPage, MAX_API_CALLS_PER_RUN } =
+    await import("./fb-insights");
+  try {
+    if (!hasRoomForPost(deadline, new Date(), INSIGHTS_MIN_BUDGET_MS) ||
+        (await pagesDueForInsights(new Date())).length === 0) {
+      finishMetrics({ skippedNoWork: true });
+      return;
+    }
+  } catch (error) {
+    console.error("[insights] preflight failed", error);
+    finishMetrics({ preflightFailed: true });
+    return;
+  }
+  const lease = await acquireInsightsLease();
+  if (!lease) {
+    finishMetrics({ skippedLease: true });
     console.log("[số liệu] bỏ qua lượt thu thập — tiến trình khác đang giữ thuê bao.");
     return;
   }
@@ -689,10 +724,6 @@ export async function runInsightsRefreshTask(
       );
       return;
     }
-    // Nạp động: giữ cho luồng đăng bài không phải tải sẵn module insights
-    const { pagesDueForInsights, refreshInsightsForPage, MAX_API_CALLS_PER_RUN } =
-      await import("./fb-insights");
-
     const at = new Date();
     const pageIds = await pagesDueForInsights(at);
     if (pageIds.length === 0) return;
@@ -721,7 +752,8 @@ export async function runInsightsRefreshTask(
       `[số liệu] lỗi khi thu thập: ${err instanceof Error ? err.message : String(err)}`
     );
   } finally {
-    await releaseInsightsLease();
+    await releaseTaskLease(leaseStore, lease).catch((error) => console.error("[lease] release failed", error));
+    finishMetrics();
   }
 }
 

@@ -45,7 +45,10 @@
     "db:seed-docs": "node scripts/seed-docs.mjs",
     "db:cleanup-notifications": "node scripts/cleanup-notifications.mjs",
     "db:backup-supabase": "node scripts/backup-supabase.mjs",
-    "test:admin": "node scripts/test-admin-flow.mjs"
+    "test:admin": "node scripts/test-admin-flow.mjs",
+    "test:compute": "node --experimental-strip-types --no-warnings scripts/test-task-lease.mjs && node --experimental-strip-types --no-warnings scripts/test-notification-polling.mjs && node --experimental-strip-types --experimental-vm-modules --no-warnings scripts/test-compute-scheduler.mjs && node --experimental-vm-modules --no-warnings scripts/test-compute-planner.mjs --tests-only",
+    "bench:compute": "node --experimental-vm-modules --no-warnings scripts/test-compute-planner.mjs",
+    "test:compute:lease:db": "node --experimental-strip-types --no-warnings scripts/test-task-lease-db.mjs"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.10.0",

@@ -18,9 +18,9 @@ export async function register() {
   // Cho phép tắt vòng lặp trong app (SCHEDULER_IN_PROCESS=0).
   // Dùng khi muốn tự quản việc đăng bài bằng cron/worker bên ngoài, hoặc khi
   // chạy test cần kết quả tất định (chỉ một nguồn điều khiển).
-  if (process.env.SCHEDULER_IN_PROCESS === "0") {
+  if (process.env.VERCEL === "1" || process.env.SCHEDULER_IN_PROCESS === "0") {
     console.log(
-      "[scheduler] SCHEDULER_IN_PROCESS=0 — không bật vòng lặp trong app. " +
+      "[scheduler] Vercel hoặc SCHEDULER_IN_PROCESS=0 — không bật vòng lặp trong app. " +
         "Bài hẹn giờ sẽ chỉ đăng khi có cron/worker bên ngoài gọi /api/cron/tick."
     );
     return;

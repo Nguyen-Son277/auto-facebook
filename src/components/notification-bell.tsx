@@ -1,37 +1,22 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import {
-  markAllReadAction,
-  markReadAction,
-} from "@/app/actions/notifications";
+import { useNotifications } from "./notification-provider";
+import type { NotificationItem as Item } from "@/lib/notification-polling";
 
 // ============================================================
 // Chuông thông báo trên header dashboard.
 //
-// Server-render số chưa đọc (initialUnread) rồi polling mỗi 45s để bắt
-// sự kiện mới — đơn giản, không cần WebSocket, và luôn đúng sau mỗi
-// lần điều hướng.
+// Số chưa đọc render sẵn từ server; cả desktop/mobile cùng dùng dữ
+// liệu và cập nhật lạc quan từ NotificationProvider.
 // ============================================================
-
-type Item = {
-  id: string;
-  type: "ACTIVITY" | "ADMIN" | "SYSTEM";
-  title: string;
-  body: string | null;
-  link: string | null;
-  read: boolean;
-  createdAt: string;
-};
 
 const ICON: Record<Item["type"], string> = {
   ACTIVITY: "📝",
   ADMIN: "🛡️",
   SYSTEM: "⚙️",
 };
-
-const POLL_MS = 45_000;
 
 function timeAgo(iso: string): string {
   const diff = Date.now() - new Date(iso).getTime();
@@ -45,44 +30,18 @@ function timeAgo(iso: string): string {
 }
 
 export default function NotificationBell({
-  initialUnread,
   testIdSuffix = "",
 }: {
+  /** Kept for existing callers; the provider owns the server-seeded count. */
   initialUnread: number;
   /** Bản desktop + mobile cùng nằm trong DOM (ẩn bằng CSS) → cần testid riêng. */
   testIdSuffix?: string;
 }) {
   const router = useRouter();
-  const [unread, setUnread] = useState(initialUnread);
-  const [items, setItems] = useState<Item[]>([]);
+  const { unread, items, refresh, markRead, markAllRead } = useNotifications();
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
-
-  const refresh = useCallback(async () => {
-    try {
-      const res = await fetch("/api/notifications?limit=8", { cache: "no-store" });
-      if (!res.ok) return;
-      const data = (await res.json()) as { unread: number; items: Item[] };
-      setUnread(data.unread);
-      setItems(data.items);
-    } catch {
-      // Mạng chập chờn → giữ dữ liệu cũ, nhịp poll sau sẽ ăn.
-    }
-  }, []);
-
-  // Poll định kỳ + mỗi lần tab quay lại focus
-  useEffect(() => {
-    const id = setInterval(refresh, POLL_MS);
-    const onVis = () => {
-      if (document.visibilityState === "visible") void refresh();
-    };
-    document.addEventListener("visibilitychange", onVis);
-    return () => {
-      clearInterval(id);
-      document.removeEventListener("visibilitychange", onVis);
-    };
-  }, [refresh]);
 
   // Đóng dropdown khi bấm ra ngoài
   useEffect(() => {
@@ -106,10 +65,8 @@ export default function NotificationBell({
 
   async function openItem(item: Item) {
     if (!item.read) {
-      // Cập nhật lạc quan rồi mới gọi server — phản hồi tức thì
-      setItems((prev) => prev.map((x) => (x.id === item.id ? { ...x, read: true } : x)));
-      setUnread((n) => Math.max(0, n - 1));
-      void markReadAction([item.id]);
+      // Provider cập nhật cả hai chuông ngay, rồi mutation + refresh.
+      void markRead([item.id]);
     }
     setOpen(false);
     if (item.link) router.push(item.link);
@@ -117,9 +74,7 @@ export default function NotificationBell({
 
   async function onMarkAll() {
     if (unread === 0) return;
-    setItems((prev) => prev.map((x) => ({ ...x, read: true })));
-    setUnread(0);
-    await markAllReadAction();
+    await markAllRead();
     router.refresh();
   }
 

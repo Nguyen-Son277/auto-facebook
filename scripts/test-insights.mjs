@@ -1774,7 +1774,7 @@ section("7. Hạn mức & URL Graph API (stub fetch)");
   );
   check(
     "nhả thuê bao luôn nằm trong finally (không giữ khoá khi chết)",
-    /finally \{[\s\S]{0,300}releasePlannerLease\(\)/.test(schedSrc)
+    /finally \{[\s\S]{0,300}releaseTaskLease\(leaseStore, lease\)/.test(schedSrc)
   );
   check("có ngân sách thời gian cho planner", schedSrc.includes("PLANNER_BUDGET_MS"));
   check(
